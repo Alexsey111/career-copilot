@@ -1,0 +1,29 @@
+"""API router placeholder."""
+
+from fastapi import APIRouter
+
+from app.api.routes.applications import router as applications_router
+from app.api.routes.documents import router as documents_router
+from app.api.routes.files import router as files_router
+from app.api.routes.health import router as health_router
+from app.api.routes.profile import router as profile_router
+from app.api.routes.vacancies import router as vacancies_router
+from app.core.config import get_settings
+
+
+def build_api_router() -> APIRouter:
+    settings = get_settings()
+
+    api_router = APIRouter(prefix=settings.api_prefix)
+    api_router.include_router(health_router)
+    api_router.include_router(files_router)
+    api_router.include_router(profile_router)
+    api_router.include_router(vacancies_router)
+    api_router.include_router(documents_router)
+    api_router.include_router(applications_router)
+
+    root_router = APIRouter()
+    root_router.include_router(health_router)
+    root_router.include_router(api_router)
+
+    return root_router
