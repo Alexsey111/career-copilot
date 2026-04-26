@@ -58,3 +58,14 @@ pip install -e .[dev]
 alembic revision --autogenerate -m "initial_schema"
 alembic upgrade head
 ```
+
+## Backend runbook
+
+Локальная проверка backend описана в [RUNBOOK.md](RUNBOOK.md).
+
+Быстрая проверка:
+
+```powershell
+pytest -q
+python .\scripts\smoke_mvp_flow.py
+```

@@ -76,25 +76,14 @@ class CoverLetterGenerationService:
                 detail="candidate profile not found for vacancy user",
             )
 
-        latest_extraction = await self.file_extraction_repository.get_latest_for_user(
-            session,
-            vacancy.user_id,
-        )
-
-        raw_skills = self._extract_skills_from_raw_text(
-            latest_extraction.extracted_text if latest_extraction else ""
-        )
-        matched_keywords, missing_keywords = self._compute_keyword_overlap(
-            raw_skills=raw_skills,
-            headline=profile.headline,
-            target_roles=profile.target_roles_json,
-            achievement_titles=[a.title for a in profile.achievements],
-            keywords=analysis.keywords_json,
+        matched_keywords, missing_keywords = self._extract_match_keywords_from_analysis(
+            strengths_json=analysis.strengths_json,
+            gaps_json=analysis.gaps_json,
         )
 
         selected_achievements = self._select_relevant_achievements(
             [a.title for a in profile.achievements],
-            analysis.keywords_json,
+            matched_keywords,
         )
 
         opening = self._build_opening(
@@ -140,6 +129,8 @@ class CoverLetterGenerationService:
                 "closing": closing,
                 "matched_keywords": matched_keywords,
                 "missing_keywords": missing_keywords,
+                "matched_requirements": analysis.strengths_json,
+                "gap_requirements": analysis.gaps_json,
                 "selected_achievements": [
                     {
                         "title": item["title"],
@@ -172,6 +163,28 @@ class CoverLetterGenerationService:
         await session.refresh(document)
         return document
 
+    def _extract_match_keywords_from_analysis(
+        self,
+        *,
+        strengths_json: list[dict],
+        gaps_json: list[dict],
+    ) -> tuple[list[str], list[str]]:
+        matched_keywords = self._dedupe_preserve_order(
+            [
+                item.get("keyword", "")
+                for item in strengths_json or []
+                if item.get("keyword")
+            ]
+        )
+        missing_keywords = self._dedupe_preserve_order(
+            [
+                item.get("keyword", "")
+                for item in gaps_json or []
+                if item.get("keyword")
+            ]
+        )
+        return matched_keywords, missing_keywords
+
     def _extract_skills_from_raw_text(self, text: str) -> list[str]:
         if not text:
             return []
@@ -203,35 +216,6 @@ class CoverLetterGenerationService:
         joined = " ".join(section_lines)
         parts = [part.strip(" .") for part in joined.split(",") if part.strip()]
         return self._dedupe_preserve_order(parts)
-
-    def _compute_keyword_overlap(
-        self,
-        *,
-        raw_skills: list[str],
-        headline: str | None,
-        target_roles: list[str],
-        achievement_titles: list[str],
-        keywords: list[str],
-    ) -> tuple[list[str], list[str]]:
-        corpus_parts: list[str] = []
-        corpus_parts.extend(raw_skills)
-        corpus_parts.extend(target_roles)
-        corpus_parts.extend(achievement_titles)
-        if headline:
-            corpus_parts.append(headline)
-
-        corpus = "\n".join(corpus_parts).lower()
-
-        matched: list[str] = []
-        missing: list[str] = []
-
-        for keyword in keywords:
-            if keyword.lower() in corpus:
-                matched.append(keyword)
-            else:
-                missing.append(keyword)
-
-        return matched, missing
 
     def _select_relevant_achievements(
         self,
@@ -284,8 +268,8 @@ class CoverLetterGenerationService:
             return (
                 f"Dear hiring team,\n\n"
                 f"I am applying for the {vacancy_title} role at {company_part}. "
-                f"My current positioning is {headline}, and I am interested in roles where I can "
-                f"apply AI, prompting, and data-oriented work in a practical product context."
+                f"My current profile is positioned around {headline}, and I am interested "
+                f"in contributing to a role where this background is relevant to the team's needs."
             )
 
         name_part = full_name or "I"
@@ -304,13 +288,13 @@ class CoverLetterGenerationService:
 
         if matched_keywords:
             parts.append(
-                f"My resume already shows overlap with the vacancy requirements in areas such as "
+                "The strongest confirmed overlap in my current profile is with "
                 f"{', '.join(matched_keywords[:6])}."
             )
 
         if selected_achievements:
             parts.append(
-                f"I also have project directions relevant to this role, including "
+                "I can also discuss relevant project experience, including "
                 f"{selected_achievements[0]['title']}"
                 + (
                     f" and {selected_achievements[1]['title']}."
@@ -321,8 +305,8 @@ class CoverLetterGenerationService:
 
         if not parts:
             parts.append(
-                "I am particularly interested in this role because it combines practical AI work "
-                "with clear product-facing requirements."
+                "I am interested in this role and would welcome the opportunity to discuss "
+                "where my current background can be useful."
             )
 
         return " ".join(parts)
@@ -369,12 +353,12 @@ class CoverLetterGenerationService:
 
         if missing_keywords:
             warnings.append(
-                f"letter does not yet address some vacancy keywords strongly: {', '.join(missing_keywords[:6])}"
+                f"profile does not strongly support these vacancy keywords yet: {', '.join(missing_keywords[:6])}"
             )
 
         if not matched_keywords:
             warnings.append(
-                "current letter has weak keyword overlap and may need stronger tailoring"
+                "current letter has weak profile-to-vacancy overlap and needs stronger factual grounding"
             )
 
         warnings.append("cover letter draft should be reviewed before sending")

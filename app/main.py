@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.router import build_api_router
+from app.api.routes.interviews import router as interviews_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 
@@ -24,6 +25,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(build_api_router())
+    app.include_router(interviews_router, prefix="/api/v1")
     return app
 
 

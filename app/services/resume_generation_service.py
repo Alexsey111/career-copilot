@@ -81,17 +81,24 @@ class ResumeGenerationService:
             vacancy.user_id,
         )
 
-        raw_skills = self._extract_skills_from_raw_text(
-            latest_extraction.extracted_text if latest_extraction else ""
+        raw_skills = self._extract_skills_from_profile_or_raw_text(
+            profile_summary=profile.summary,
+            raw_text=latest_extraction.extracted_text if latest_extraction else "",
         )
-        selected_skills, matched_keywords, missing_keywords = self._select_resume_skills(
-            raw_skills,
-            analysis.keywords_json,
+
+        matched_keywords, missing_keywords = self._extract_match_keywords_from_analysis(
+            strengths_json=analysis.strengths_json,
+            gaps_json=analysis.gaps_json,
+        )
+
+        selected_skills = self._select_resume_skills(
+            raw_skills=raw_skills,
+            matched_keywords=matched_keywords,
         )
 
         selected_achievements = self._select_relevant_achievements(
             [a.title for a in profile.achievements],
-            analysis.keywords_json,
+            matched_keywords,
         )
 
         fit_summary = self._build_fit_summary(
@@ -156,6 +163,8 @@ class ResumeGenerationService:
                 ],
                 "matched_keywords": matched_keywords,
                 "missing_keywords": missing_keywords,
+                "matched_requirements": analysis.strengths_json,
+                "gap_requirements": analysis.gaps_json,
                 "claims_needing_confirmation": claims_needing_confirmation,
                 "selection_rationale": selection_rationale,
                 "warnings": warnings,
@@ -180,6 +189,49 @@ class ResumeGenerationService:
         await session.commit()
         await session.refresh(document)
         return document
+
+    def _extract_skills_from_profile_or_raw_text(
+        self,
+        *,
+        profile_summary: str | None,
+        raw_text: str,
+    ) -> list[str]:
+        summary_skills = self._split_skill_text(profile_summary or "")
+        if summary_skills:
+            return summary_skills
+
+        return self._extract_skills_from_raw_text(raw_text)
+
+    def _split_skill_text(self, text: str) -> list[str]:
+        if not text:
+            return []
+
+        parts = re.split(r"[,\n;]+", text)
+        return self._dedupe_preserve_order(
+            [part.strip(" .") for part in parts if part.strip(" .")]
+        )
+
+    def _extract_match_keywords_from_analysis(
+        self,
+        *,
+        strengths_json: list[dict],
+        gaps_json: list[dict],
+    ) -> tuple[list[str], list[str]]:
+        matched_keywords = self._dedupe_preserve_order(
+            [
+                item.get("keyword", "")
+                for item in strengths_json or []
+                if item.get("keyword")
+            ]
+        )
+        missing_keywords = self._dedupe_preserve_order(
+            [
+                item.get("keyword", "")
+                for item in gaps_json or []
+                if item.get("keyword")
+            ]
+        )
+        return matched_keywords, missing_keywords
 
     def _extract_skills_from_raw_text(self, text: str) -> list[str]:
         if not text:
@@ -215,31 +267,39 @@ class ResumeGenerationService:
 
     def _select_resume_skills(
         self,
+        *,
         raw_skills: list[str],
-        keywords: list[str],
-    ) -> tuple[list[str], list[str], list[str]]:
+        matched_keywords: list[str],
+    ) -> list[str]:
         matched_skills: list[str] = []
-        matched_keywords: list[str] = []
 
-        for keyword in keywords:
-            found_for_keyword = False
+        for keyword in matched_keywords:
             for raw_skill in raw_skills:
-                raw_lower = raw_skill.lower()
-                keyword_lower = keyword.lower()
+                if self._skill_matches_keyword(raw_skill, keyword):
+                    matched_skills.append(raw_skill)
 
-                if keyword_lower in raw_lower or raw_lower in keyword_lower:
-                    if raw_skill not in matched_skills:
-                        matched_skills.append(raw_skill)
-                    found_for_keyword = True
-
-            if found_for_keyword and keyword not in matched_keywords:
-                matched_keywords.append(keyword)
-
+        matched_skills = self._dedupe_preserve_order(matched_skills)
         remaining = [skill for skill in raw_skills if skill not in matched_skills]
-        selected = (matched_skills + remaining)[:12]
+        return (matched_skills + remaining)[:12]
 
-        missing_keywords = [keyword for keyword in keywords if keyword not in matched_keywords]
-        return selected, matched_keywords, missing_keywords
+    def _skill_matches_keyword(self, raw_skill: str, keyword: str) -> bool:
+        raw = raw_skill.strip().lower()
+        key = keyword.strip().lower()
+
+        if not raw or not key:
+            return False
+
+        if raw == key:
+            return True
+
+        # Specific skill can satisfy generic requirement in resume selection,
+        # but not the opposite.
+        generic_satisfied_by_specific = {
+            "api": {"fastapi"},
+            "sql": {"postgresql", "postgres"},
+        }
+
+        return raw in generic_satisfied_by_specific.get(key, set())
 
     def _select_relevant_achievements(
         self,
@@ -306,22 +366,22 @@ class ResumeGenerationService:
 
         if profile.headline:
             bullets.append(
-                f"Targeting {vacancy_title}; current positioning: {profile.headline}."
-            )
-
-        if selected_skills:
-            bullets.append(
-                f"Visible skill base from resume: {', '.join(selected_skills[:6])}."
+                f"Candidate profile aligned with {vacancy_title} positioning: {profile.headline}."
             )
 
         if matched_keywords:
             bullets.append(
-                f"Current draft already shows overlap with vacancy keywords: {', '.join(matched_keywords[:5])}."
+                f"Profile-confirmed relevant skills for this vacancy: {', '.join(matched_keywords[:6])}."
+            )
+
+        if selected_skills:
+            bullets.append(
+                f"Broader skill base from source resume: {', '.join(selected_skills[:8])}."
             )
 
         if selected_achievements:
             bullets.append(
-                f"Relevant project direction: {selected_achievements[0]['title']}."
+                f"Relevant project experience to review: {selected_achievements[0]['title']}."
             )
 
         if profile.experiences:
@@ -330,7 +390,7 @@ class ResumeGenerationService:
                 current_exp.start_date.strftime("%Y") if current_exp.start_date else "unknown start"
             )
             bullets.append(
-                f"Current or recent role: {current_exp.role} at {current_exp.company} since {start_part}."
+                f"Recent role: {current_exp.role} at {current_exp.company} since {start_part}."
             )
 
         return bullets[:5]
@@ -451,13 +511,6 @@ class ResumeGenerationService:
         lines.append(vacancy["title"])
 
         lines.append("")
-        lines.append("FIT SUMMARY")
-        fit_summary = sections["fit_summary"]
-        lines.append(f"- Match score: {fit_summary['match_score']}")
-        lines.append(f"- Matched keywords: {fit_summary['matched_keyword_count']}")
-        lines.append(f"- Missing keywords: {fit_summary['missing_keyword_count']}")
-
-        lines.append("")
         lines.append("SUMMARY")
         for bullet in sections["summary_bullets"]:
             lines.append(f"- {bullet}")
@@ -478,11 +531,6 @@ class ResumeGenerationService:
         lines.append("RELEVANT PROJECTS")
         for item in sections["selected_achievements"]:
             lines.append(f"- {item['title']} [{item['fact_status']}]")
-
-        lines.append("")
-        lines.append("REVIEW NOTES")
-        for warning in sections["warnings"]:
-            lines.append(f"- {warning}")
 
         return "\n".join(lines).strip()
 

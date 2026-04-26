@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -37,6 +37,7 @@ class StructuredProfileDraft:
     full_name: str | None = None
     headline: str | None = None
     location: str | None = None
+    summary: str | None = None
     target_roles: list[str] = field(default_factory=list)
     experiences: list[StructuredExperienceDraft] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -104,6 +105,7 @@ class ProfileStructuringService:
 
         draft.full_name = self._extract_full_name(lines)
         draft.location = self._extract_location(lines)
+        draft.summary = self._extract_skills_summary(lines)
         draft.target_roles = self._extract_target_roles(lines)
         draft.headline = ", ".join(draft.target_roles[:3]) if draft.target_roles else None
         draft.experiences = self._extract_experiences(lines)
@@ -132,6 +134,8 @@ class ProfileStructuringService:
             profile.headline = draft.headline
         if draft.location:
             profile.location = draft.location
+        if draft.summary:
+            profile.summary = draft.summary
         if draft.target_roles:
             profile.target_roles_json = draft.target_roles
 
@@ -198,6 +202,40 @@ class ProfileStructuringService:
         roles_line = section_lines[0]
         roles = [part.strip() for part in roles_line.split(",") if part.strip()]
         return roles
+
+    def _extract_skills_summary(self, lines: list[str]) -> str | None:
+        section = self._extract_section(
+            lines,
+            start_heading="ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
+            stop_headings={
+                "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+                "ОПЫТ РАБОТЫ",
+                "ОБРАЗОВАНИЕ",
+                "ПРОЕКТЫ",
+                "СТАЖИРОВКИ",
+                "КОНТАКТЫ",
+            },
+        )
+
+        if not section:
+            section = self._extract_section(
+                lines,
+                start_heading="НАВЫКИ",
+                stop_headings={
+                    "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+                    "ОПЫТ РАБОТЫ",
+                    "ОБРАЗОВАНИЕ",
+                    "ПРОЕКТЫ",
+                    "СТАЖИРОВКИ",
+                    "КОНТАКТЫ",
+                },
+            )
+
+        if not section:
+            return None
+
+        summary = "\n".join(section[:8]).strip()
+        return summary or None
 
     def _extract_experiences(self, lines: list[str]) -> list[StructuredExperienceDraft]:
         section = self._extract_section(
@@ -313,4 +351,6 @@ class ProfileStructuringService:
         return []
 
     def _normalize_heading(self, value: str) -> str:
-        return re.sub(r"\s+", " ", value.strip()).upper()
+        cleaned = re.sub(r"[:：]+$", "", value.strip())
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.upper()

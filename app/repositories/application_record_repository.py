@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -21,7 +22,7 @@ class ApplicationRecordRepository:
         cover_letter_document_id: UUID | None,
         status: str,
         channel: str | None,
-        applied_at,
+        applied_at: datetime | None,
         outcome: str | None,
         notes: str | None,
     ) -> ApplicationRecord:
@@ -38,7 +39,6 @@ class ApplicationRecordRepository:
         )
         session.add(application)
         await session.flush()
-        await session.refresh(application)
         return application
 
     async def get_by_id(

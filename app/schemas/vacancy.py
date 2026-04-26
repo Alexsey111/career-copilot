@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 
 
 class VacancyImportRequest(BaseModel):
@@ -26,6 +26,10 @@ class VacancyImportRequest(BaseModel):
 
 
 class VacancyImportResponse(BaseModel):
+    # Keep both for now:
+    # - id is the consistent public API name
+    # - vacancy_id preserves backward compatibility with the current smoke flow
+    id: UUID
     vacancy_id: UUID
     source: str
     source_url: str | None
@@ -45,7 +49,7 @@ class VacancyRead(BaseModel):
     company: str | None
     location: str | None
     description_raw: str
-    normalized_json: dict[str, Any]
+    description_length: int
     created_at: datetime
     updated_at: datetime
 

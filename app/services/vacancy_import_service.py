@@ -47,9 +47,11 @@ class VacancyImportService:
 
         if not final_description:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="could not import vacancy text",
             )
+
+        self._ensure_text_is_not_corrupted(final_description)
 
         final_title = (title or fetched_title or "Untitled vacancy").strip()
 
@@ -113,3 +115,37 @@ class VacancyImportService:
         normalized = "\n".join(non_empty)
         normalized = re.sub(r"\n{3,}", "\n\n", normalized)
         return normalized.strip()
+
+    def _ensure_text_is_not_corrupted(self, text: str) -> None:
+        if not self._looks_like_corrupted_text(text):
+            return
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "vacancy text looks corrupted; check client encoding and send JSON as UTF-8"
+            ),
+        )
+
+    def _looks_like_corrupted_text(self, text: str) -> bool:
+        if not text:
+            return False
+
+        replacement_char_count = text.count("�")
+        if replacement_char_count > 0:
+            return True
+
+        question_runs = re.findall(r"\?{4,}", text)
+        question_mark_count = sum(len(item) for item in question_runs)
+
+        if question_mark_count == 0:
+            return False
+
+        cyrillic_count = sum(1 for ch in text if "\u0400" <= ch <= "\u04FF")
+
+        # Typical broken Russian headings become:
+        # "??????????" and "????? ??????"
+        if question_mark_count >= 8 and cyrillic_count == 0:
+            return True
+
+        return False

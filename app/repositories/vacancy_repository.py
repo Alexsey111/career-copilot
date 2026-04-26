@@ -38,7 +38,6 @@ class VacancyRepository:
         )
         session.add(vacancy)
         await session.flush()
-        await session.refresh(vacancy)
         return vacancy
 
     async def get_by_id(self, session: AsyncSession, vacancy_id: UUID) -> Vacancy | None:

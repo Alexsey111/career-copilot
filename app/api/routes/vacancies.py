@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_dev_user
@@ -45,6 +45,7 @@ async def import_vacancy(
     )
 
     return VacancyImportResponse(
+        id=vacancy.id,
         vacancy_id=vacancy.id,
         source=vacancy.source,
         source_url=vacancy.source_url,
@@ -65,11 +66,15 @@ async def get_vacancy(
     repo = VacancyRepository()
     vacancy = await repo.get_by_id(session, vacancy_id)
     if vacancy is None:
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vacancy not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="vacancy not found",
+        )
     if vacancy.user_id != current_user.id:
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vacancy not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="vacancy not found",
+        )
 
     return VacancyRead(
         id=vacancy.id,
@@ -80,7 +85,7 @@ async def get_vacancy(
         company=vacancy.company,
         location=vacancy.location,
         description_raw=vacancy.description_raw,
-        normalized_json=vacancy.normalized_json,
+        description_length=len(vacancy.description_raw),
         created_at=vacancy.created_at,
         updated_at=vacancy.updated_at,
     )
@@ -119,20 +124,26 @@ async def get_latest_vacancy_analysis(
     current_user: User = Depends(get_current_dev_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyAnalysisResponse:
-    repo = VacancyAnalysisRepository()
     vacancy_repo = VacancyRepository()
     vacancy = await vacancy_repo.get_by_id(session, vacancy_id)
     if vacancy is None:
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vacancy not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="vacancy not found",
+        )
     if vacancy.user_id != current_user.id:
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vacancy not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="vacancy not found",
+        )
 
+    repo = VacancyAnalysisRepository()
     analysis = await repo.get_latest_for_vacancy(session, vacancy_id)
     if analysis is None:
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vacancy analysis not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="vacancy analysis not found",
+        )
 
     return VacancyAnalysisResponse(
         analysis_id=analysis.id,
