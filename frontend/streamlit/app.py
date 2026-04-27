@@ -434,6 +434,90 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
                     else:
                         st.caption(f"fact_status: {fact_status}")
 
+
+        if achievements:
+            st.markdown("#### Проверка достижений перед документами")
+
+            unconfirmed_achievements = [
+                item for item in achievements if item.get("fact_status") != "confirmed"
+            ]
+
+            if unconfirmed_achievements:
+                st.warning(
+                    "Перед импортом вакансии подтвердите извлечённые достижения. "
+                    "Это защищает pipeline от использования неподтверждённого опыта в документах."
+                )
+
+                if st.button(
+                    "Подтвердить все извлечённые достижения",
+                    type="primary",
+                    use_container_width=True,
+                    key="confirm_all_achievements",
+                ):
+                    try:
+                        updated_items: list[dict] = []
+
+                        for achievement in achievements:
+                            achievement_id = achievement.get("id")
+                            title = str(achievement.get("title") or "").strip()
+
+                            if not achievement_id or not title:
+                                st.error(
+                                    "У всех достижений должен быть id и непустой текст."
+                                )
+                                return
+
+                            result = client.patch_json(
+                                f"/profile/achievements/{achievement_id}/review",
+                                {
+                                    "title": title,
+                                    "fact_status": "confirmed",
+                                    "evidence_note": (
+                                        achievement.get("evidence_note")
+                                        or "Confirmed by user in Streamlit UI."
+                                    ),
+                                },
+                            )
+
+                            if not isinstance(result, dict):
+                                st.error("Backend вернул неожиданный формат ответа")
+                                st.json(result)
+                                return
+
+                            updated_items.append(result)
+
+                    except httpx.HTTPStatusError as exc:
+                        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+                        st.code(exc.response.text)
+                        return
+                    except httpx.RequestError as exc:
+                        st.error("Не удалось подключиться к backend")
+                        st.code(str(exc))
+                        return
+                    except ValueError as exc:
+                        st.error("Backend вернул неожиданный ответ")
+                        st.code(str(exc))
+                        return
+
+                    st.session_state.achievements = {
+                        **achievements_result,
+                        "achievement_count": len(updated_items),
+                        "achievements": updated_items,
+                    }
+                    st.session_state.vacancy_analysis = None
+                    st.session_state.generated_resume = None
+                    st.session_state.generated_cover_letter = None
+                    st.session_state.approved_resume = None
+                    st.session_state.approved_cover_letter = None
+                    st.session_state.application = None
+                    st.session_state.interview_session = None
+                    st.session_state.interview_answers_result = None
+
+                    st.success("Достижения подтверждены")
+                    st.rerun()
+            else:
+                st.success("Все извлечённые достижения подтверждены.")
+
         warnings = achievements_result.get("warnings") or []
         if warnings:
             st.markdown("#### Предупреждения")
@@ -450,6 +534,18 @@ def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
     achievements = st.session_state.achievements
     if not achievements:
         st.info("Сначала извлеките достижения на шаге 4.")
+        return
+
+    achievement_items = achievements.get("achievements") or []
+    unconfirmed_achievements = [
+        item for item in achievement_items if item.get("fact_status") != "confirmed"
+    ]
+
+    if unconfirmed_achievements:
+        st.info(
+            "Перед импортом вакансии подтвердите достижения на шаге 4. "
+            "Это защищает pipeline от использования неподтверждённого опыта в документах."
+        )
         return
 
     default_description = """Требования:
