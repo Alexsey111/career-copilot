@@ -457,7 +457,11 @@ def main() -> None:
         assert answered["status"] == "answered"
         assert len(answered["answers"]) == 2
         assert answered["feedback"]["feedback_version"] == "deterministic_v1"
-        assert answered["score"]["score_version"] == "deterministic_v1"
+        assert answered["score"]["score_version"] == "deterministic_v2"
+        assert answered["score"]["question_count"] >= 1
+        assert answered["score"]["answered_count"] == 2
+        assert answered["score"]["unanswered_count"] >= 0
+        assert answered["score"]["readiness_score"] is not None
 
         print_step(
             "15. SUBMIT INTERVIEW ANSWERS",

@@ -38,6 +38,12 @@ def init_session_state() -> None:
         st.session_state.approved_resume = None
     if "approved_cover_letter" not in st.session_state:
         st.session_state.approved_cover_letter = None
+    if "application" not in st.session_state:
+        st.session_state.application = None
+    if "interview_session" not in st.session_state:
+        st.session_state.interview_session = None
+    if "interview_answers_result" not in st.session_state:
+        st.session_state.interview_answers_result = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -949,6 +955,9 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
 
         st.session_state.approved_resume = approved_resume
         st.session_state.approved_cover_letter = approved_cover_letter
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
 
         st.success("Документы подтверждены")
 
@@ -982,6 +991,474 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
             )
 
         st.info("Следующий шаг — создать запись отклика без автоматической отправки.")
+
+
+def render_application_creation_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("10. Создание записи отклика")
+
+    vacancy = st.session_state.vacancy
+    if not vacancy:
+        st.info("Сначала импортируйте вакансию на шаге 5.")
+        return
+
+    approved_resume = st.session_state.approved_resume
+    if not approved_resume:
+        st.info("Сначала подтвердите резюме на шаге 9.")
+        return
+
+    approved_cover_letter = st.session_state.approved_cover_letter
+    if not approved_cover_letter:
+        st.info("Сначала подтвердите сопроводительное письмо на шаге 9.")
+        return
+
+    vacancy_id = vacancy.get("vacancy_id") or vacancy.get("id")
+    if not vacancy_id:
+        st.error("В результате импорта вакансии не найден vacancy_id.")
+        st.json(vacancy)
+        return
+
+    resume_document_id = approved_resume.get("document_id")
+    cover_letter_document_id = approved_cover_letter.get("document_id")
+
+    if not resume_document_id:
+        st.error("В подтверждённом резюме не найден document_id.")
+        st.json(approved_resume)
+        return
+
+    if not cover_letter_document_id:
+        st.error("В подтверждённом письме не найден document_id.")
+        st.json(approved_cover_letter)
+        return
+
+    if approved_resume.get("review_status") != "approved" or not approved_resume.get("is_active"):
+        st.warning("Резюме ещё не подтверждено или не активно.")
+        return
+
+    if (
+        approved_cover_letter.get("review_status") != "approved"
+        or not approved_cover_letter.get("is_active")
+    ):
+        st.warning("Сопроводительное письмо ещё не подтверждено или не активно.")
+        return
+
+    st.caption(f"vacancy_id: {vacancy_id}")
+    st.caption(f"resume_document_id: {resume_document_id}")
+    st.caption(f"cover_letter_document_id: {cover_letter_document_id}")
+
+    st.warning(
+        "Будет создана только внутренняя запись отклика в статусе draft. "
+        "Автоматическая отправка на HH или другую площадку не выполняется."
+    )
+
+    notes = st.text_area(
+        "Заметка к отклику",
+        value="Создано через Streamlit UI. Отклик ещё не отправлен.",
+        height=90,
+    )
+
+    if st.button("Создать запись отклика", type="primary", use_container_width=True):
+        try:
+            result = client.post_json(
+                "/applications",
+                {
+                    "vacancy_id": vacancy_id,
+                    "resume_document_id": resume_document_id,
+                    "cover_letter_document_id": cover_letter_document_id,
+                    "notes": notes.strip() or None,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 409:
+                st.warning("Отклик для этой вакансии уже существует. Дубликат не создан.")
+                st.code(exc.response.text)
+                return
+
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.application = result
+        st.success("Запись отклика создана")
+
+    if st.session_state.application:
+        application = st.session_state.application
+
+        st.markdown("### Созданная запись отклика")
+        st.json(
+            {
+                "application_id": application.get("id"),
+                "vacancy_id": application.get("vacancy_id"),
+                "resume_document_id": application.get("resume_document_id"),
+                "cover_letter_document_id": application.get("cover_letter_document_id"),
+                "status": application.get("status"),
+                "channel": application.get("channel"),
+                "applied_at": application.get("applied_at"),
+                "notes": application.get("notes"),
+                "created_at": application.get("created_at"),
+            }
+        )
+
+        if application.get("status") == "draft":
+            st.info(
+                "Отклик создан в статусе draft. Это не означает отправку. "
+                "После ручной отправки на HH статус можно будет изменить на submitted отдельным шагом."
+            )
+
+
+def render_application_status_update_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("11. Отметка ручной отправки отклика")
+
+    application = st.session_state.application
+    if not application:
+        st.info("Сначала создайте запись отклика на шаге 10.")
+        return
+
+    application_id = application.get("id")
+    if not application_id:
+        st.error("В записи отклика не найден application_id.")
+        st.json(application)
+        return
+
+    current_status = application.get("status")
+    st.caption(f"application_id: {application_id}")
+    st.caption(f"current_status: {current_status}")
+
+    if current_status == "submitted":
+        st.success("Отклик уже отмечен как отправленный.")
+        st.json(
+            {
+                "application_id": application.get("id"),
+                "status": application.get("status"),
+                "applied_at": application.get("applied_at"),
+                "notes": application.get("notes"),
+            }
+        )
+        return
+
+    st.warning(
+        "Нажимайте эту кнопку только после того, как вы вручную отправили отклик на HH "
+        "или другой площадке. Система сама ничего не отправляет."
+    )
+
+    notes = st.text_area(
+        "Заметка после ручной отправки",
+        value="Отклик отправлен вручную на HH.",
+        height=90,
+    )
+
+    if st.button(
+        "Отметить как отправленный вручную",
+        type="primary",
+        use_container_width=True,
+    ):
+        try:
+            result = client.patch_json(
+                f"/applications/{application_id}/status",
+                {
+                    "status": "submitted",
+                    "notes": notes.strip() or None,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.application = result
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
+        st.success("Отклик отмечен как отправленный")
+
+    if st.session_state.application:
+        updated_application = st.session_state.application
+
+        st.markdown("### Текущий статус отклика")
+        st.json(
+            {
+                "application_id": updated_application.get("id"),
+                "vacancy_id": updated_application.get("vacancy_id"),
+                "status": updated_application.get("status"),
+                "applied_at": updated_application.get("applied_at"),
+                "notes": updated_application.get("notes"),
+                "updated_at": updated_application.get("updated_at"),
+            }
+        )
+
+
+def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("12. Подготовка к собеседованию")
+
+    application = st.session_state.application
+    if not application:
+        st.info("Сначала создайте запись отклика на шаге 10.")
+        return
+
+    if application.get("status") != "submitted":
+        st.info(
+            "Подготовку к интервью лучше создавать после того, как отклик вручную отправлен "
+            "и отмечен как submitted на шаге 11."
+        )
+        return
+
+    vacancy = st.session_state.vacancy
+    if not vacancy:
+        st.info("Не найдена вакансия в текущей сессии Streamlit.")
+        return
+
+    vacancy_id = vacancy.get("vacancy_id") or vacancy.get("id")
+    if not vacancy_id:
+        st.error("В вакансии не найден vacancy_id.")
+        st.json(vacancy)
+        return
+
+    st.caption(f"vacancy_id: {vacancy_id}")
+    st.caption(f"application_id: {application.get('id')}")
+
+    st.warning(
+        "Будет создана внутренняя сессия подготовки к интервью. "
+        "Это не отправляет данные работодателю и не выполняет внешних действий."
+    )
+
+    if st.button("Создать подготовку к интервью", type="primary", use_container_width=True):
+        try:
+            result = client.post_json(
+                "/interviews/sessions",
+                {
+                    "vacancy_id": vacancy_id,
+                    "session_type": "vacancy",
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.interview_session = result
+        st.session_state.interview_answers_result = None
+        st.success("Подготовка к интервью создана")
+
+    interview_session = st.session_state.interview_session
+    if not interview_session:
+        return
+
+    st.markdown("### Сессия подготовки")
+
+    question_set = interview_session.get("question_set") or []
+    question_types = sorted(
+        {
+            str(question.get("type"))
+            for question in question_set
+            if question.get("type")
+        }
+    )
+
+    st.json(
+        {
+            "interview_session_id": interview_session.get("id"),
+            "vacancy_id": interview_session.get("vacancy_id"),
+            "status": interview_session.get("status"),
+            "question_count": len(question_set),
+            "question_types": question_types,
+        }
+    )
+
+    if not question_set:
+        st.warning("Backend не вернул список вопросов.")
+        return
+
+    with st.expander("Список вопросов", expanded=True):
+        for index, question in enumerate(question_set, start=1):
+            question_type = question.get("type")
+            prompt = question.get("prompt")
+            answer_format = question.get("answer_format")
+
+            st.markdown(f"**{index}. {question_type}**")
+            st.write(prompt)
+            if answer_format:
+                st.caption(f"Формат ответа: {answer_format}")
+
+    st.markdown("### Черновые ответы")
+
+    st.info(
+        "Для smoke-проверки достаточно заполнить первые 1–2 ответа. "
+        "Для STAR-ответов используйте явные маркеры: Ситуация / Задача / Действия / Результат."
+    )
+
+    answer_question_count = min(2, len(question_set))
+
+    with st.form("interview_answers_form"):
+        answers_payload: list[dict] = []
+
+        for question_index in range(answer_question_count):
+            question = question_set[question_index]
+            prompt = question.get("prompt") or f"Вопрос {question_index + 1}"
+
+            st.markdown(f"#### Ответ на вопрос {question_index + 1}")
+            st.caption(prompt)
+
+            default_answer = ""
+            if question_index == 0:
+                default_answer = (
+                    "Я рассматриваю эту роль, потому что она связана с backend-разработкой "
+                    "и позволяет применить мой практический опыт с Python и AI-инструментами."
+                )
+            elif question_index == 1:
+                default_answer = (
+                    "Ситуация: я работал над практическим Python-проектом. "
+                    "Задача: нужно было собрать рабочий backend-прототип. "
+                    "Действия: я реализовал основной API-flow и проверил его через smoke-сценарий. "
+                    "Результат: прототип был готов для дальнейшей проверки и улучшения."
+                )
+
+            answer_text = st.text_area(
+                f"Текст ответа {question_index + 1}",
+                value=default_answer,
+                height=140,
+                key=f"interview_answer_{question_index}",
+            )
+
+            if answer_text.strip():
+                answers_payload.append(
+                    {
+                        "question_index": question_index,
+                        "answer_text": answer_text.strip(),
+                    }
+                )
+
+        submitted = st.form_submit_button(
+            "Сохранить ответы и получить обратную связь",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        if not answers_payload:
+            st.error("Нужно заполнить хотя бы один ответ.")
+            return
+
+        session_id = interview_session.get("id")
+        if not session_id:
+            st.error("В interview session не найден id.")
+            st.json(interview_session)
+            return
+
+        try:
+            result = client.patch_json(
+                f"/interviews/sessions/{session_id}/answers",
+                {
+                    "answers": answers_payload,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.interview_session = result
+        st.session_state.interview_answers_result = result
+        st.success("Ответы сохранены, обратная связь рассчитана")
+
+    if st.session_state.interview_answers_result:
+        answered = st.session_state.interview_answers_result
+
+        st.markdown("### Результат подготовки")
+
+        score = answered.get("score") or {}
+        feedback = answered.get("feedback") or {}
+        feedback_items = feedback.get("items") or []
+
+        col_status, col_answered, col_warnings, col_score = st.columns(4)
+
+        with col_status:
+            st.metric("Статус", answered.get("status"))
+
+        with col_answered:
+            st.metric("Ответов", score.get("answered_count"))
+
+        with col_warnings:
+            st.metric("Предупреждений", score.get("warning_count"))
+
+        with col_score:
+            st.metric("Readiness score", score.get("readiness_score"))
+
+        if feedback_items:
+            st.markdown("#### Feedback по ответам")
+
+            for item in feedback_items:
+                with st.container(border=True):
+                    st.markdown(
+                        f"**Вопрос {int(item.get('question_index', 0)) + 1} — "
+                        f"{item.get('question_type')}**"
+                    )
+                    st.caption(f"Длина ответа: {item.get('answer_length')} символов")
+
+                    warnings = item.get("warnings") or []
+                    suggestions = item.get("suggestions") or []
+
+                    if warnings:
+                        st.warning("Warnings: " + ", ".join(warnings))
+                    else:
+                        st.success("Критичных предупреждений нет")
+
+                    if suggestions:
+                        st.markdown("Рекомендации:")
+                        for suggestion in suggestions:
+                            st.markdown(f"- {suggestion}")
+
+        with st.expander("Raw JSON результата", expanded=False):
+            st.json(answered)
 
 
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
@@ -1023,16 +1500,22 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
     st.divider()
 
-    steps = [
-        "10. Создать отклик",
-        "11. Создать подготовку к интервью",
-    ]
+    render_application_creation_step(client)
 
-    st.subheader("Следующие шаги")
-    for step in steps:
-        st.checkbox(step, value=False, disabled=True)
+    st.divider()
 
-    st.warning("Следующие действия будут подключаться по одному в Priority 10.11+.")
+    render_application_status_update_step(client)
+
+    st.divider()
+
+    render_interview_preparation_step(client)
+
+    st.divider()
+
+    st.success(
+        "Сквозной MVP-сценарий во frontend подключён: резюме → вакансия → документы → "
+        "ручной отклик → подготовка к интервью."
+    )
 
 
 def main() -> None:

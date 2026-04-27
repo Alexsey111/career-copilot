@@ -46,10 +46,23 @@ def test_interview_preparation_builds_questions_from_analysis_and_achievements()
 
     gap_question = next(item for item in questions if item["type"] == "gap_preparation")
     assert gap_question["keyword"] == "FastAPI"
-    assert "does not strongly prove it" in gap_question["prompt"]
+    assert "не даёт сильного подтверждения" in gap_question["prompt"]
+
+    role_question = next(item for item in questions if item["type"] == "role_overview")
+    assert "почему вам интересна позиция" in role_question["prompt"]
+
+    must_have_question = next(
+        item for item in questions if item["type"] == "must_have_requirement"
+    )
+    assert "Опишите ваш практический опыт" in must_have_question["prompt"]
+
+    assert "Как честно ответить" in gap_question["prompt"]
 
     achievement_question = next(
         item for item in questions if item["type"] == "achievement_star_story"
     )
     assert achievement_question["fact_status"] == "needs_confirmation"
-    assert "STAR" in achievement_question["prompt"]
+    assert "Превратите это достижение в STAR-историю" in achievement_question["prompt"]
+
+    strength_question = next(item for item in questions if item["type"] == "strength_deep_dive")
+    assert "Подготовьте более глубокий пример" in strength_question["prompt"]

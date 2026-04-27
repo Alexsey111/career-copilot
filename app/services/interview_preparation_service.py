@@ -152,7 +152,10 @@ class InterviewPreparationService:
             question_set=interview_session.question_set_json,
             answers=normalized_answers,
         )
-        score_json = self._build_score(feedback_json)
+        score_json = self._build_score(
+            feedback_json,
+            total_question_count=len(interview_session.question_set_json),
+        )
 
         interview_session = await self.interview_session_repository.save_answers(
             session,
@@ -226,14 +229,16 @@ class InterviewPreparationService:
 
             if not answer_text:
                 warnings.append("empty_answer")
-                suggestions.append("Add a concrete answer before using this in interview prep.")
+                suggestions.append(
+                    "Добавьте конкретный ответ перед использованием в подготовке к интервью."
+                )
             else:
                 if question.get("answer_format") in {"STAR", "STAR_or_example"}:
                     star_markers = self._count_star_markers(answer_lower)
                     if star_markers < 2:
                         warnings.append("weak_star_structure")
                         suggestions.append(
-                            "Strengthen the answer with Situation, Task, Action, and Result."
+                            "Усильте ответ по структуре STAR: ситуация, задача, действия, результат."
                         )
 
                 if question.get("type") == "gap_preparation":
@@ -241,13 +246,14 @@ class InterviewPreparationService:
                     if risky_phrases:
                         warnings.append("possible_gap_overclaim")
                         suggestions.append(
-                            "This is a gap-preparation answer. Avoid presenting weak or missing experience as confirmed expertise."
+                            "Это ответ по gap-зоне. Не представляйте слабый или отсутствующий опыт "
+                            "как подтверждённую экспертизу."
                         )
 
                 if self._contains_unverified_metric(answer_text):
                     warnings.append("metric_needs_confirmation")
                     suggestions.append(
-                        "Confirm the metric before using it as a strong interview claim."
+                        "Подтвердите метрику перед тем, как использовать её как сильное утверждение."
                     )
 
             items.append(
@@ -265,27 +271,34 @@ class InterviewPreparationService:
             "items": items,
         }
 
-    def _build_score(self, feedback_json: dict) -> dict:
+    def _build_score(
+        self,
+        feedback_json: dict,
+        *,
+        total_question_count: int | None = None,
+    ) -> dict:
         items = feedback_json.get("items", [])
-        if not items:
-            return {
-                "score_version": "deterministic_v1",
-                "answered_count": 0,
-                "warning_count": 0,
-                "readiness_score": None,
-            }
-
         answered_count = sum(1 for item in items if item.get("answer_length", 0) > 0)
         warning_count = sum(len(item.get("warnings", [])) for item in items)
 
-        raw_score = 100
-        raw_score -= warning_count * 15
-        raw_score -= (len(items) - answered_count) * 20
-        readiness_score = max(0, min(100, raw_score))
+        question_count = (
+            total_question_count if total_question_count is not None else len(items)
+        )
+        unanswered_count = max(0, question_count - answered_count)
+
+        if question_count == 0:
+            readiness_score = None
+        else:
+            raw_score = 100
+            raw_score -= warning_count * 15
+            raw_score -= unanswered_count * 8
+            readiness_score = max(0, min(100, raw_score))
 
         return {
-            "score_version": "deterministic_v1",
+            "score_version": "deterministic_v2",
+            "question_count": question_count,
             "answered_count": answered_count,
+            "unanswered_count": unanswered_count,
             "warning_count": warning_count,
             "readiness_score": readiness_score,
         }
@@ -299,6 +312,7 @@ class InterviewPreparationService:
             "ситуация",
             "задача",
             "действие",
+            "действия",
             "результат",
         ]
         return sum(1 for marker in markers if marker in answer_lower)
@@ -311,6 +325,7 @@ class InterviewPreparationService:
             "commercial experience",
             "эксперт",
             "сеньор",
+            "senior-разработчик",
             "уверенный опыт",
             "коммерческий опыт",
             "глубокий опыт",
@@ -334,7 +349,7 @@ class InterviewPreparationService:
         gaps: list[dict],
         achievements: list[dict],
     ) -> list[dict]:
-        company_part = company or "the company"
+        company_part = company or "компании"
         questions: list[dict] = []
 
         questions.append(
@@ -342,14 +357,14 @@ class InterviewPreparationService:
                 "type": "role_overview",
                 "source": "vacancy",
                 "prompt": (
-                    f"Briefly explain why you are interested in the {vacancy_title} "
-                    f"role at {company_part} and how your background is relevant."
+                    f"Кратко объясните, почему вам интересна позиция {vacancy_title} "
+                    f"в {company_part} и чем ваш опыт может быть релевантен этой роли."
                 ),
                 "answer_format": "short_structured",
                 "rubric": [
-                    "Shows understanding of the role",
-                    "Connects motivation to relevant experience",
-                    "Avoids unsupported claims",
+                    "Показывает понимание роли",
+                    "Связывает мотивацию с релевантным опытом",
+                    "Не содержит неподтверждённых утверждений",
                 ],
             }
         )
@@ -365,14 +380,14 @@ class InterviewPreparationService:
                     "source": "vacancy_analysis.must_have",
                     "requirement_text": requirement_text,
                     "prompt": (
-                        f"Describe your practical experience with this requirement: "
+                        f"Опишите ваш практический опыт по этому требованию: "
                         f"{requirement_text}."
                     ),
                     "answer_format": "STAR_or_example",
                     "rubric": [
-                        "Gives a concrete example",
-                        "Separates personal contribution from team context",
-                        "Mentions tools, scope, and result where factual",
+                        "Есть конкретный пример",
+                        "Личный вклад отделён от командного контекста",
+                        "Инструменты, масштаб и результат указаны только там, где это фактологично",
                     ],
                 }
             )
@@ -392,15 +407,15 @@ class InterviewPreparationService:
                     "scope": scope,
                     "requirement_text": requirement_text,
                     "prompt": (
-                        f"The vacancy expects {requirement_text}, but the current profile "
-                        f"does not strongly prove it. How would you answer if asked about "
-                        f"your level in {keyword}?"
+                        f"В вакансии ожидается {requirement_text}, но текущий профиль пока "
+                        f"не даёт сильного подтверждения. Как честно ответить на вопрос "
+                        f"о вашем уровне в {keyword}?"
                     ),
                     "answer_format": "honest_gap_response",
                     "rubric": [
-                        "Does not invent experience",
-                        "States actual exposure level clearly",
-                        "Explains a realistic learning or transfer plan",
+                        "Не выдумывает опыт",
+                        "Чётко называет реальный уровень знакомства с темой",
+                        "Показывает реалистичный план дообучения или переноса смежного опыта",
                     ],
                 }
             )
@@ -420,14 +435,14 @@ class InterviewPreparationService:
                     "scope": scope,
                     "requirement_text": requirement_text,
                     "prompt": (
-                        f"Prepare a deeper example that proves your experience with "
-                        f"{keyword} in the context of {requirement_text}."
+                        f"Подготовьте более глубокий пример, который подтверждает ваш опыт "
+                        f"с {keyword} в контексте требования: {requirement_text}."
                     ),
                     "answer_format": "STAR",
                     "rubric": [
-                        "Situation and task are clear",
-                        "Action is specific",
-                        "Result is factual and not inflated",
+                        "Ситуация и задача понятны",
+                        "Действия описаны конкретно",
+                        "Результат фактологичен и не завышен",
                     ],
                 }
             )
@@ -445,13 +460,13 @@ class InterviewPreparationService:
                     "achievement_title": title,
                     "fact_status": fact_status,
                     "prompt": (
-                        f"Turn this achievement into a STAR interview story: {title}."
+                        f"Превратите это достижение в STAR-историю для собеседования: {title}."
                     ),
                     "answer_format": "STAR",
                     "rubric": [
-                        "Confirms the fact before using it strongly",
-                        "Clarifies candidate's personal contribution",
-                        "Avoids adding unsupported metrics",
+                        "Факт достижения подтверждён перед сильным использованием",
+                        "Личный вклад кандидата понятен",
+                        "Не добавлены неподтверждённые метрики",
                     ],
                 }
             )

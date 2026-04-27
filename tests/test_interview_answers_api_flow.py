@@ -104,8 +104,10 @@ async def test_interview_answers_api_saves_answers_and_feedback(client) -> None:
     assert payload["status"] == "answered"
     assert len(payload["answers"]) == 2
     assert payload["feedback"]["feedback_version"] == "deterministic_v1"
-    assert payload["score"]["score_version"] == "deterministic_v1"
+    assert payload["score"]["score_version"] == "deterministic_v2"
+    assert payload["score"]["question_count"] >= 2
     assert payload["score"]["answered_count"] == 2
+    assert payload["score"]["unanswered_count"] == payload["score"]["question_count"] - 2
 
     read_response = await client.get(
         f"{API_PREFIX}/interviews/sessions/{session_id}",
