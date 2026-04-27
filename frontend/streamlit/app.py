@@ -1419,22 +1419,46 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
         feedback = answered.get("feedback") or {}
         feedback_items = feedback.get("items") or []
 
-        col_status, col_answered, col_warnings, col_score = st.columns(4)
+        question_count = int(score.get("question_count") or 0)
+        answered_count = int(score.get("answered_count") or 0)
+        unanswered_count = int(score.get("unanswered_count") or 0)
+        warning_count = int(score.get("warning_count") or 0)
+        readiness_score = score.get("readiness_score")
+
+        col_status, col_answered, col_unanswered, col_warnings, col_score = st.columns(5)
 
         with col_status:
             st.metric("Статус", answered.get("status"))
 
         with col_answered:
-            st.metric("Ответов", score.get("answered_count"))
+            st.metric("Ответов", f"{answered_count} / {question_count}")
+
+        with col_unanswered:
+            st.metric("Осталось", unanswered_count)
 
         with col_warnings:
-            st.metric("Предупреждений", score.get("warning_count"))
+            st.metric("Предупреждений", warning_count)
 
         with col_score:
-            st.metric("Readiness score", score.get("readiness_score"))
+            st.metric(
+                "Готовность",
+                f"{readiness_score} / 100" if readiness_score is not None else "—",
+            )
+
+        if question_count > 0:
+            progress_value = max(0.0, min(1.0, answered_count / question_count))
+            st.progress(progress_value)
+
+        if unanswered_count > 0:
+            st.info(
+                "Низкая готовность сейчас означает не плохое качество ответов, "
+                "а незавершённую подготовку: заполнены не все вопросы."
+            )
+        elif warning_count == 0:
+            st.success("Все вопросы заполнены, критичных предупреждений по ответам нет.")
 
         if feedback_items:
-            st.markdown("#### Feedback по ответам")
+            st.markdown("#### Обратная связь по ответам")
 
             for item in feedback_items:
                 with st.container(border=True):
@@ -1448,7 +1472,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
                     suggestions = item.get("suggestions") or []
 
                     if warnings:
-                        st.warning("Warnings: " + ", ".join(warnings))
+                        st.warning("Предупреждения: " + ", ".join(warnings))
                     else:
                         st.success("Критичных предупреждений нет")
 
