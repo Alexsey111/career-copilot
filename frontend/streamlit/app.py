@@ -34,6 +34,10 @@ def init_session_state() -> None:
         st.session_state.generated_resume = None
     if "generated_cover_letter" not in st.session_state:
         st.session_state.generated_cover_letter = None
+    if "approved_resume" not in st.session_state:
+        st.session_state.approved_resume = None
+    if "approved_cover_letter" not in st.session_state:
+        st.session_state.approved_cover_letter = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -143,6 +147,8 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
         st.session_state.vacancy_analysis = None
         st.session_state.generated_resume = None
         st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
         st.success("Резюме загружено")
 
     if st.session_state.source_file:
@@ -206,6 +212,8 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
         st.session_state.vacancy_analysis = None
         st.session_state.generated_resume = None
         st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
         st.success("Резюме импортировано")
 
     if st.session_state.resume_import:
@@ -496,6 +504,8 @@ def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
         st.session_state.vacancy_analysis = None
         st.session_state.generated_resume = None
         st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
         st.success("Вакансия импортирована")
 
     if st.session_state.vacancy:
@@ -559,6 +569,8 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient) -> None:
         st.session_state.vacancy_analysis = result
         st.session_state.generated_resume = None
         st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
         st.success("Вакансия проанализирована")
 
     if st.session_state.vacancy_analysis:
@@ -699,6 +711,8 @@ def render_resume_generation_step(client: CareerCopilotApiClient) -> None:
 
         st.session_state.generated_resume = result
         st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
         st.success("Адаптированное резюме сгенерировано")
 
     if st.session_state.generated_resume:
@@ -795,6 +809,8 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.generated_cover_letter = result
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
         st.success("Сопроводительное письмо сгенерировано")
 
     if st.session_state.generated_cover_letter:
@@ -824,6 +840,148 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient) -> None:
         review_status = letter.get("review_status")
         if review_status == "draft":
             st.info("Статус документа: draft. Следующий шаг — проверка и подтверждение.")
+
+
+def render_document_approval_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("9. Проверка и подтверждение документов")
+
+    generated_resume = st.session_state.generated_resume
+    if not generated_resume:
+        st.info("Сначала сгенерируйте адаптированное резюме на шаге 7.")
+        return
+
+    generated_cover_letter = st.session_state.generated_cover_letter
+    if not generated_cover_letter:
+        st.info("Сначала сгенерируйте сопроводительное письмо на шаге 8.")
+        return
+
+    resume_document_id = generated_resume.get("document_id")
+    cover_letter_document_id = generated_cover_letter.get("document_id")
+
+    if not resume_document_id:
+        st.error("В сгенерированном резюме не найден document_id.")
+        st.json(generated_resume)
+        return
+
+    if not cover_letter_document_id:
+        st.error("В сгенерированном письме не найден document_id.")
+        st.json(generated_cover_letter)
+        return
+
+    col_resume, col_letter = st.columns(2)
+
+    with col_resume:
+        st.markdown("### Резюме")
+        st.caption(f"document_id: {resume_document_id}")
+        st.caption(f"status: {generated_resume.get('review_status')}")
+
+        resume_preview = generated_resume.get("rendered_text_preview")
+        if resume_preview:
+            with st.expander("Предпросмотр резюме", expanded=False):
+                st.text(resume_preview)
+
+    with col_letter:
+        st.markdown("### Сопроводительное письмо")
+        st.caption(f"document_id: {cover_letter_document_id}")
+        st.caption(f"status: {generated_cover_letter.get('review_status')}")
+
+        letter_preview = generated_cover_letter.get("rendered_text_preview")
+        if letter_preview:
+            with st.expander("Предпросмотр письма", expanded=False):
+                st.text(letter_preview)
+
+    st.warning(
+        "Подтверждение означает, что человек проверил документы и разрешает использовать их "
+        "для создания записи отклика. Автоматическая отправка отклика не выполняется."
+    )
+
+    review_comment = st.text_area(
+        "Комментарий к проверке",
+        value="Проверено и подтверждено пользователем через Streamlit UI.",
+        height=90,
+    )
+
+    if st.button(
+        "Подтвердить резюме и сопроводительное письмо",
+        type="primary",
+        use_container_width=True,
+    ):
+        try:
+            approved_resume = client.patch_json(
+                f"/documents/{resume_document_id}/review",
+                {
+                    "review_status": "approved",
+                    "review_comment": review_comment.strip() or None,
+                    "set_active_when_approved": True,
+                },
+            )
+
+            approved_cover_letter = client.patch_json(
+                f"/documents/{cover_letter_document_id}/review",
+                {
+                    "review_status": "approved",
+                    "review_comment": review_comment.strip() or None,
+                    "set_active_when_approved": True,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(approved_resume, dict):
+            st.error("Backend вернул неожиданный формат ответа для резюме")
+            st.json(approved_resume)
+            return
+
+        if not isinstance(approved_cover_letter, dict):
+            st.error("Backend вернул неожиданный формат ответа для письма")
+            st.json(approved_cover_letter)
+            return
+
+        st.session_state.approved_resume = approved_resume
+        st.session_state.approved_cover_letter = approved_cover_letter
+
+        st.success("Документы подтверждены")
+
+    if st.session_state.approved_resume and st.session_state.approved_cover_letter:
+        st.markdown("### Подтверждённые документы")
+
+        col_approved_resume, col_approved_letter = st.columns(2)
+
+        with col_approved_resume:
+            st.markdown("#### Резюме")
+            st.json(
+                {
+                    "document_id": st.session_state.approved_resume.get("document_id"),
+                    "document_kind": st.session_state.approved_resume.get("document_kind"),
+                    "review_status": st.session_state.approved_resume.get("review_status"),
+                    "is_active": st.session_state.approved_resume.get("is_active"),
+                    "updated_at": st.session_state.approved_resume.get("updated_at"),
+                }
+            )
+
+        with col_approved_letter:
+            st.markdown("#### Сопроводительное письмо")
+            st.json(
+                {
+                    "document_id": st.session_state.approved_cover_letter.get("document_id"),
+                    "document_kind": st.session_state.approved_cover_letter.get("document_kind"),
+                    "review_status": st.session_state.approved_cover_letter.get("review_status"),
+                    "is_active": st.session_state.approved_cover_letter.get("is_active"),
+                    "updated_at": st.session_state.approved_cover_letter.get("updated_at"),
+                }
+            )
+
+        st.info("Следующий шаг — создать запись отклика без автоматической отправки.")
 
 
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
@@ -861,8 +1019,11 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
     st.divider()
 
+    render_document_approval_step(client)
+
+    st.divider()
+
     steps = [
-        "9. Подтвердить документы",
         "10. Создать отклик",
         "11. Создать подготовку к интервью",
     ]
@@ -871,7 +1032,7 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     for step in steps:
         st.checkbox(step, value=False, disabled=True)
 
-    st.warning("Следующие действия будут подключаться по одному в Priority 10.10+.")
+    st.warning("Следующие действия будут подключаться по одному в Priority 10.11+.")
 
 
 def main() -> None:
