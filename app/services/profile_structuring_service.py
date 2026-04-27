@@ -170,12 +170,41 @@ class ProfileStructuringService:
     def _extract_full_name(self, lines: list[str]) -> str | None:
         candidate_parts: list[str] = []
 
+        stop_headings = {
+            "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
+            "НАВЫКИ",
+            "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+            "ОПЫТ РАБОТЫ",
+            "ОБРАЗОВАНИЕ",
+            "ПРОЕКТЫ",
+            "СТАЖИРОВКИ",
+            "КОНТАКТЫ",
+            "О СЕБЕ",
+        }
+
         for line in lines[:6]:
             if re.search(r"\d{2}\.\d{2}\.\d{4}", line):
                 break
 
-            if re.fullmatch(r"[A-Za-zА-Яа-яЁё -]{2,40}", line):
-                candidate_parts.append(line)
+            normalized = self._normalize_heading(line)
+            if normalized in stop_headings:
+                break
+
+            if "@" in line or "http" in line.lower():
+                break
+
+            if not re.fullmatch(r"[A-Za-zА-Яа-яЁё -]{2,80}", line):
+                if candidate_parts:
+                    break
+                continue
+
+            words = [part for part in re.split(r"\s+", line.strip()) if part]
+
+            if 2 <= len(words) <= 3:
+                return " ".join(words)
+
+            if len(words) == 1:
+                candidate_parts.append(words[0])
                 continue
 
             if candidate_parts:

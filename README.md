@@ -11,7 +11,7 @@ AI-копилот для соискателя для:
 
 ## Схема проекта
 
-Подробная схема и структура каталогов находятся в [docs/project-structure.md](/d:/python%20projects/career-copilot/docs/project-structure.md).
+Подробная схема и структура каталогов находятся в [docs/project-structure.md](docs/project-structure.md).
 
 ## Локальный запуск
 
