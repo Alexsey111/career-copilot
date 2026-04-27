@@ -33,6 +33,10 @@ dev = [
     "mypy>=1.11.1",
 ]
 
+frontend = [
+    "streamlit>=1.38.0",
+]
+
 [build-system]
 requires = []
 build-backend = "build_backend"
