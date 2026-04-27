@@ -22,6 +22,7 @@ ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
 @dataclass
 class AchievementDraft:
     title: str
+    id: UUID | None = None
     situation: str | None = None
     task: str | None = None
     action: str | None = None
@@ -117,6 +118,7 @@ class AchievementExtractionService:
             achievements=[
                 AchievementDraft(
                     title=item.title,
+                    id=item.id,
                     situation=item.situation,
                     task=item.task,
                     action=item.action,

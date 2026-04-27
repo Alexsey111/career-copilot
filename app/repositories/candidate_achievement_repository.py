@@ -1,14 +1,12 @@
-# app\repositories\candidate_achievement_repository.py
-
 from __future__ import annotations
 
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import CandidateAchievement
+from app.models import CandidateAchievement, CandidateProfile
 
 
 class CandidateAchievementRepository:
@@ -44,3 +42,50 @@ class CandidateAchievementRepository:
 
         await session.flush()
         return created_items
+
+    async def get_by_id_for_user(
+        self,
+        session: AsyncSession,
+        *,
+        achievement_id: UUID,
+        user_id: UUID,
+    ) -> CandidateAchievement | None:
+        result = await session.execute(
+            select(CandidateAchievement)
+            .join(CandidateProfile, CandidateAchievement.profile_id == CandidateProfile.id)
+            .where(
+                CandidateAchievement.id == achievement_id,
+                CandidateProfile.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_review(
+        self,
+        session: AsyncSession,
+        *,
+        achievement_id: UUID,
+        user_id: UUID,
+        title: str | None,
+        fact_status: str,
+        evidence_note: str | None,
+    ) -> CandidateAchievement | None:
+        achievement = await self.get_by_id_for_user(
+            session,
+            achievement_id=achievement_id,
+            user_id=user_id,
+        )
+        if achievement is None:
+            return None
+
+        if title is not None:
+            achievement.title = title.strip()
+
+        achievement.fact_status = fact_status
+
+        if evidence_note is not None:
+            achievement.evidence_note = evidence_note.strip() or None
+
+        await session.flush()
+        await session.refresh(achievement)
+        return achievement

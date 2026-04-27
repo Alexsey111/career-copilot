@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_dev_user
 from app.db.session import get_db_session
 from app.models import User
+from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
 from app.schemas.achievement_extract import (
     AchievementExtractRequest,
     AchievementExtractResponse,
     AchievementItemRead,
+    AchievementReviewRequest,
+    AchievementReviewResponse,
 )
 from app.schemas.profile_import import ResumeImportRequest, ResumeImportResponse
 from app.schemas.profile_structured import (
@@ -97,10 +102,56 @@ async def extract_achievements(
         achievement_count=len(result.achievements),
         achievements=[
             AchievementItemRead(
+                id=item.id,
                 title=item.title,
                 fact_status=item.fact_status,
+                evidence_note=item.evidence_note,
             )
             for item in result.achievements
+            if item.id is not None
         ],
         warnings=result.warnings,
+    )
+
+
+@router.patch(
+    "/achievements/{achievement_id}/review",
+    response_model=AchievementReviewResponse,
+)
+async def review_achievement(
+    achievement_id: UUID,
+    payload: AchievementReviewRequest,
+    current_user: User = Depends(get_current_dev_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> AchievementReviewResponse:
+    if payload.title is not None and not payload.title.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="achievement title must not be empty",
+        )
+
+    repository = CandidateAchievementRepository()
+    achievement = await repository.update_review(
+        session,
+        achievement_id=achievement_id,
+        user_id=current_user.id,
+        title=payload.title,
+        fact_status=payload.fact_status,
+        evidence_note=payload.evidence_note,
+    )
+
+    if achievement is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="achievement not found",
+        )
+
+    await session.commit()
+
+    return AchievementReviewResponse(
+        id=achievement.id,
+        title=achievement.title,
+        fact_status=achievement.fact_status,
+        evidence_note=achievement.evidence_note,
+        updated_at=achievement.updated_at,
     )

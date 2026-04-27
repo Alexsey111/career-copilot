@@ -1,10 +1,10 @@
-# app\schemas\achievement_extract.py
-
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AchievementExtractRequest(BaseModel):
@@ -12,8 +12,10 @@ class AchievementExtractRequest(BaseModel):
 
 
 class AchievementItemRead(BaseModel):
+    id: UUID
     title: str
     fact_status: str
+    evidence_note: str | None = None
 
 
 class AchievementExtractResponse(BaseModel):
@@ -22,3 +24,17 @@ class AchievementExtractResponse(BaseModel):
     achievement_count: int
     achievements: list[AchievementItemRead]
     warnings: list[str]
+
+
+class AchievementReviewRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    fact_status: Literal["needs_confirmation", "confirmed"] = "confirmed"
+    evidence_note: str | None = None
+
+
+class AchievementReviewResponse(BaseModel):
+    id: UUID
+    title: str
+    fact_status: str
+    evidence_note: str | None = None
+    updated_at: datetime
