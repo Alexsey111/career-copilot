@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from app.services.cover_letter_generation_service import CoverLetterGenerationService
 
 
@@ -106,3 +108,49 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
     assert "Thank you for your consideration" not in rendered
     assert "confirmed overlap" not in rendered
     assert "needs_confirmation" not in rendered
+
+
+def test_cover_letter_generation_uses_only_confirmed_achievement_titles() -> None:
+    service = CoverLetterGenerationService()
+
+    achievements = [
+        SimpleNamespace(
+            title="Подтверждённый AI-проект",
+            fact_status="confirmed",
+        ),
+        SimpleNamespace(
+            title="Неподтверждённый проект",
+            fact_status="needs_confirmation",
+        ),
+        SimpleNamespace(
+            title="",
+            fact_status="confirmed",
+        ),
+    ]
+
+    titles = service._get_confirmed_achievement_titles(achievements)
+
+    assert titles == ["Подтверждённый AI-проект"]
+
+
+def test_cover_letter_selected_achievements_are_confirmed_and_do_not_create_claims() -> None:
+    service = CoverLetterGenerationService()
+
+    selected = service._select_relevant_achievements(
+        achievement_titles=["Подтверждённый AI-проект"],
+        keywords=["Python"],
+    )
+
+    assert selected == [
+        {
+            "title": "Подтверждённый AI-проект",
+            "fact_status": "confirmed",
+            "reason": "ai_relevance",
+        }
+    ]
+
+    claims = service._build_claims_needing_confirmation(
+        selected_achievements=selected,
+    )
+
+    assert claims == []

@@ -81,8 +81,12 @@ class CoverLetterGenerationService:
             gaps_json=analysis.gaps_json,
         )
 
+        confirmed_achievement_titles = self._get_confirmed_achievement_titles(
+            profile.achievements
+        )
+
         selected_achievements = self._select_relevant_achievements(
-            [a.title for a in profile.achievements],
+            confirmed_achievement_titles,
             matched_keywords,
         )
 
@@ -217,6 +221,18 @@ class CoverLetterGenerationService:
         parts = [part.strip(" .") for part in joined.split(",") if part.strip()]
         return self._dedupe_preserve_order(parts)
 
+    def _get_confirmed_achievement_titles(self, achievements) -> list[str]:
+        titles: list[str] = []
+
+        for achievement in achievements or []:
+            title = str(getattr(achievement, "title", "") or "").strip()
+            fact_status = str(getattr(achievement, "fact_status", "") or "").strip()
+
+            if title and fact_status == "confirmed":
+                titles.append(title)
+
+        return self._dedupe_preserve_order(titles)
+
     def _select_relevant_achievements(
         self,
         achievement_titles: list[str],
@@ -238,7 +254,7 @@ class CoverLetterGenerationService:
             selected.append(
                 {
                     "title": title,
-                    "fact_status": "needs_confirmation",
+                    "fact_status": "confirmed",
                     "reason": reason,
                 }
             )
@@ -331,6 +347,7 @@ class CoverLetterGenerationService:
                 "fact_status": item["fact_status"],
             }
             for item in selected_achievements
+            if item.get("fact_status") != "confirmed"
         ]
 
     def _build_warnings(
@@ -342,7 +359,7 @@ class CoverLetterGenerationService:
     ) -> list[str]:
         warnings: list[str] = []
 
-        if selected_achievements:
+        if any(item.get("fact_status") != "confirmed" for item in selected_achievements):
             warnings.append(
                 "selected achievements remain in needs_confirmation status and require user review"
             )

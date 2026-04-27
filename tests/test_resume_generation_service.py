@@ -155,3 +155,51 @@ def test_resume_filters_low_confidence_experience_from_noisy_layout() -> None:
             "description_raw": "video layout noise",
         }
     )
+
+
+
+def test_resume_generation_uses_only_confirmed_achievement_titles() -> None:
+    service = ResumeGenerationService()
+
+    achievements = [
+        SimpleNamespace(
+            title="?????????????? AI-??????",
+            fact_status="confirmed",
+        ),
+        SimpleNamespace(
+            title="???????????????? ??????",
+            fact_status="needs_confirmation",
+        ),
+        SimpleNamespace(
+            title="",
+            fact_status="confirmed",
+        ),
+    ]
+
+    titles = service._get_confirmed_achievement_titles(achievements)
+
+    assert titles == ["?????????????? AI-??????"]
+
+
+def test_resume_selected_achievements_are_confirmed_and_do_not_create_claims() -> None:
+    service = ResumeGenerationService()
+
+    selected = service._select_relevant_achievements(
+        achievement_titles=["?????????????? AI-??????"],
+        keywords=["Python"],
+    )
+
+    assert selected == [
+        {
+            "title": "?????????????? AI-??????",
+            "fact_status": "confirmed",
+            "reason": "ai_relevance",
+        }
+    ]
+
+    claims = service._build_claims_needing_confirmation(
+        profile=SimpleNamespace(full_name="Test User"),
+        selected_achievements=selected,
+    )
+
+    assert claims == []
