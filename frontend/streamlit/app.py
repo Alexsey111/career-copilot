@@ -102,8 +102,8 @@ def render_home() -> None:
     )
 
     st.info(
-        "Priority 10.1 добавляет только каркас frontend и API-клиент. "
-        "Полный MVP-сценарий будет подключаться по шагам."
+        "Frontend подключает полный MVP-сценарий. "
+        "Все внешние действия остаются human-in-the-loop: система не отправляет отклики автоматически."
     )
 
 
@@ -150,11 +150,15 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
         st.session_state.resume_import = None
         st.session_state.structured_profile = None
         st.session_state.achievements = None
+        st.session_state.vacancy = None
         st.session_state.vacancy_analysis = None
         st.session_state.generated_resume = None
         st.session_state.generated_cover_letter = None
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Резюме загружено")
 
     if st.session_state.source_file:
@@ -220,6 +224,9 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
         st.session_state.generated_cover_letter = None
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Резюме импортировано")
 
     if st.session_state.resume_import:
@@ -286,6 +293,15 @@ def render_structured_profile_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.structured_profile = result
+        st.session_state.achievements = None
+        st.session_state.vacancy_analysis = None
+        st.session_state.generated_resume = None
+        st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Структурированный профиль извлечён")
 
     if st.session_state.structured_profile:
@@ -384,6 +400,14 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.achievements = result
+        st.session_state.vacancy_analysis = None
+        st.session_state.generated_resume = None
+        st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Достижения извлечены")
 
     if st.session_state.achievements:
@@ -512,6 +536,9 @@ def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
         st.session_state.generated_cover_letter = None
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Вакансия импортирована")
 
     if st.session_state.vacancy:
@@ -577,6 +604,9 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient) -> None:
         st.session_state.generated_cover_letter = None
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Вакансия проанализирована")
 
     if st.session_state.vacancy_analysis:
@@ -719,6 +749,9 @@ def render_resume_generation_step(client: CareerCopilotApiClient) -> None:
         st.session_state.generated_cover_letter = None
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Адаптированное резюме сгенерировано")
 
     if st.session_state.generated_resume:
@@ -817,6 +850,9 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient) -> None:
         st.session_state.generated_cover_letter = result
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Сопроводительное письмо сгенерировано")
 
     if st.session_state.generated_cover_letter:
@@ -1091,6 +1127,8 @@ def render_application_creation_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.application = result
+        st.session_state.interview_session = None
+        st.session_state.interview_answers_result = None
         st.success("Запись отклика создана")
 
     if st.session_state.application:
