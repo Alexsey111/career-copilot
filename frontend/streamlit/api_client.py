@@ -94,6 +94,14 @@ class CareerCopilotApiClient:
         response.raise_for_status()
         return response.json()
 
+    def get_text(self, path: str) -> str:
+        response = httpx.get(
+            self._build_url(path),
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        return response.text
+
     def post_json(self, path: str, payload: dict[str, Any]) -> Any:
         response = httpx.post(
             self._build_url(path),

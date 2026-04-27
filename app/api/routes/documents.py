@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_dev_user
@@ -26,6 +26,22 @@ from app.services.resume_generation_service import ResumeGenerationService
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+SUPPORTED_EXPORT_FORMATS = {
+    "txt": "text/plain; charset=utf-8",
+    "md": "text/markdown; charset=utf-8",
+}
+
+
+def _build_export_filename(
+    *,
+    document_kind: str,
+    document_id: UUID,
+    export_format: str,
+) -> str:
+    safe_kind = document_kind.replace("_", "-")
+    return f"career-copilot-{safe_kind}-{document_id}.{export_format}"
 
 
 @router.post("/resumes/generate", response_model=ResumeGenerateResponse)
@@ -107,6 +123,57 @@ async def get_document(
         rendered_text=document.rendered_text,
         created_at=document.created_at,
         updated_at=document.updated_at,
+    )
+
+
+@router.get("/{document_id}/export/{export_format}")
+async def export_document(
+    document_id: UUID,
+    export_format: str,
+    current_user: User = Depends(get_current_dev_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> Response:
+    normalized_format = export_format.lower().strip()
+
+    if normalized_format not in SUPPORTED_EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="unsupported export format; use txt or md",
+        )
+
+    repo = DocumentVersionRepository()
+    document = await repo.get_by_id(session, document_id)
+
+    if document is None or document.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="document not found",
+        )
+
+    if document.review_status != "approved" or not document.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="document must be approved and active before export",
+        )
+
+    if not document.rendered_text:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="document has no rendered text to export",
+        )
+
+    filename = _build_export_filename(
+        document_kind=document.document_kind,
+        document_id=document.id,
+        export_format=normalized_format,
+    )
+
+    return Response(
+        content=document.rendered_text,
+        media_type=SUPPORTED_EXPORT_FORMATS[normalized_format],
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )
 
 

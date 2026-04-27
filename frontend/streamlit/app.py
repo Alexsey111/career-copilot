@@ -1195,6 +1195,64 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
 
         st.info("Следующий шаг — создать запись отклика без автоматической отправки.")
 
+        st.markdown("### Экспорт документов")
+
+        approved_resume_id = st.session_state.approved_resume.get("document_id")
+        approved_cover_letter_id = st.session_state.approved_cover_letter.get("document_id")
+
+        if approved_resume_id and approved_cover_letter_id:
+            try:
+                resume_txt = client.get_text(f"/documents/{approved_resume_id}/export/txt")
+                resume_md = client.get_text(f"/documents/{approved_resume_id}/export/md")
+                cover_letter_txt = client.get_text(
+                    f"/documents/{approved_cover_letter_id}/export/txt"
+                )
+                cover_letter_md = client.get_text(
+                    f"/documents/{approved_cover_letter_id}/export/md"
+                )
+            except httpx.HTTPStatusError as exc:
+                st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при экспорте")
+                st.code(exc.response.text)
+            except httpx.RequestError as exc:
+                st.error("Не удалось подключиться к backend для экспорта")
+                st.code(str(exc))
+            else:
+                col_resume_export, col_letter_export = st.columns(2)
+
+                with col_resume_export:
+                    st.markdown("#### Резюме")
+                    st.download_button(
+                        "Скачать резюме TXT",
+                        data=resume_txt,
+                        file_name="resume.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        "Скачать резюме MD",
+                        data=resume_md,
+                        file_name="resume.md",
+                        mime="text/markdown",
+                        use_container_width=True,
+                    )
+
+                with col_letter_export:
+                    st.markdown("#### Сопроводительное письмо")
+                    st.download_button(
+                        "Скачать письмо TXT",
+                        data=cover_letter_txt,
+                        file_name="cover_letter.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        "Скачать письмо MD",
+                        data=cover_letter_md,
+                        file_name="cover_letter.md",
+                        mime="text/markdown",
+                        use_container_width=True,
+                    )
+
 
 def render_application_creation_step(client: CareerCopilotApiClient) -> None:
     st.subheader("10. Создание записи отклика")
