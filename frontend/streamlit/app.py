@@ -22,6 +22,8 @@ def init_session_state() -> None:
         st.session_state.source_file = None
     if "resume_import" not in st.session_state:
         st.session_state.resume_import = None
+    if "structured_profile" not in st.session_state:
+        st.session_state.structured_profile = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -126,6 +128,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
 
         st.session_state.source_file = result
         st.session_state.resume_import = None
+        st.session_state.structured_profile = None
         st.success("Резюме загружено")
 
     if st.session_state.source_file:
@@ -184,6 +187,7 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.resume_import = result
+        st.session_state.structured_profile = None
         st.success("Резюме импортировано")
 
     if st.session_state.resume_import:
@@ -207,6 +211,99 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
                 st.text(text_preview)
 
 
+def render_structured_profile_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("3. Извлечение структурированного профиля")
+
+    resume_import = st.session_state.resume_import
+    if not resume_import:
+        st.info("Сначала импортируйте резюме на шаге 2.")
+        return
+
+    extraction_id = resume_import.get("extraction_id")
+    if not extraction_id:
+        st.error("В результате импорта не найден extraction_id.")
+        st.json(resume_import)
+        return
+
+    st.caption(f"extraction_id: {extraction_id}")
+
+    if st.button("Извлечь структурированный профиль", type="primary", use_container_width=True):
+        try:
+            result = client.post_json(
+                "/profile/extract-structured",
+                {
+                    "extraction_id": extraction_id,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.structured_profile = result
+        st.success("Структурированный профиль извлечён")
+
+    if st.session_state.structured_profile:
+        profile = st.session_state.structured_profile
+
+        st.markdown("### Структурированный профиль")
+
+        col_left, col_right = st.columns(2)
+
+        with col_left:
+            st.text_input(
+                "ФИО",
+                value=profile.get("full_name") or "",
+                disabled=True,
+            )
+            st.text_input(
+                "Заголовок профиля",
+                value=profile.get("headline") or "",
+                disabled=True,
+            )
+            st.text_input(
+                "Локация",
+                value=profile.get("location") or "",
+                disabled=True,
+            )
+
+        with col_right:
+            st.metric(
+                "Количество опытов работы",
+                profile.get("experience_count", 0),
+            )
+            st.caption(f"profile_id: {profile.get('profile_id')}")
+            st.caption(f"extraction_id: {profile.get('extraction_id')}")
+
+        target_roles = profile.get("target_roles") or []
+        if target_roles:
+            st.markdown("#### Целевые роли")
+            for role in target_roles:
+                st.markdown(f"- {role}")
+
+        warnings = profile.get("warnings") or []
+        if warnings:
+            st.markdown("#### Предупреждения")
+            for warning in warnings:
+                st.warning(warning)
+
+        with st.expander("Raw JSON результата", expanded=False):
+            st.json(profile)
+
+
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
@@ -218,8 +315,11 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
     st.divider()
 
+    render_structured_profile_step(client)
+
+    st.divider()
+
     steps = [
-        "3. Извлечь структурированный профиль",
         "4. Извлечь достижения",
         "5. Импортировать вакансию",
         "6. Проанализировать вакансию",
@@ -234,7 +334,7 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     for step in steps:
         st.checkbox(step, value=False, disabled=True)
 
-    st.warning("Следующие действия будут подключаться по одному в Priority 10.4+.")
+    st.warning("Следующие действия будут подключаться по одному в Priority 10.5+.")
 
 
 def main() -> None:

@@ -182,16 +182,20 @@ class ProfileStructuringService:
             "О СЕБЕ",
         }
 
-        for line in lines[:6]:
+        for line in lines[:12]:
+            if self._is_contact_or_location_line(line):
+                continue
+
             if re.search(r"\d{2}\.\d{2}\.\d{4}", line):
-                break
+                if candidate_parts:
+                    break
+                continue
 
             normalized = self._normalize_heading(line)
             if normalized in stop_headings:
-                break
-
-            if "@" in line or "http" in line.lower():
-                break
+                if candidate_parts:
+                    break
+                continue
 
             if not re.fullmatch(r"[A-Za-zА-Яа-яЁё -]{2,80}", line):
                 if candidate_parts:
@@ -215,6 +219,29 @@ class ProfileStructuringService:
 
         return None
 
+    def _is_contact_or_location_line(self, line: str) -> bool:
+        normalized = line.strip().lower()
+
+        if not normalized:
+            return True
+
+        if "@" in normalized:
+            return True
+
+        if normalized.startswith("http://") or normalized.startswith("https://"):
+            return True
+
+        if re.search(r"\+?\d[\d\s().-]{6,}", normalized):
+            return True
+
+        if normalized.startswith("г.") or "россия" in normalized:
+            return True
+
+        if "ул." in normalized or "кв." in normalized or "д." in normalized:
+            return True
+
+        return False
+
     def _extract_location(self, lines: list[str]) -> str | None:
         for line in lines:
             if "Россия" in line:
@@ -224,13 +251,88 @@ class ProfileStructuringService:
         return None
 
     def _extract_target_roles(self, lines: list[str]) -> list[str]:
-        section_lines = self._lines_after_heading(lines, "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ", max_lines=2)
+        section_lines = self._lines_after_heading(lines, "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ", max_lines=3)
         if not section_lines:
             return []
 
-        roles_line = section_lines[0]
-        roles = [part.strip() for part in roles_line.split(",") if part.strip()]
-        return roles
+        raw_text = " ".join(section_lines)
+        raw_parts = [part.strip() for part in re.split(r"[,;|]", raw_text) if part.strip()]
+
+        roles: list[str] = []
+        for raw_part in raw_parts:
+            role = self._normalize_target_role_candidate(raw_part)
+            if role:
+                roles.append(role)
+
+        return self._dedupe_preserve_order(roles)[:5]
+
+    def _normalize_target_role_candidate(self, value: str) -> str | None:
+        cleaned = re.sub(r"^\d+[.)]\s*", "", value.strip())
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—•")
+
+        if not cleaned:
+            return None
+
+        english_fragments = [
+            match.group(0).strip()
+            for match in re.finditer(
+                r"[A-Za-z][A-Za-z+#./-]*(?:\s+[A-Za-z][A-Za-z+#./-]*){0,3}",
+                cleaned,
+            )
+        ]
+
+        if english_fragments:
+            best_fragment = max(english_fragments, key=len)
+            if len(best_fragment) >= 3:
+                return best_fragment
+
+        if self._looks_like_target_role_noise(cleaned):
+            return None
+
+        words = cleaned.split()
+        if 1 <= len(words) <= 6 and len(cleaned) <= 80:
+            return cleaned
+
+        return None
+
+    def _looks_like_target_role_noise(self, value: str) -> bool:
+        lowered = value.lower()
+
+        noise_markers = {
+            "мониторинг",
+            "безопасности",
+            "пансионат",
+            "пожилых",
+            "создание",
+            "системы",
+            "качества",
+            "изделий",
+            "изображениям",
+            "видео",
+            "отзывов",
+            "населения",
+            "объектах",
+            "инфраструктуры",
+            "прогнозирования",
+            "университет",
+            "ооо",
+        }
+
+        return any(marker in lowered for marker in noise_markers)
+
+    def _dedupe_preserve_order(self, values: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+
+        for value in values:
+            key = value.casefold()
+            if key in seen:
+                continue
+
+            seen.add(key)
+            result.append(value)
+
+        return result
 
     def _extract_skills_summary(self, lines: list[str]) -> str | None:
         section = self._extract_section(

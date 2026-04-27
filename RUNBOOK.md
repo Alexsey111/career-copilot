@@ -289,6 +289,30 @@ python .\scripts\dev_db_reset.py
 python -m uvicorn app.main:app --reload
 ```
 
+### Docker API container vs local uvicorn
+
+Для локальной разработки backend обычно запускается через:
+
+```powershell
+python -m uvicorn app.main:app --reload
+```
+
+При этом Docker API-контейнер не должен занимать порт 8000.
+
+Проверить контейнеры:
+
+```powershell
+docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Ports}}"
+```
+
+Если `career-copilot-api` публикует `0.0.0.0:8000->8000/tcp`, остановить его:
+
+```powershell
+docker stop career-copilot-api
+```
+
+Postgres, Redis и MinIO оставлять запущенными.
+
 Проверить, кто слушает порт 8000:
 
 ```powershell
