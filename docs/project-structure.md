@@ -109,7 +109,7 @@ app/api/
 - `router.py` собирает все роутеры в общий API.
 - `routes/health.py` отвечает за healthcheck.
 - `routes/files.py` принимает upload файлов.
-- `routes/profile.py` запускает импорт резюме, структурирование профиля и извлечение достижений.
+- `routes/profile.py` запускает импорт резюме, структурирование профиля, извлечение достижений и review достижений.
 - `routes/vacancies.py` импортирует вакансии и запускает анализ.
 - `routes/documents.py` генерирует резюме, cover letter и выполняет review документов.
 - `routes/applications.py` создает и читает application records.
@@ -190,7 +190,7 @@ app/repositories/
 - `source_file_repository.py` - загрузка и чтение исходных файлов.
 - `file_extraction_repository.py` - работа с извлечением текста из файлов.
 - `candidate_profile_repository.py` - профиль кандидата и связанные данные.
-- `candidate_achievement_repository.py` - замена/создание достижений.
+- `candidate_achievement_repository.py` - замена/создание достижений и обновление review-полей.
 - `vacancy_repository.py` - вакансии.
 - `vacancy_analysis_repository.py` - анализ вакансий.
 - `document_version_repository.py` - версии документов и активные черновики.
@@ -218,7 +218,7 @@ app/schemas/
 - `source_file.py` - read-модель файла.
 - `profile_import.py` - импорт резюме из файла.
 - `profile_structured.py` - результат структурирования профиля.
-- `achievement_extract.py` - результат извлечения достижений.
+- `achievement_extract.py` - результат извлечения достижений и read-модель review-полей.
 - `vacancy.py` - импорт и чтение вакансий, а также анализ.
 - `document.py` - генерация и review документов.
 - `application.py` - создание, чтение и обновление заявок.
@@ -252,7 +252,7 @@ app/services/
 - `source_file_service.py` - загрузка файла, поиск пользователя и создание source file.
 - `profile_import_service.py` - запуск импорта профиля из source file.
 - `profile_structuring_service.py` - извлечение структурированных данных и опыта.
-- `achievement_extraction_service.py` - извлечение достижений из raw текста.
+- `achievement_extraction_service.py` - извлечение достижений из raw текста с `fact_status = needs_confirmation`.
 - `vacancy_import_service.py` - импорт вакансии из текста или URL.
 - `vacancy_analysis_service.py` - анализ вакансии и сопоставление с профилем.
 - `resume_generation_service.py` - генерация резюме под вакансию.
@@ -281,6 +281,7 @@ frontend/
 ```
 
 - `app.py` содержит full MVP UI flow.
+- `app.py` также содержит human-in-the-loop review достижений: редактирование title/evidence note и выбор статуса факта.
 - `api_client.py` инкапсулирует вызовы backend API.
 
 ## Папка `scripts/`
@@ -364,11 +365,17 @@ tests/
 4. Далее `POST /profile/extract-structured` запускает `ProfileStructuringService`.
 5. Сервис заполняет `CandidateProfile` и `CandidateExperience`.
 
-### 3. Извлечение достижений
+### 3. Извлечение и review достижений
 
 1. Клиент вызывает `POST /profile/extract-achievements`.
 2. `AchievementExtractionService` читает `FileExtraction`.
 3. Из текста формируются `CandidateAchievement`.
+4. Каждое новое достижение получает `fact_status = needs_confirmation`.
+5. Пользователь проверяет, редактирует и подтверждает достижения.
+6. Клиент вызывает `PATCH /profile/achievements/{achievement_id}/review`.
+7. Подтвержденные достижения получают `fact_status = confirmed`.
+
+В Streamlit шаг импорта вакансии блокируется, пока все извлеченные достижения не подтверждены.
 
 ### 4. Вакансии
 
@@ -382,7 +389,10 @@ tests/
 
 1. Клиент вызывает `POST /documents/resumes/generate` или `POST /documents/letters/generate`.
 2. Сервисы читают вакансию, профиль и анализ.
-3. Создается `DocumentVersion`.
+3. `ResumeGenerationService` и `CoverLetterGenerationService` выбирают только `confirmed` achievements.
+4. `needs_confirmation` achievements не попадают в `selected_achievements` и `rendered_text`.
+5. Создается `DocumentVersion` в статусе `draft`.
+6. Далее документ должен пройти review через `PATCH /documents/{document_id}/review`.
 
 ### 6. Заявки
 
@@ -408,6 +418,8 @@ tests/
   - список опыта внутри профиля
 - `candidate_achievements`
   - список достижений внутри профиля
+  - хранит `fact_status`, `evidence_note`, STAR-поля и порядок отображения
+  - для безопасной генерации документов используются только записи со статусом `confirmed`
 - `source_files`
   - загруженные исходные файлы
 - `file_extractions`
@@ -428,6 +440,9 @@ tests/
 Есть:
 
 - весь основной CRUD и доменная логика по профилю, вакансиям, документам и заявкам
+- review API для достижений
+- frontend gate, который блокирует импорт вакансии до подтверждения достижений
+- backend safety filter, который использует в документах только `confirmed` achievements
 - PostgreSQL-схема через SQLAlchemy и Alembic
 - базовый healthcheck
 

@@ -14,7 +14,7 @@ tag: mvp-smoke-pass-2026-04-27
 
 ```text
 python -m py_compile frontend/streamlit/app.py: OK
-pytest -q: 58 passed
+pytest -q: 62 passed
 scripts/smoke_mvp_flow.py: MVP SMOKE PASSED
 ```
 
@@ -42,6 +42,13 @@ scripts/smoke_mvp_flow.py: MVP SMOKE PASSED
 - выдумывание опыта, достижений или метрик
 
 Все сильные утверждения должны быть подтверждены пользователем или помечены как требующие подтверждения.
+
+Текущее MVP-правило для достижений:
+
+- извлеченные достижения сначала получают `fact_status = needs_confirmation`
+- пользователь проверяет и редактирует достижения в Streamlit
+- только достижения со статусом `confirmed` могут использоваться как сильные утверждения в документах
+- backend-генерация резюме и сопроводительного письма дополнительно фильтрует достижения и использует только `confirmed`
 
 ## Local Prerequisites
 
@@ -116,12 +123,12 @@ python .\scripts\smoke_mvp_flow.py
 
 Ожидаемый результат:
 
-- `58 passed`
+- `62 passed`
 - `MVP SMOKE PASSED`
 
 ## MVP Smoke Flow
 
-Smoke script проверяет:
+Smoke script проверяет backend API baseline:
 
 1. upload resume
 2. import resume
@@ -138,6 +145,8 @@ Smoke script проверяет:
 13. update application status to submitted
 14. create interview session
 15. submit interview answers
+
+Важно: API smoke не подтверждает достижения вручную. Это допустимо, потому что backend document generation теперь не использует `needs_confirmation` achievements в `selected_achievements` и `rendered_text`.
 
 ## Expected Deterministic Vacancy Analysis
 
@@ -171,6 +180,33 @@ Expected analysis:
   - PostgreSQL
   - Redis
 - match_score: 64
+
+## Expected Achievement Review Lifecycle
+
+After achievement extraction:
+
+- `fact_status`: `needs_confirmation`
+- `evidence_note`: auto-extraction note
+- achievement can be edited and reviewed through Streamlit
+- backend endpoint: `PATCH /profile/achievements/{achievement_id}/review`
+
+Allowed fact statuses:
+
+- `needs_confirmation`
+- `confirmed`
+
+Streamlit behavior:
+
+- step 5, vacancy import, is blocked until all extracted achievements are `confirmed`
+- user can edit achievement title and evidence note before confirmation
+- UI labels are localized, while backend keeps technical values
+
+Backend safety behavior:
+
+- resume generation uses only `confirmed` achievements
+- cover letter generation uses only `confirmed` achievements
+- `needs_confirmation` achievements are not rendered into documents as relevant projects
+- document generation is not blocked by unconfirmed achievements; unsupported achievements are simply excluded
 
 ## Expected Document Lifecycle
 
@@ -253,8 +289,8 @@ Known limitations:
 - profile extraction is heuristic
 - two-column resumes can still be noisy
 - achievements are extracted conservatively
-- metrics/results are not inferred
-- `fact_status` remains `needs_confirmation`
+- metrics/results are not inferred automatically
+- achievement confirmation is manual and currently handled in Streamlit
 - interview answer editor in Streamlit currently covers first 2 answers for smoke/demo
 - LLM orchestration layer is not the default path yet
 
@@ -262,11 +298,11 @@ Known limitations:
 
 Recommended next steps after this baseline:
 
-1. UI for editing and confirming achievements
-2. Better structured profile extraction
-3. Export documents to TXT/MD/DOCX
-4. Application list/dashboard
-5. Full interview answer editor for all questions
+1. Better structured profile extraction
+2. Export documents to TXT/MD/DOCX
+3. Application list/dashboard
+4. Full interview answer editor for all questions
+5. Richer achievement proof model: STAR fields, metrics and evidence sources
 6. LLM layer using extract facts first -> validate -> generate later
 
 Do not add auto-apply, hidden browser automation, or credential storage.
