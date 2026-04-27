@@ -30,6 +30,8 @@ def init_session_state() -> None:
         st.session_state.vacancy = None
     if "vacancy_analysis" not in st.session_state:
         st.session_state.vacancy_analysis = None
+    if "generated_resume" not in st.session_state:
+        st.session_state.generated_resume = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -137,6 +139,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
         st.session_state.structured_profile = None
         st.session_state.achievements = None
         st.session_state.vacancy_analysis = None
+        st.session_state.generated_resume = None
         st.success("Резюме загружено")
 
     if st.session_state.source_file:
@@ -198,6 +201,7 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
         st.session_state.structured_profile = None
         st.session_state.achievements = None
         st.session_state.vacancy_analysis = None
+        st.session_state.generated_resume = None
         st.success("Резюме импортировано")
 
     if st.session_state.resume_import:
@@ -486,6 +490,7 @@ def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
 
         st.session_state.vacancy = result
         st.session_state.vacancy_analysis = None
+        st.session_state.generated_resume = None
         st.success("Вакансия импортирована")
 
     if st.session_state.vacancy:
@@ -547,6 +552,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.vacancy_analysis = result
+        st.session_state.generated_resume = None
         st.success("Вакансия проанализирована")
 
     if st.session_state.vacancy_analysis:
@@ -630,6 +636,93 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient) -> None:
             st.json(analysis)
 
 
+def render_resume_generation_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("7. Генерация адаптированного резюме")
+
+    vacancy = st.session_state.vacancy
+    if not vacancy:
+        st.info("Сначала импортируйте вакансию на шаге 5.")
+        return
+
+    vacancy_analysis = st.session_state.vacancy_analysis
+    if not vacancy_analysis:
+        st.info("Сначала проанализируйте вакансию на шаге 6.")
+        return
+
+    vacancy_id = vacancy.get("vacancy_id") or vacancy.get("id")
+    if not vacancy_id:
+        st.error("В результате импорта вакансии не найден vacancy_id.")
+        st.json(vacancy)
+        return
+
+    st.caption(f"vacancy_id: {vacancy_id}")
+
+    match_score = vacancy_analysis.get("match_score")
+    if match_score is not None:
+        st.metric("Match score перед генерацией", match_score)
+
+    st.warning(
+        "Резюме будет создано как draft. Перед использованием его нужно проверить и подтвердить человеком."
+    )
+
+    if st.button("Сгенерировать адаптированное резюме", type="primary", use_container_width=True):
+        try:
+            result = client.post_json(
+                "/documents/resumes/generate",
+                {
+                    "vacancy_id": vacancy_id,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.generated_resume = result
+        st.success("Адаптированное резюме сгенерировано")
+
+    if st.session_state.generated_resume:
+        resume = st.session_state.generated_resume
+
+        st.markdown("### Сгенерированное резюме")
+        st.json(
+            {
+                "document_id": resume.get("document_id"),
+                "vacancy_id": resume.get("vacancy_id"),
+                "review_status": resume.get("review_status"),
+                "version_label": resume.get("version_label"),
+                "created_at": resume.get("created_at"),
+            }
+        )
+
+        preview = resume.get("rendered_text_preview")
+        if preview:
+            st.markdown("#### Предпросмотр")
+            st.text_area(
+                "Текст резюме",
+                value=preview,
+                height=420,
+                disabled=True,
+            )
+
+        review_status = resume.get("review_status")
+        if review_status == "draft":
+            st.info("Статус документа: draft. Следующий шаг — проверка и подтверждение.")
+
+
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
@@ -657,8 +750,11 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
     st.divider()
 
+    render_resume_generation_step(client)
+
+    st.divider()
+
     steps = [
-        "7. Сгенерировать адаптированное резюме",
         "8. Сгенерировать сопроводительное письмо",
         "9. Подтвердить документы",
         "10. Создать отклик",
@@ -669,7 +765,7 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     for step in steps:
         st.checkbox(step, value=False, disabled=True)
 
-    st.warning("Следующие действия будут подключаться по одному в Priority 10.8+.")
+    st.warning("Следующие действия будут подключаться по одному в Priority 10.9+.")
 
 
 def main() -> None:

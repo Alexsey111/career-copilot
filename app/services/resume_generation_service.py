@@ -207,9 +207,38 @@ class ResumeGenerationService:
             return []
 
         parts = re.split(r"[,\n;]+", text)
-        return self._dedupe_preserve_order(
-            [part.strip(" .") for part in parts if part.strip(" .")]
-        )
+        cleaned_parts = [
+            cleaned
+            for part in parts
+            if (cleaned := self._clean_skill_candidate(part))
+        ]
+        return self._dedupe_preserve_order(cleaned_parts)
+
+    def _clean_skill_candidate(self, value: str) -> str | None:
+        cleaned = re.sub(r"\s+", " ", value.strip(" .;-–—•"))
+        if not cleaned:
+            return None
+
+        noise_markers = [
+            "Прошел",
+            "Прошёл",
+            "направлению",
+            "Желаемая должность",
+            "ОПЫТ РАБОТЫ",
+            "ОБРАЗОВАНИЕ",
+        ]
+
+        for marker in noise_markers:
+            if marker in cleaned:
+                cleaned = cleaned.split(marker, 1)[0].strip(" .;-–—•")
+
+        if not cleaned:
+            return None
+
+        if len(cleaned) > 80:
+            return None
+
+        return cleaned
 
     def _extract_match_keywords_from_analysis(
         self,
@@ -262,7 +291,11 @@ class ResumeGenerationService:
             return []
 
         joined = " ".join(section_lines)
-        parts = [part.strip(" .") for part in joined.split(",") if part.strip()]
+        parts = [
+            cleaned
+            for part in joined.split(",")
+            if (cleaned := self._clean_skill_candidate(part))
+        ]
         return self._dedupe_preserve_order(parts)
 
     def _select_resume_skills(
@@ -365,50 +398,65 @@ class ResumeGenerationService:
         bullets: list[str] = []
 
         if profile.headline:
-            bullets.append(
-                f"Candidate profile aligned with {vacancy_title} positioning: {profile.headline}."
-            )
+            bullets.append(f"Профессиональный фокус: {profile.headline}.")
 
         if matched_keywords:
             bullets.append(
-                f"Profile-confirmed relevant skills for this vacancy: {', '.join(matched_keywords[:6])}."
+                f"Подтверждённые пересечения с вакансией {vacancy_title}: "
+                f"{', '.join(matched_keywords[:6])}."
             )
 
         if selected_skills:
             bullets.append(
-                f"Broader skill base from source resume: {', '.join(selected_skills[:8])}."
+                f"Дополнительные навыки из резюме: {', '.join(selected_skills[:8])}."
             )
 
         if selected_achievements:
             bullets.append(
-                f"Relevant project experience to review: {selected_achievements[0]['title']}."
+                "Проектный опыт для проверки и возможного использования в отклике: "
+                f"{selected_achievements[0]['title']}."
             )
 
-        if profile.experiences:
-            current_exp = profile.experiences[0]
-            start_part = (
-                current_exp.start_date.strftime("%Y") if current_exp.start_date else "unknown start"
-            )
-            bullets.append(
-                f"Recent role: {current_exp.role} at {current_exp.company} since {start_part}."
-            )
-
-        return bullets[:5]
+        return bullets[:4]
 
     def _build_experience_items(self, profile) -> list[dict]:
         items: list[dict] = []
 
         for exp in profile.experiences[:5]:
-            items.append(
-                {
-                    "company": exp.company,
-                    "role": exp.role,
-                    "period": self._format_period(exp.start_date, exp.end_date),
-                    "description_raw": exp.description_raw,
-                }
-            )
+            item = {
+                "company": exp.company,
+                "role": exp.role,
+                "period": self._format_period(exp.start_date, exp.end_date),
+                "description_raw": exp.description_raw,
+            }
+
+            if self._looks_like_low_confidence_experience_item(item):
+                continue
+
+            items.append(item)
 
         return items
+
+    def _looks_like_low_confidence_experience_item(self, item: dict) -> bool:
+        combined = " ".join(
+            str(item.get(field) or "")
+            for field in ("company", "role", "description_raw")
+        )
+        normalized = combined.lower()
+
+        if re.search(r"\b\d+\.\s+", combined):
+            return True
+
+        noise_markers = [
+            "ии-контроль",
+            "пвх оконных",
+            "по изображениям",
+            "видео",
+            "университет",
+            "автоматизированный",
+        ]
+
+        return any(marker in normalized for marker in noise_markers)
 
     def _build_claims_needing_confirmation(
         self,
@@ -507,36 +555,40 @@ class ResumeGenerationService:
             lines.append(candidate["location"])
 
         lines.append("")
-        lines.append("TARGET ROLE")
+        lines.append("ЦЕЛЕВАЯ ПОЗИЦИЯ")
         lines.append(vacancy["title"])
 
         lines.append("")
-        lines.append("SUMMARY")
+        lines.append("КРАТКОЕ РЕЗЮМЕ")
         for bullet in sections["summary_bullets"]:
             lines.append(f"- {bullet}")
 
         lines.append("")
-        lines.append("SKILLS")
+        lines.append("КЛЮЧЕВЫЕ НАВЫКИ")
         for skill in sections["skills"]:
             lines.append(f"- {skill}")
 
-        lines.append("")
-        lines.append("EXPERIENCE")
-        for item in sections["experience"]:
-            lines.append(f"{item['role']} — {item['company']} ({item['period']})")
-            if item.get("description_raw"):
-                lines.append(f"- {item['description_raw']}")
+        experience_items = sections["experience"]
+        if experience_items:
+            lines.append("")
+            lines.append("ОПЫТ РАБОТЫ")
+            for item in experience_items:
+                lines.append(f"{item['role']} — {item['company']} ({item['period']})")
+                if item.get("description_raw"):
+                    lines.append(f"- {item['description_raw']}")
 
-        lines.append("")
-        lines.append("RELEVANT PROJECTS")
-        for item in sections["selected_achievements"]:
-            lines.append(f"- {item['title']} [{item['fact_status']}]")
+        selected_achievements = sections["selected_achievements"]
+        if selected_achievements:
+            lines.append("")
+            lines.append("РЕЛЕВАНТНЫЕ ПРОЕКТЫ")
+            for item in selected_achievements:
+                lines.append(f"- {item['title']}")
 
         return "\n".join(lines).strip()
 
     def _format_period(self, start_date, end_date) -> str:
-        start = start_date.strftime("%m.%Y") if start_date else "unknown"
-        end = end_date.strftime("%m.%Y") if end_date else "present"
+        start = start_date.strftime("%m.%Y") if start_date else "не указано"
+        end = end_date.strftime("%m.%Y") if end_date else "н.в."
         return f"{start} - {end}"
 
     def _dedupe_preserve_order(self, values: list[str]) -> list[str]:
