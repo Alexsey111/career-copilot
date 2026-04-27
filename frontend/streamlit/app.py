@@ -431,8 +431,10 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
                     fact_status = achievement.get("fact_status")
                     if fact_status == "needs_confirmation":
                         st.warning("Требует подтверждения пользователем")
+                    elif fact_status == "confirmed":
+                        st.success("Подтверждено пользователем")
                     else:
-                        st.caption(f"fact_status: {fact_status}")
+                        st.caption(f"Статус факта: {fact_status}")
 
 
         if achievements:
@@ -444,79 +446,148 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
 
             if unconfirmed_achievements:
                 st.warning(
-                    "Перед импортом вакансии подтвердите извлечённые достижения. "
-                    "Это защищает pipeline от использования неподтверждённого опыта в документах."
+                    "Проверьте формулировки достижений перед импортом вакансии. "
+                    "Шаг 5 разблокируется только когда все достижения будут confirmed."
                 )
-
-                if st.button(
-                    "Подтвердить все извлечённые достижения",
-                    type="primary",
-                    use_container_width=True,
-                    key="confirm_all_achievements",
-                ):
-                    try:
-                        updated_items: list[dict] = []
-
-                        for achievement in achievements:
-                            achievement_id = achievement.get("id")
-                            title = str(achievement.get("title") or "").strip()
-
-                            if not achievement_id or not title:
-                                st.error(
-                                    "У всех достижений должен быть id и непустой текст."
-                                )
-                                return
-
-                            result = client.patch_json(
-                                f"/profile/achievements/{achievement_id}/review",
-                                {
-                                    "title": title,
-                                    "fact_status": "confirmed",
-                                    "evidence_note": (
-                                        achievement.get("evidence_note")
-                                        or "Confirmed by user in Streamlit UI."
-                                    ),
-                                },
-                            )
-
-                            if not isinstance(result, dict):
-                                st.error("Backend вернул неожиданный формат ответа")
-                                st.json(result)
-                                return
-
-                            updated_items.append(result)
-
-                    except httpx.HTTPStatusError as exc:
-                        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-                        st.code(exc.response.text)
-                        return
-                    except httpx.RequestError as exc:
-                        st.error("Не удалось подключиться к backend")
-                        st.code(str(exc))
-                        return
-                    except ValueError as exc:
-                        st.error("Backend вернул неожиданный ответ")
-                        st.code(str(exc))
-                        return
-
-                    st.session_state.achievements = {
-                        **achievements_result,
-                        "achievement_count": len(updated_items),
-                        "achievements": updated_items,
-                    }
-                    st.session_state.vacancy_analysis = None
-                    st.session_state.generated_resume = None
-                    st.session_state.generated_cover_letter = None
-                    st.session_state.approved_resume = None
-                    st.session_state.approved_cover_letter = None
-                    st.session_state.application = None
-                    st.session_state.interview_session = None
-                    st.session_state.interview_answers_result = None
-
-                    st.success("Достижения подтверждены")
-                    st.rerun()
             else:
                 st.success("Все извлечённые достижения подтверждены.")
+
+            reviewed_items: list[dict] = []
+
+            with st.form("achievement_review_form"):
+                for index, achievement in enumerate(achievements, start=1):
+                    achievement_id = achievement.get("id")
+                    title = achievement.get("title") or ""
+                    fact_status = achievement.get("fact_status") or "needs_confirmation"
+                    evidence_note = achievement.get("evidence_note") or ""
+
+                    with st.container(border=True):
+                        st.markdown(f"#### Достижение {index}")
+
+                        if not achievement_id:
+                            st.error(
+                                "Backend не вернул id достижения. "
+                                "Повторите извлечение достижений после обновления backend."
+                            )
+
+                        edited_title = st.text_area(
+                            "Текст достижения",
+                            value=title,
+                            height=90,
+                            key=f"achievement_title_{achievement_id or index}",
+                        )
+
+                        status_options = ["needs_confirmation", "confirmed"]
+                        status_labels = {
+                            "needs_confirmation": "Требует подтверждения",
+                            "confirmed": "Подтверждено",
+                        }
+                        status_index = (
+                            status_options.index(fact_status)
+                            if fact_status in status_options
+                            else 0
+                        )
+
+                        edited_fact_status = st.selectbox(
+                            "Статус факта",
+                            options=status_options,
+                            index=status_index,
+                            key=f"achievement_status_{achievement_id or index}",
+                            format_func=lambda value: status_labels.get(value, value),
+                            help=(
+                                "«Подтверждено» — пользователь проверил факт, и его можно использовать в документах. "
+                                "«Требует подтверждения» — факт пока нельзя использовать как сильное утверждение."
+                            ),
+                        )
+
+                        edited_evidence_note = st.text_area(
+                            "Заметка / источник подтверждения",
+                            value=evidence_note,
+                            height=80,
+                            key=f"achievement_evidence_{achievement_id or index}",
+                        )
+
+                        if edited_fact_status == "confirmed":
+                            st.success("Это достижение будет считаться подтверждённым.")
+                        else:
+                            st.warning("Это достижение останется неподтверждённым.")
+
+                        reviewed_items.append(
+                            {
+                                "id": achievement_id,
+                                "title": edited_title,
+                                "fact_status": edited_fact_status,
+                                "evidence_note": edited_evidence_note,
+                            }
+                        )
+
+                submitted_review = st.form_submit_button(
+                    "Сохранить проверку достижений",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted_review:
+                invalid_items = [
+                    item
+                    for item in reviewed_items
+                    if not item.get("id") or not str(item.get("title") or "").strip()
+                ]
+
+                if invalid_items:
+                    st.error("У всех достижений должен быть id и непустой текст.")
+                    return
+
+                try:
+                    updated_items: list[dict] = []
+
+                    for item in reviewed_items:
+                        result = client.patch_json(
+                            f"/profile/achievements/{item['id']}/review",
+                            {
+                                "title": str(item["title"]).strip(),
+                                "fact_status": item["fact_status"],
+                                "evidence_note": str(item.get("evidence_note") or "").strip()
+                                or None,
+                            },
+                        )
+
+                        if not isinstance(result, dict):
+                            st.error("Backend вернул неожиданный формат ответа")
+                            st.json(result)
+                            return
+
+                        updated_items.append(result)
+
+                except httpx.HTTPStatusError as exc:
+                    st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+                    st.code(exc.response.text)
+                    return
+                except httpx.RequestError as exc:
+                    st.error("Не удалось подключиться к backend")
+                    st.code(str(exc))
+                    return
+                except ValueError as exc:
+                    st.error("Backend вернул неожиданный ответ")
+                    st.code(str(exc))
+                    return
+
+                st.session_state.achievements = {
+                    **achievements_result,
+                    "achievement_count": len(updated_items),
+                    "achievements": updated_items,
+                }
+                st.session_state.vacancy_analysis = None
+                st.session_state.generated_resume = None
+                st.session_state.generated_cover_letter = None
+                st.session_state.approved_resume = None
+                st.session_state.approved_cover_letter = None
+                st.session_state.application = None
+                st.session_state.interview_session = None
+                st.session_state.interview_answers_result = None
+
+                st.success("Проверка достижений сохранена")
+                st.rerun()
 
         warnings = achievements_result.get("warnings") or []
         if warnings:
