@@ -20,6 +20,8 @@ st.set_page_config(
 def init_session_state() -> None:
     if "source_file" not in st.session_state:
         st.session_state.source_file = None
+    if "resume_import" not in st.session_state:
+        st.session_state.resume_import = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -123,6 +125,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.source_file = result
+        st.session_state.resume_import = None
         st.success("Резюме загружено")
 
     if st.session_state.source_file:
@@ -138,6 +141,72 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
         )
 
 
+def render_resume_import_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("2. Импорт резюме")
+
+    source_file = st.session_state.source_file
+    if not source_file:
+        st.info("Сначала загрузите файл резюме на шаге 1.")
+        return
+
+    source_file_id = source_file.get("id")
+    if not source_file_id:
+        st.error("В загруженном файле не найден source_file_id.")
+        st.json(source_file)
+        return
+
+    st.caption(f"source_file_id: {source_file_id}")
+
+    if st.button("Импортировать резюме", type="primary", use_container_width=True):
+        try:
+            result = client.post_json(
+                "/profile/import-resume",
+                {
+                    "source_file_id": source_file_id,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.resume_import = result
+        st.success("Резюме импортировано")
+
+    if st.session_state.resume_import:
+        resume_import = st.session_state.resume_import
+
+        st.markdown("### Результат импорта")
+        st.json(
+            {
+                "profile_id": resume_import.get("profile_id"),
+                "source_file_id": resume_import.get("source_file_id"),
+                "extraction_id": resume_import.get("extraction_id"),
+                "status": resume_import.get("status"),
+                "detected_format": resume_import.get("detected_format"),
+                "text_length": resume_import.get("text_length"),
+            }
+        )
+
+        text_preview = resume_import.get("text_preview")
+        if text_preview:
+            with st.expander("Предпросмотр извлечённого текста", expanded=False):
+                st.text(text_preview)
+
+
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
@@ -145,8 +214,11 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
     st.divider()
 
+    render_resume_import_step(client)
+
+    st.divider()
+
     steps = [
-        "2. Импортировать резюме",
         "3. Извлечь структурированный профиль",
         "4. Извлечь достижения",
         "5. Импортировать вакансию",
@@ -162,7 +234,7 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     for step in steps:
         st.checkbox(step, value=False, disabled=True)
 
-    st.warning("Следующие действия будут подключаться по одному в Priority 10.3+.")
+    st.warning("Следующие действия будут подключаться по одному в Priority 10.4+.")
 
 
 def main() -> None:
