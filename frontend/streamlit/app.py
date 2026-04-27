@@ -24,6 +24,8 @@ def init_session_state() -> None:
         st.session_state.resume_import = None
     if "structured_profile" not in st.session_state:
         st.session_state.structured_profile = None
+    if "achievements" not in st.session_state:
+        st.session_state.achievements = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -129,6 +131,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
         st.session_state.source_file = result
         st.session_state.resume_import = None
         st.session_state.structured_profile = None
+        st.session_state.achievements = None
         st.success("Резюме загружено")
 
     if st.session_state.source_file:
@@ -188,6 +191,7 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
 
         st.session_state.resume_import = result
         st.session_state.structured_profile = None
+        st.session_state.achievements = None
         st.success("Резюме импортировано")
 
     if st.session_state.resume_import:
@@ -304,6 +308,90 @@ def render_structured_profile_step(client: CareerCopilotApiClient) -> None:
             st.json(profile)
 
 
+def render_achievements_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("4. Извлечение достижений")
+
+    resume_import = st.session_state.resume_import
+    if not resume_import:
+        st.info("Сначала импортируйте резюме на шаге 2.")
+        return
+
+    structured_profile = st.session_state.structured_profile
+    if not structured_profile:
+        st.info("Сначала извлеките структурированный профиль на шаге 3.")
+        return
+
+    extraction_id = resume_import.get("extraction_id")
+    if not extraction_id:
+        st.error("В результате импорта не найден extraction_id.")
+        st.json(resume_import)
+        return
+
+    st.caption(f"extraction_id: {extraction_id}")
+
+    if st.button("Извлечь достижения", type="primary", use_container_width=True):
+        try:
+            result = client.post_json(
+                "/profile/extract-achievements",
+                {
+                    "extraction_id": extraction_id,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.achievements = result
+        st.success("Достижения извлечены")
+
+    if st.session_state.achievements:
+        achievements_result = st.session_state.achievements
+
+        st.markdown("### Извлечённые достижения")
+
+        st.metric(
+            "Количество достижений",
+            achievements_result.get("achievement_count", 0),
+        )
+
+        st.caption(f"profile_id: {achievements_result.get('profile_id')}")
+        st.caption(f"extraction_id: {achievements_result.get('extraction_id')}")
+
+        achievements = achievements_result.get("achievements") or []
+        if achievements:
+            for index, achievement in enumerate(achievements, start=1):
+                with st.container(border=True):
+                    st.markdown(f"**{index}. {achievement.get('title', '')}**")
+                    fact_status = achievement.get("fact_status")
+                    if fact_status == "needs_confirmation":
+                        st.warning("Требует подтверждения пользователем")
+                    else:
+                        st.caption(f"fact_status: {fact_status}")
+
+        warnings = achievements_result.get("warnings") or []
+        if warnings:
+            st.markdown("#### Предупреждения")
+            for warning in warnings:
+                st.warning(warning)
+
+        with st.expander("Raw JSON результата", expanded=False):
+            st.json(achievements_result)
+
+
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
@@ -319,8 +407,11 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
     st.divider()
 
+    render_achievements_step(client)
+
+    st.divider()
+
     steps = [
-        "4. Извлечь достижения",
         "5. Импортировать вакансию",
         "6. Проанализировать вакансию",
         "7. Сгенерировать адаптированное резюме",
@@ -334,7 +425,7 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     for step in steps:
         st.checkbox(step, value=False, disabled=True)
 
-    st.warning("Следующие действия будут подключаться по одному в Priority 10.5+.")
+    st.warning("Следующие действия будут подключаться по одному в Priority 10.6+.")
 
 
 def main() -> None:
