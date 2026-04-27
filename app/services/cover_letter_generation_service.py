@@ -262,20 +262,20 @@ class CoverLetterGenerationService:
         company: str | None,
         headline: str | None,
     ) -> str:
-        company_part = company or "your team"
+        company_phrase = f"в {company}" if company else "в вашей команде"
+        name_sentence = f"Меня зовут {full_name}. " if full_name else ""
 
         if headline:
             return (
-                f"Dear hiring team,\n\n"
-                f"I am applying for the {vacancy_title} role at {company_part}. "
-                f"My current profile is positioned around {headline}, and I am interested "
-                f"in contributing to a role where this background is relevant to the team's needs."
+                "Здравствуйте!\n\n"
+                f"{name_sentence}Рассматриваю вакансию {vacancy_title} {company_phrase}. "
+                f"Мой текущий профессиональный фокус: {headline}. "
+                "Хочу обсудить, где мой опыт и навыки могут быть полезны для задач этой роли."
             )
 
-        name_part = full_name or "I"
         return (
-            f"Dear hiring team,\n\n"
-            f"{name_part} am applying for the {vacancy_title} role at {company_part}."
+            "Здравствуйте!\n\n"
+            f"{name_sentence}Рассматриваю вакансию {vacancy_title} {company_phrase}."
         )
 
     def _build_relevance_paragraph(
@@ -288,25 +288,21 @@ class CoverLetterGenerationService:
 
         if matched_keywords:
             parts.append(
-                "The strongest confirmed overlap in my current profile is with "
+                "По текущему профилю наиболее подтверждённое пересечение с вакансией: "
                 f"{', '.join(matched_keywords[:6])}."
             )
 
         if selected_achievements:
+            achievement_titles = [item["title"] for item in selected_achievements[:2]]
             parts.append(
-                "I can also discuss relevant project experience, including "
-                f"{selected_achievements[0]['title']}"
-                + (
-                    f" and {selected_achievements[1]['title']}."
-                    if len(selected_achievements) > 1
-                    else "."
-                )
+                "Также могу обсудить релевантный проектный опыт: "
+                f"{'; '.join(achievement_titles)}."
             )
 
         if not parts:
             parts.append(
-                "I am interested in this role and would welcome the opportunity to discuss "
-                "where my current background can be useful."
+                "Мне интересна эта роль, и я буду рад обсудить, какие задачи команды "
+                "могут быть релевантны моему текущему опыту."
             )
 
         return " ".join(parts)
@@ -317,10 +313,10 @@ class CoverLetterGenerationService:
         vacancy_title: str,
         company: str | None,
     ) -> str:
-        company_part = company or "your company"
+        company_phrase = f"в {company}" if company else "в вашей компании"
         return (
-            f"I would be glad to discuss how my background and project experience can be adapted "
-            f"to the {vacancy_title} role at {company_part}. Thank you for your consideration."
+            f"Буду рад обсудить, как мой опыт может быть полезен для позиции "
+            f"{vacancy_title} {company_phrase}. Спасибо за внимание к моей кандидатуре."
         )
 
     def _build_claims_needing_confirmation(
@@ -353,7 +349,8 @@ class CoverLetterGenerationService:
 
         if missing_keywords:
             warnings.append(
-                f"profile does not strongly support these vacancy keywords yet: {', '.join(missing_keywords[:6])}"
+                f"profile does not strongly support these vacancy keywords yet: "
+                f"{', '.join(missing_keywords[:6])}"
             )
 
         if not matched_keywords:
