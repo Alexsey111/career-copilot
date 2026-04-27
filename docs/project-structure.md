@@ -7,6 +7,7 @@
 ```mermaid
 flowchart TD
     U[Пользователь] --> API[FastAPI app]
+    U --> FE[Streamlit frontend]
     API --> RT[API router]
     RT --> R1[health]
     RT --> R2[files]
@@ -14,18 +15,21 @@ flowchart TD
     RT --> R4[vacancies]
     RT --> R5[documents]
     RT --> R6[applications]
+    RT --> R7[interviews]
 
     R2 --> S1[SourceFileService]
     R3 --> S2[ProfileImportService / ProfileStructuringService / AchievementExtractionService]
     R4 --> S3[VacancyImportService / VacancyAnalysisService]
     R5 --> S4[ResumeGenerationService / CoverLetterGenerationService / DocumentReviewService]
     R6 --> S5[ApplicationTrackingService]
+    R7 --> S6[InterviewPreparationService]
 
     S1 --> REP[repositories]
     S2 --> REP
     S3 --> REP
     S4 --> REP
     S5 --> REP
+    S6 --> REP
     REP --> DB[(PostgreSQL)]
 
     API --> CFG[app/core/config.py]
@@ -39,6 +43,8 @@ flowchart TD
 ```text
 career-copilot/
 ├── README.md
+├── MVP_RUNBOOK.md
+├── RUNBOOK.md
 ├── pyproject.toml
 ├── alembic.ini
 ├── .env.example
@@ -48,7 +54,9 @@ career-copilot/
 ├── api.err.log
 ├── app/
 ├── alembic/
+├── frontend/
 ├── docs/
+├── scripts/
 ├── infra/
 └── tests/
 ```
@@ -60,7 +68,6 @@ career-copilot/
 ```text
 app/
 ├── __init__.py
-├── main.py
 ├── api/
 ├── core/
 ├── db/
@@ -69,6 +76,7 @@ app/
 ├── schemas/
 ├── services/
 ├── tasks/
+├── main.py
 └── workflows/
 ```
 
@@ -94,7 +102,8 @@ app/api/
     ├── profile.py
     ├── vacancies.py
     ├── documents.py
-    └── applications.py
+    ├── applications.py
+    └── interviews.py
 ```
 
 - `router.py` собирает все роутеры в общий API.
@@ -104,6 +113,7 @@ app/api/
 - `routes/vacancies.py` импортирует вакансии и запускает анализ.
 - `routes/documents.py` генерирует резюме, cover letter и выполняет review документов.
 - `routes/applications.py` создает и читает application records.
+- `routes/interviews.py` создает interview session и принимает ответы на вопросы.
 
 ### `app/core/`
 
@@ -170,7 +180,8 @@ app/repositories/
 ├── vacancy_repository.py
 ├── vacancy_analysis_repository.py
 ├── document_version_repository.py
-└── application_record_repository.py
+├── application_record_repository.py
+└── interview_session_repository.py
 ```
 
 Назначение основных репозиториев:
@@ -184,6 +195,7 @@ app/repositories/
 - `vacancy_analysis_repository.py` - анализ вакансий.
 - `document_version_repository.py` - версии документов и активные черновики.
 - `application_record_repository.py` - application records.
+- `interview_session_repository.py` - interview session и ответы на интервью.
 
 ### `app/schemas/`
 
@@ -197,7 +209,8 @@ app/schemas/
 ├── achievement_extract.py
 ├── vacancy.py
 ├── document.py
-└── application.py
+├── application.py
+└── interview.py
 ```
 
 Что покрывают схемы:
@@ -209,6 +222,7 @@ app/schemas/
 - `vacancy.py` - импорт и чтение вакансий, а также анализ.
 - `document.py` - генерация и review документов.
 - `application.py` - создание, чтение и обновление заявок.
+- `interview.py` - создание interview session и сохранение ответов.
 
 ### `app/services/`
 
@@ -227,7 +241,8 @@ app/services/
 ├── resume_generation_service.py
 ├── cover_letter_generation_service.py
 ├── document_review_service.py
-└── application_tracking_service.py
+├── application_tracking_service.py
+└── interview_preparation_service.py
 ```
 
 Кратко по ответственности:
@@ -244,6 +259,7 @@ app/services/
 - `cover_letter_generation_service.py` - генерация cover letter.
 - `document_review_service.py` - изменение review-статуса документа.
 - `application_tracking_service.py` - создание и список заявок, обновление статусов.
+- `interview_preparation_service.py` - построение interview session, feedback и readiness score.
 
 ### `app/tasks/` и `app/workflows/`
 
@@ -251,6 +267,39 @@ app/services/
 
 - `app/tasks/` - место для background jobs.
 - `app/workflows/` - место для orchestration-слоя, если логика станет многошаговой.
+
+## Папка `frontend/`
+
+Streamlit-интерфейс и HTTP-клиент для работы с backend.
+
+```text
+frontend/
+└── streamlit/
+    ├── __init__.py
+    ├── api_client.py
+    └── app.py
+```
+
+- `app.py` содержит full MVP UI flow.
+- `api_client.py` инкапсулирует вызовы backend API.
+
+## Папка `scripts/`
+
+Утилиты для локальной проверки и отладки.
+
+```text
+scripts/
+├── smoke_mvp_flow.py
+├── dev_db_reset.py
+├── dev_db_counts.py
+├── list_recent_vacancy_analyses.py
+├── import_analyze_vacancy_utf8.py
+├── verify_pdf_extraction_utf8.py
+└── debug_vacancy_analysis_parser.py
+```
+
+- `smoke_mvp_flow.py` прогоняет полный deterministic MVP baseline.
+- Остальные скрипты помогают с локальной отладкой данных и extraction пайплайна.
 
 ## Папка `alembic/`
 
@@ -286,10 +335,16 @@ infra/
 
 ```text
 tests/
-└── test_health.py
+├── conftest.py
+├── test_health.py
+├── test_mvp_flow_e2e.py
+├── test_interview_api_flow.py
+├── test_interview_answers_api_flow.py
+├── test_interview_preparation_service.py
+└── ... другие service/API тесты
 ```
 
-Сейчас есть только базовый healthcheck-тест через `TestClient`. `conftest.py` пока отсутствует.
+Сейчас в проекте есть набор service- и API-тестов для vacancy, documents, applications, interview flow и smoke-покрытия. Общие фикстуры находятся в `conftest.py`.
 
 ## Основные потоки данных
 
@@ -335,6 +390,13 @@ tests/
 2. `ApplicationTrackingService` создаёт `ApplicationRecord`.
 3. `GET /applications` возвращает список заявок пользователя.
 
+### 7. Подготовка к интервью
+
+1. Клиент вызывает `POST /interviews/sessions`.
+2. `InterviewPreparationService` строит набор вопросов на основе вакансии.
+3. Клиент сохраняет ответы через `PATCH /interviews/sessions/{id}/answers`.
+4. Сервис считает feedback и readiness score.
+
 ## Ключевые таблицы и связи
 
 - `users`
@@ -358,6 +420,8 @@ tests/
   - черновики и версии резюме/cover letter
 - `application_records`
   - история заявок
+- `interview_sessions`
+  - сессии подготовки к интервью, вопросы, ответы и scoring
 
 ## Что уже есть и что еще заготовлено
 
@@ -373,6 +437,7 @@ tests/
 - `conftest.py` с общими фикстурами
 - фоновые задачи в `tasks/`
 - orchestration-слой в `workflows/`
+- Streamlit frontend для полного MVP flow
 
 ## Текущий healthcheck
 
