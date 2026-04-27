@@ -26,6 +26,8 @@ def init_session_state() -> None:
         st.session_state.structured_profile = None
     if "achievements" not in st.session_state:
         st.session_state.achievements = None
+    if "vacancy" not in st.session_state:
+        st.session_state.vacancy = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -392,6 +394,113 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
             st.json(achievements_result)
 
 
+def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("5. Импорт вакансии")
+
+    achievements = st.session_state.achievements
+    if not achievements:
+        st.info("Сначала извлеките достижения на шаге 4.")
+        return
+
+    default_description = """Требования:
+- Python
+- FastAPI
+- PostgreSQL
+
+Будет плюсом:
+- Redis
+- Docker
+"""
+
+    with st.form("vacancy_import_form"):
+        title = st.text_input(
+            "Название вакансии",
+            value="Backend Developer",
+        )
+        company = st.text_input(
+            "Компания",
+            value="Test Company",
+        )
+        location = st.text_input(
+            "Локация",
+            value="Remote",
+        )
+        source_url = st.text_input(
+            "Ссылка на вакансию",
+            value="",
+            help="Опционально. Для MVP можно оставить пустым.",
+        )
+        description_raw = st.text_area(
+            "Текст вакансии",
+            value=default_description,
+            height=220,
+            help="Вставьте требования и описание вакансии вручную.",
+        )
+
+        submitted = st.form_submit_button(
+            "Импортировать вакансию",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        if not description_raw.strip() and not source_url.strip():
+            st.error("Нужно указать текст вакансии или ссылку на вакансию.")
+            return
+
+        payload = {
+            "source": "manual",
+            "source_url": source_url.strip() or None,
+            "title": title.strip() or None,
+            "company": company.strip() or None,
+            "location": location.strip() or None,
+            "description_raw": description_raw.strip() or None,
+        }
+
+        try:
+            result = client.post_json(
+                "/vacancies/import",
+                payload,
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.vacancy = result
+        st.success("Вакансия импортирована")
+
+    if st.session_state.vacancy:
+        vacancy = st.session_state.vacancy
+
+        st.markdown("### Импортированная вакансия")
+        st.json(
+            {
+                "vacancy_id": vacancy.get("vacancy_id"),
+                "id": vacancy.get("id"),
+                "source": vacancy.get("source"),
+                "source_url": vacancy.get("source_url"),
+                "title": vacancy.get("title"),
+                "company": vacancy.get("company"),
+                "location": vacancy.get("location"),
+                "description_length": vacancy.get("description_length"),
+            }
+        )
+
+
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
@@ -411,8 +520,11 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
     st.divider()
 
+    render_vacancy_import_step(client)
+
+    st.divider()
+
     steps = [
-        "5. Импортировать вакансию",
         "6. Проанализировать вакансию",
         "7. Сгенерировать адаптированное резюме",
         "8. Сгенерировать сопроводительное письмо",
@@ -425,7 +537,7 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     for step in steps:
         st.checkbox(step, value=False, disabled=True)
 
-    st.warning("Следующие действия будут подключаться по одному в Priority 10.6+.")
+    st.warning("Следующие действия будут подключаться по одному в Priority 10.7+.")
 
 
 def main() -> None:
