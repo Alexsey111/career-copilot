@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+import httpx
 import streamlit as st
 
 from api_client import CareerCopilotApiClient, DEFAULT_API_BASE_URL
@@ -14,6 +15,11 @@ st.set_page_config(
     page_icon="🧭",
     layout="wide",
 )
+
+
+def init_session_state() -> None:
+    if "source_file" not in st.session_state:
+        st.session_state.source_file = None
 
 
 def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
@@ -77,11 +83,69 @@ def render_home() -> None:
     )
 
 
-def render_flow_placeholder() -> None:
+def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("1. Загрузка резюме")
+
+    uploaded_file = st.file_uploader(
+        "Выберите файл резюме",
+        type=["txt", "pdf", "docx"],
+        help="Для MVP поддерживаются TXT, PDF и DOCX.",
+    )
+
+    if uploaded_file is None:
+        st.info("Выберите файл резюме, чтобы отправить его в backend.")
+        return
+
+    st.caption(f"Файл: {uploaded_file.name}")
+    st.caption(f"Тип: {uploaded_file.type or 'не определён'}")
+    st.caption(f"Размер: {uploaded_file.size} байт")
+
+    if st.button("Загрузить резюме", type="primary", use_container_width=True):
+        try:
+            result = client.upload_file(
+                path="/files/upload",
+                file_kind="resume",
+                filename=uploaded_file.name,
+                content=uploaded_file.getvalue(),
+                content_type=uploaded_file.type or "application/octet-stream",
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        st.session_state.source_file = result
+        st.success("Резюме загружено")
+
+    if st.session_state.source_file:
+        source_file = st.session_state.source_file
+
+        st.markdown("### Загруженный файл")
+        st.json(
+            {
+                "source_file_id": source_file.get("id"),
+                "file_kind": source_file.get("file_kind"),
+                "original_name": source_file.get("original_name"),
+            }
+        )
+
+
+def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
+    render_resume_upload_step(client)
+
+    st.divider()
+
     steps = [
-        "1. Загрузить резюме",
         "2. Импортировать резюме",
         "3. Извлечь структурированный профиль",
         "4. Извлечь достижения",
@@ -94,14 +158,16 @@ def render_flow_placeholder() -> None:
         "11. Создать подготовку к интервью",
     ]
 
+    st.subheader("Следующие шаги")
     for step in steps:
         st.checkbox(step, value=False, disabled=True)
 
-    st.warning("Управление сценарием будет добавлено в Priority 10.2+.")
+    st.warning("Следующие действия будут подключаться по одному в Priority 10.3+.")
 
 
 def main() -> None:
-    _, _client = render_sidebar()
+    init_session_state()
+    _, client = render_sidebar()
 
     tab_home, tab_flow = st.tabs(["Главная", "MVP-сценарий"])
 
@@ -109,7 +175,7 @@ def main() -> None:
         render_home()
 
     with tab_flow:
-        render_flow_placeholder()
+        render_mvp_flow(client)
 
 
 if __name__ == "__main__":

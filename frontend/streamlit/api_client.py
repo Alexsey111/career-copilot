@@ -112,6 +112,35 @@ class CareerCopilotApiClient:
         response.raise_for_status()
         return response.json()
 
+    def upload_file(
+        self,
+        *,
+        path: str,
+        file_kind: str,
+        filename: str,
+        content: bytes,
+        content_type: str,
+    ) -> dict[str, Any]:
+        response = httpx.post(
+            self._build_url(path),
+            data={"file_kind": file_kind},
+            files={
+                "file": (
+                    filename,
+                    content,
+                    content_type,
+                )
+            },
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        if not isinstance(payload, dict):
+            raise ValueError("Expected JSON object from file upload endpoint")
+
+        return payload
+
     def _build_url(self, path: str) -> str:
         normalized_path = path if path.startswith("/") else f"/{path}"
         return f"{self.api_base_url}{normalized_path}"
