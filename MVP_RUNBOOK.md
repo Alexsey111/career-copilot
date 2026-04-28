@@ -346,7 +346,7 @@ Known limitations:
 - achievements are extracted conservatively
 - metrics/results are not inferred automatically
 - achievement confirmation is manual and currently handled in Streamlit
-- interview answer editor in Streamlit currently covers first 2 answers for smoke/demo
+- Streamlit interview answer editor covers the full generated question set; smoke/demo still fills only 2 answers
 - LLM orchestration layer is not the default path yet
 
 - document export currently supports TXT/MD, not polished DOCX/PDF
