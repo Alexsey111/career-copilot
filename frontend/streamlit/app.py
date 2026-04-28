@@ -25,6 +25,43 @@ APPLICATION_STATUS_LABELS = {
     "offer": "Оффер",
 }
 
+INTERVIEW_STATUS_LABELS = {
+    "draft": "Черновик",
+    "answered": "С ответами",
+}
+
+QUESTION_TYPE_LABELS = {
+    "role_overview": "Обзор роли",
+    "must_have_requirement": "Обязательное требование",
+    "gap_preparation": "Подготовка по gap-зоне",
+    "strength_deep_dive": "Разбор сильной стороны",
+    "achievement_star_story": "STAR-история по достижению",
+}
+
+ANSWER_FORMAT_LABELS = {
+    "short_structured": "Короткий структурированный ответ",
+    "STAR_or_example": "STAR или конкретный пример",
+    "honest_gap_response": "Честный ответ по gap-зоне",
+    "STAR": "STAR",
+}
+
+APPLICATION_OUTCOME_LABELS = {
+    "rejected": "Отказ",
+    "offer": "Оффер",
+}
+
+DEMO_VACANCY_TITLE_LABELS = {
+    "Backend Developer": "Backend-разработчик",
+}
+
+DEMO_COMPANY_LABELS = {
+    "Test Company": "Тестовая компания",
+}
+
+DEMO_LOCATION_LABELS = {
+    "Remote": "Удалённо",
+}
+
 
 def format_application_status(value: str | None) -> str:
     if not value:
@@ -36,6 +73,83 @@ def format_optional_datetime(value: str | None) -> str:
     if not value:
         return "—"
     return value.replace("T", " ")[:19]
+
+
+def format_interview_status(value: str | None) -> str:
+    if not value:
+        return "—"
+    return INTERVIEW_STATUS_LABELS.get(value, value)
+
+
+def format_question_type(value: str | None) -> str:
+    if not value:
+        return "—"
+    return QUESTION_TYPE_LABELS.get(value, value)
+
+
+def format_answer_format(value: str | None) -> str:
+    if not value:
+        return "—"
+    return ANSWER_FORMAT_LABELS.get(value, value)
+
+
+def format_application_outcome(value: str | None) -> str:
+    if not value:
+        return "—"
+    return APPLICATION_OUTCOME_LABELS.get(value, value)
+
+
+def format_vacancy_title(value: str | None) -> str:
+    if not value:
+        return "—"
+    return DEMO_VACANCY_TITLE_LABELS.get(value, value)
+
+
+def format_vacancy_company(value: str | None) -> str:
+    if not value:
+        return "—"
+    return DEMO_COMPANY_LABELS.get(value, value)
+
+
+def format_vacancy_location(value: str | None) -> str:
+    if not value:
+        return "—"
+    return DEMO_LOCATION_LABELS.get(value, value)
+
+
+
+DEMO_UI_TEXT_REPLACEMENTS = {
+    "Backend Developer": "Backend-разработчик",
+    "Test Company": "Тестовая компания",
+    "Remote": "Удалённо",
+    "I am interested in this role because it matches my Python and backend development direction.": (
+        "Меня интересует эта роль, потому что она соответствует моему направлению: "
+        "Python и backend-разработка."
+    ),
+    "Situation: I worked on a practical Python project. Task: build a working prototype. Action: I implemented the backend flow. Result: the prototype was ready for review.": (
+        "Ситуация: я работал над практическим Python-проектом. "
+        "Задача: собрать рабочий прототип. "
+        "Действия: реализовал backend-flow. "
+        "Результат: прототип был готов к проверке."
+    ),
+}
+
+
+def localize_demo_ui_text(value: str | None) -> str:
+    if value is None:
+        return ""
+
+    text = str(value)
+    for source, target in DEMO_UI_TEXT_REPLACEMENTS.items():
+        text = text.replace(source, target)
+
+    return text
+
+
+def format_demo_display_text(value: str | None) -> str:
+    text = localize_demo_ui_text(value).strip()
+    return text or "—"
+
 
 
 def init_session_state() -> None:
@@ -655,15 +769,15 @@ def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
     with st.form("vacancy_import_form"):
         title = st.text_input(
             "Название вакансии",
-            value="Backend Developer",
+            value="Backend-разработчик",
         )
         company = st.text_input(
             "Компания",
-            value="Test Company",
+            value="Тестовая компания",
         )
         location = st.text_input(
             "Локация",
-            value="Remote",
+            value="Удалённо",
         )
         source_url = st.text_input(
             "Ссылка на вакансию",
@@ -1594,9 +1708,9 @@ def render_application_dashboard_step(client: CareerCopilotApiClient) -> None:
     for item in applications:
         rows.append(
             {
-                "Вакансия": item.get("vacancy_title") or "—",
-                "Компания": item.get("vacancy_company") or "—",
-                "Локация": item.get("vacancy_location") or "—",
+                "Вакансия": format_vacancy_title(item.get("vacancy_title")),
+                "Компания": format_vacancy_company(item.get("vacancy_company")),
+                "Локация": format_vacancy_location(item.get("vacancy_location")),
                 "Статус": format_application_status(item.get("status")),
                 "Канал": item.get("channel") or "—",
                 "Дата отправки": format_optional_datetime(item.get("applied_at")),
@@ -1716,7 +1830,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
             "vacancy_id": interview_session.get("vacancy_id"),
             "status": interview_session.get("status"),
             "question_count": len(question_set),
-            "question_types": question_types,
+            "question_types": [format_question_type(value) for value in question_types],
         }
     )
 
@@ -1735,10 +1849,10 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
             prompt = question.get("prompt")
             answer_format = question.get("answer_format")
 
-            st.markdown(f"**{index}. {question_type}**")
-            st.write(prompt)
+            st.markdown(f"**{index}. {format_question_type(question_type)}**")
+            st.write(localize_demo_ui_text(prompt))
             if answer_format:
-                st.caption(f"Формат ответа: {answer_format}")
+                st.caption(f"Формат ответа: {format_answer_format(answer_format)}")
 
     st.markdown("### Ответы на вопросы интервью")
 
@@ -1749,14 +1863,14 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
 
     default_answers = {
         0: (
-            "Я рассматриваю эту роль, потому что она связана с backend-разработкой "
-            "и позволяет применить мой практический опыт с Python и AI-инструментами."
+            "Меня интересует эта роль, потому что она соответствует моему направлению: "
+            "Python и backend-разработка."
         ),
         1: (
             "Ситуация: я работал над практическим Python-проектом. "
-            "Задача: нужно было собрать рабочий backend-прототип. "
-            "Действия: я реализовал основной API-flow и проверил его через smoke-сценарий. "
-            "Результат: прототип был готов для дальнейшей проверки и улучшения."
+            "Задача: собрать рабочий прототип. "
+            "Действия: реализовал backend-flow. "
+            "Результат: прототип был готов к проверке."
         ),
     }
 
@@ -1769,15 +1883,15 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
             prompt = question.get("prompt") or f"Вопрос {question_number}"
             answer_format = question.get("answer_format")
 
-            st.markdown(f"#### Вопрос {question_number}: {question_type}")
-            st.write(prompt)
+            st.markdown(f"#### Вопрос {question_number}: {format_question_type(question_type)}")
+            st.write(localize_demo_ui_text(prompt))
 
             if answer_format:
-                st.caption(f"Формат ответа: {answer_format}")
+                st.caption(f"Формат ответа: {format_answer_format(answer_format)}")
 
             answer_text = st.text_area(
                 f"Ответ {question_number}",
-                value=default_answers.get(question_index, ""),
+                value=localize_demo_ui_text(default_answers.get(question_index, "")),
                 height=150,
                 key=f"interview_answer_{session_id}_{question_index}",
             )
@@ -1848,7 +1962,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
         col_status, col_answered, col_unanswered, col_warnings, col_score = st.columns(5)
 
         with col_status:
-            st.metric("Статус", answered.get("status"))
+            st.metric("Статус", format_interview_status(answered.get("status")))
 
         with col_answered:
             st.metric("Ответов", f"{answered_count} / {question_count}")
@@ -1884,7 +1998,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
                 with st.container(border=True):
                     st.markdown(
                         f"**Вопрос {int(item.get('question_index', 0)) + 1} — "
-                        f"{item.get('question_type')}**"
+                        f"{format_question_type(item.get('question_type'))}**"
                     )
                     st.caption(f"Длина ответа: {item.get('answer_length')} символов")
 
@@ -1978,13 +2092,14 @@ def render_application_dashboard(client: CareerCopilotApiClient) -> None:
         status_value = application.get("status")
         table_rows.append(
             {
-                "Статус": status_labels.get(status_value, status_value),
-                "application_id": application.get("id"),
-                "vacancy_id": application.get("vacancy_id"),
-                "applied_at": application.get("applied_at"),
-                "outcome": application.get("outcome"),
-                "created_at": application.get("created_at"),
-                "notes": application.get("notes"),
+                "Вакансия": format_vacancy_title(application.get("vacancy_title")),
+                "Компания": format_vacancy_company(application.get("vacancy_company")),
+                "Локация": format_vacancy_location(application.get("vacancy_location")),
+                "Статус": format_application_status(status_value),
+                "Дата отправки": format_optional_datetime(application.get("applied_at")),
+                "Результат": format_application_outcome(application.get("outcome")),
+                "Создано": format_optional_datetime(application.get("created_at")),
+                "Заметки": application.get("notes") or "—",
             }
         )
 
@@ -2188,10 +2303,10 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
     for item in sessions:
         rows.append(
             {
-                "Вакансия": item.get("vacancy_title") or "—",
-                "Компания": item.get("vacancy_company") or "—",
-                "Локация": item.get("vacancy_location") or "—",
-                "Статус": item.get("status") or "—",
+                "Вакансия": format_vacancy_title(item.get("vacancy_title")),
+                "Компания": format_vacancy_company(item.get("vacancy_company")),
+                "Локация": format_vacancy_location(item.get("vacancy_location")),
+                "Статус": format_interview_status(item.get("status")),
                 "Ответов": f"{item.get('answered_count', 0)} / {item.get('question_count', 0)}",
                 "Предупреждений": item.get("warning_count", 0),
                 "Готовность": (
@@ -2226,7 +2341,7 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
         "Выберите сессию подготовки",
         options=session_ids,
         format_func=lambda value: (
-            f"{sessions_by_id[value].get('vacancy_title') or 'Без названия'} "
+            f"{format_demo_display_text(sessions_by_id[value].get('vacancy_title'))} "
             f"· {sessions_by_id[value].get('status')} "
             f"· {value[:8]}"
         ),
@@ -2272,7 +2387,7 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
     col_status, col_questions, col_answers, col_score = st.columns(4)
 
     with col_status:
-        st.metric("Статус", selected_session.get("status"))
+        st.metric("Статус", format_interview_status(selected_session.get("status")))
 
     with col_questions:
         st.metric("Вопросов", len(question_set))
@@ -2293,10 +2408,10 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
 
     with st.expander("Список вопросов", expanded=False):
         for index, question in enumerate(question_set, start=1):
-            st.markdown(f"**{index}. {question.get('type')}**")
+            st.markdown(f"**{index}. {format_question_type(question.get('type'))}**")
             st.write(question.get("prompt"))
             if question.get("answer_format"):
-                st.caption(f"Формат ответа: {question.get('answer_format')}")
+                st.caption(f"Формат ответа: {format_answer_format(question.get('answer_format'))}")
 
     st.markdown("### Редактор ответов")
 
@@ -2315,15 +2430,15 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
             prompt = question.get("prompt") or f"Вопрос {question_number}"
             answer_format = question.get("answer_format")
 
-            st.markdown(f"#### Вопрос {question_number}: {question_type}")
-            st.write(prompt)
+            st.markdown(f"#### Вопрос {question_number}: {format_question_type(question_type)}")
+            st.write(localize_demo_ui_text(prompt))
 
             if answer_format:
-                st.caption(f"Формат ответа: {answer_format}")
+                st.caption(f"Формат ответа: {format_answer_format(answer_format)}")
 
             answer_text = st.text_area(
                 f"Ответ {question_number}",
-                value=existing_answers_by_index.get(question_index, ""),
+                value=localize_demo_ui_text(existing_answers_by_index.get(question_index, "")),
                 height=150,
                 key=f"interview_dashboard_answer_{selected_session_id}_{question_index}",
             )
@@ -2415,7 +2530,7 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
             with st.container(border=True):
                 st.markdown(
                     f"**Вопрос {int(item.get('question_index', 0)) + 1} — "
-                    f"{item.get('question_type')}**"
+                    f"{format_question_type(item.get('question_type'))}**"
                 )
                 st.caption(f"Длина ответа: {item.get('answer_length')} символов")
 

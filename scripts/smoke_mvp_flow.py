@@ -435,17 +435,17 @@ def main() -> None:
                     {
                         "question_index": 0,
                         "answer_text": (
-                            "I am interested in this role because it matches my Python "
-                            "and backend development direction."
+                            "Меня интересует эта роль, потому что она соответствует моему направлению: "
+                            "Python и backend-разработка."
                         ),
                     },
                     {
                         "question_index": 1,
                         "answer_text": (
-                            "Situation: I worked on a practical Python project. "
-                            "Task: build a working prototype. "
-                            "Action: I implemented the backend flow. "
-                            "Result: the prototype was ready for review."
+                            "Ситуация: я работал над практическим Python-проектом. "
+                            "Задача: собрать рабочий прототип. "
+                            "Действия: реализовал backend-flow. "
+                            "Результат: прототип был готов к проверке."
                         ),
                     },
                 ]
