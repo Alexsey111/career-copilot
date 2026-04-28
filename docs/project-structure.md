@@ -282,6 +282,7 @@ frontend/
 
 - `app.py` содержит full MVP UI flow.
 - `app.py` также содержит human-in-the-loop review достижений: редактирование title/evidence note и выбор статуса факта.
+- `app.py` показывает кнопки экспорта approved документов в TXT, MD и DOCX.
 - `app.py` содержит export-блок для approved резюме и сопроводительного письма.
 - `app.py` содержит application dashboard для просмотра откликов.
 - `api_client.py` инкапсулирует вызовы backend API, включая JSON-запросы и text export.
@@ -395,6 +396,8 @@ tests/
 4. `needs_confirmation` achievements не попадают в `selected_achievements` и `rendered_text`.
 5. Создается `DocumentVersion` в статусе `draft`.
 6. Далее документ должен пройти review через `PATCH /documents/{document_id}/review`.
+7. После approval и активации документ можно экспортировать через `GET /documents/{document_id}/export/{format}`.
+8. Поддерживаются форматы `txt`, `md`, `docx`.
 
 7. После approval документ можно экспортировать:
    - `GET /documents/{document_id}/export/txt`
@@ -451,6 +454,8 @@ tests/
 - review API для достижений
 - frontend gate, который блокирует импорт вакансии до подтверждения достижений
 - backend safety filter, который использует в документах только `confirmed` achievements
+- export API для approved+active документов в TXT/MD/DOCX
+- Streamlit download-кнопки для экспорта документов
 
 - export approved-документов в TXT/MD
 - application dashboard во frontend
