@@ -1678,8 +1678,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
     if not interview_session:
         return
 
-    st.markdown("### Сессия подготовки")
-
+    session_id = interview_session.get("id")
     question_set = interview_session.get("question_set") or []
     question_types = sorted(
         {
@@ -1689,9 +1688,11 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
         }
     )
 
+    st.markdown("### Сессия подготовки")
+
     st.json(
         {
-            "interview_session_id": interview_session.get("id"),
+            "interview_session_id": session_id,
             "vacancy_id": interview_session.get("vacancy_id"),
             "status": interview_session.get("status"),
             "question_count": len(question_set),
@@ -1699,11 +1700,16 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
         }
     )
 
+    if not session_id:
+        st.error("В interview session не найден id.")
+        st.json(interview_session)
+        return
+
     if not question_set:
         st.warning("Backend не вернул список вопросов.")
         return
 
-    with st.expander("Список вопросов", expanded=True):
+    with st.expander("Список вопросов", expanded=False):
         for index, question in enumerate(question_set, start=1):
             question_type = question.get("type")
             prompt = question.get("prompt")
@@ -1714,44 +1720,46 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
             if answer_format:
                 st.caption(f"Формат ответа: {answer_format}")
 
-    st.markdown("### Черновые ответы")
+    st.markdown("### Ответы на вопросы интервью")
 
     st.info(
-        "Для smoke-проверки достаточно заполнить первые 1–2 ответа. "
-        "Для STAR-ответов используйте явные маркеры: Ситуация / Задача / Действия / Результат."
+        "Можно заполнить часть ответов и сохранить промежуточный результат. "
+        "Для STAR-вопросов используйте структуру: Ситуация / Задача / Действия / Результат."
     )
 
-    answer_question_count = min(2, len(question_set))
+    default_answers = {
+        0: (
+            "Я рассматриваю эту роль, потому что она связана с backend-разработкой "
+            "и позволяет применить мой практический опыт с Python и AI-инструментами."
+        ),
+        1: (
+            "Ситуация: я работал над практическим Python-проектом. "
+            "Задача: нужно было собрать рабочий backend-прототип. "
+            "Действия: я реализовал основной API-flow и проверил его через smoke-сценарий. "
+            "Результат: прототип был готов для дальнейшей проверки и улучшения."
+        ),
+    }
 
-    with st.form("interview_answers_form"):
+    with st.form(f"interview_answers_form_{session_id}"):
         answers_payload: list[dict] = []
 
-        for question_index in range(answer_question_count):
-            question = question_set[question_index]
-            prompt = question.get("prompt") or f"Вопрос {question_index + 1}"
+        for question_index, question in enumerate(question_set):
+            question_number = question_index + 1
+            question_type = question.get("type") or "unknown"
+            prompt = question.get("prompt") or f"Вопрос {question_number}"
+            answer_format = question.get("answer_format")
 
-            st.markdown(f"#### Ответ на вопрос {question_index + 1}")
-            st.caption(prompt)
+            st.markdown(f"#### Вопрос {question_number}: {question_type}")
+            st.write(prompt)
 
-            default_answer = ""
-            if question_index == 0:
-                default_answer = (
-                    "Я рассматриваю эту роль, потому что она связана с backend-разработкой "
-                    "и позволяет применить мой практический опыт с Python и AI-инструментами."
-                )
-            elif question_index == 1:
-                default_answer = (
-                    "Ситуация: я работал над практическим Python-проектом. "
-                    "Задача: нужно было собрать рабочий backend-прототип. "
-                    "Действия: я реализовал основной API-flow и проверил его через smoke-сценарий. "
-                    "Результат: прототип был готов для дальнейшей проверки и улучшения."
-                )
+            if answer_format:
+                st.caption(f"Формат ответа: {answer_format}")
 
             answer_text = st.text_area(
-                f"Текст ответа {question_index + 1}",
-                value=default_answer,
-                height=140,
-                key=f"interview_answer_{question_index}",
+                f"Ответ {question_number}",
+                value=default_answers.get(question_index, ""),
+                height=150,
+                key=f"interview_answer_{session_id}_{question_index}",
             )
 
             if answer_text.strip():
@@ -1771,12 +1779,6 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
     if submitted:
         if not answers_payload:
             st.error("Нужно заполнить хотя бы один ответ.")
-            return
-
-        session_id = interview_session.get("id")
-        if not session_id:
-            st.error("В interview session не найден id.")
-            st.json(interview_session)
             return
 
         try:
@@ -1817,7 +1819,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
         feedback = answered.get("feedback") or {}
         feedback_items = feedback.get("items") or []
 
-        question_count = int(score.get("question_count") or 0)
+        question_count = int(score.get("question_count") or len(question_set) or 0)
         answered_count = int(score.get("answered_count") or 0)
         unanswered_count = int(score.get("unanswered_count") or 0)
         warning_count = int(score.get("warning_count") or 0)
@@ -1881,7 +1883,6 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
 
         with st.expander("Raw JSON результата", expanded=False):
             st.json(answered)
-
 
 
 def render_application_dashboard(client: CareerCopilotApiClient) -> None:
