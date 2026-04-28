@@ -14,7 +14,7 @@ tag: mvp-smoke-pass-2026-04-27
 
 ```text
 python -m py_compile frontend/streamlit/app.py: OK
-pytest -q: 62 passed
+pytest -q: 66 passed
 scripts/smoke_mvp_flow.py: MVP SMOKE PASSED
 ```
 
@@ -123,7 +123,7 @@ python .\scripts\smoke_mvp_flow.py
 
 Ожидаемый результат:
 
-- `62 passed`
+- `66 passed`
 - `MVP SMOKE PASSED`
 
 ## MVP Smoke Flow
@@ -222,6 +222,23 @@ After review:
 - `review_status`: `approved`
 - `is_active`: `true`
 
+## Expected Document Export
+
+Approved documents can be exported from backend and Streamlit.
+
+Backend endpoints:
+
+- `GET /documents/{document_id}/export/txt`
+- `GET /documents/{document_id}/export/md`
+
+Expected behavior:
+
+- export is available only for documents owned by the current user
+- export is intended for reviewed/approved document usage
+- TXT export returns plain ATS-safe text
+- MD export returns markdown-friendly text
+- current MVP does not generate DOCX/PDF as the primary export format yet
+
 Generated cover letter:
 
 - `document_kind`: `cover_letter`
@@ -254,6 +271,44 @@ Manual submitted mark:
 - `notes`: `Submitted manually on HH`
 
 This is only an internal status update. It does not send anything to HH.
+
+## Expected Application Status Flow
+
+Allowed statuses:
+
+- `draft`
+- `submitted`
+- `interview`
+- `rejected`
+- `offer`
+
+Allowed transitions:
+
+- `draft` -> `submitted`
+- `submitted` -> `interview`
+- `submitted` -> `rejected`
+- `submitted` -> `offer`
+- `interview` -> `rejected`
+- `interview` -> `offer`
+
+Final statuses:
+
+- `rejected`
+- `offer`
+
+Invalid transitions are rejected by backend with HTTP 400.
+
+## Expected Application Dashboard
+
+Streamlit includes an application dashboard tab.
+
+Current dashboard behavior:
+
+- loads applications from `GET /applications`
+- displays application status, dates and notes
+- shows basic status metrics
+- remains internal/read-only for MVP
+- does not submit anything to HH or external job boards
 
 ## Expected Interview Prep Lifecycle
 
@@ -294,15 +349,19 @@ Known limitations:
 - interview answer editor in Streamlit currently covers first 2 answers for smoke/demo
 - LLM orchestration layer is not the default path yet
 
+- document export currently supports TXT/MD, not polished DOCX/PDF
+- application dashboard is intentionally minimal and mostly read-only
+
 ## Safe Next Vertical Slices
 
 Recommended next steps after this baseline:
 
 1. Better structured profile extraction
-2. Export documents to TXT/MD/DOCX
-3. Application list/dashboard
-4. Full interview answer editor for all questions
-5. Richer achievement proof model: STAR fields, metrics and evidence sources
-6. LLM layer using extract facts first -> validate -> generate later
+2. Full interview answer editor for all questions
+3. Richer application dashboard: filters, status actions and vacancy/company columns
+4. DOCX export for approved documents
+5. Better structured profile extraction
+6. Richer achievement proof model: STAR fields, metrics and evidence sources
+7. LLM layer using extract facts first -> validate -> generate later
 
 Do not add auto-apply, hidden browser automation, or credential storage.

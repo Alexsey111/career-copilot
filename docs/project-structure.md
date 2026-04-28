@@ -111,8 +111,8 @@ app/api/
 - `routes/files.py` принимает upload файлов.
 - `routes/profile.py` запускает импорт резюме, структурирование профиля, извлечение достижений и review достижений.
 - `routes/vacancies.py` импортирует вакансии и запускает анализ.
-- `routes/documents.py` генерирует резюме, cover letter и выполняет review документов.
-- `routes/applications.py` создает и читает application records.
+- `routes/documents.py` генерирует резюме, cover letter, выполняет review документов и экспортирует approved-документы в TXT/MD.
+- `routes/applications.py` создает, читает, обновляет статусы и возвращает список application records для dashboard.
 - `routes/interviews.py` создает interview session и принимает ответы на вопросы.
 
 ### `app/core/`
@@ -193,8 +193,8 @@ app/repositories/
 - `candidate_achievement_repository.py` - замена/создание достижений и обновление review-полей.
 - `vacancy_repository.py` - вакансии.
 - `vacancy_analysis_repository.py` - анализ вакансий.
-- `document_version_repository.py` - версии документов и активные черновики.
-- `application_record_repository.py` - application records.
+- `document_version_repository.py` - версии документов, активные документы и чтение документов для review/export.
+- `application_record_repository.py` - application records, поиск дублей и список откликов пользователя.
 - `interview_session_repository.py` - interview session и ответы на интервью.
 
 ### `app/schemas/`
@@ -220,8 +220,8 @@ app/schemas/
 - `profile_structured.py` - результат структурирования профиля.
 - `achievement_extract.py` - результат извлечения достижений и read-модель review-полей.
 - `vacancy.py` - импорт и чтение вакансий, а также анализ.
-- `document.py` - генерация и review документов.
-- `application.py` - создание, чтение и обновление заявок.
+- `document.py` - генерация, review, чтение и экспорт документов.
+- `application.py` - создание, чтение, список и обновление статусов заявок.
 - `interview.py` - создание interview session и сохранение ответов.
 
 ### `app/services/`
@@ -258,7 +258,7 @@ app/services/
 - `resume_generation_service.py` - генерация резюме под вакансию.
 - `cover_letter_generation_service.py` - генерация cover letter.
 - `document_review_service.py` - изменение review-статуса документа.
-- `application_tracking_service.py` - создание и список заявок, обновление статусов.
+- `application_tracking_service.py` - создание заявок, проверка approved-пакета документов, список заявок и статусные переходы.
 - `interview_preparation_service.py` - построение interview session, feedback и readiness score.
 
 ### `app/tasks/` и `app/workflows/`
@@ -282,7 +282,9 @@ frontend/
 
 - `app.py` содержит full MVP UI flow.
 - `app.py` также содержит human-in-the-loop review достижений: редактирование title/evidence note и выбор статуса факта.
-- `api_client.py` инкапсулирует вызовы backend API.
+- `app.py` содержит export-блок для approved резюме и сопроводительного письма.
+- `app.py` содержит application dashboard для просмотра откликов.
+- `api_client.py` инкапсулирует вызовы backend API, включая JSON-запросы и text export.
 
 ## Папка `scripts/`
 
@@ -394,11 +396,17 @@ tests/
 5. Создается `DocumentVersion` в статусе `draft`.
 6. Далее документ должен пройти review через `PATCH /documents/{document_id}/review`.
 
+7. После approval документ можно экспортировать:
+   - `GET /documents/{document_id}/export/txt`
+   - `GET /documents/{document_id}/export/md`
+
 ### 6. Заявки
 
 1. Клиент вызывает `POST /applications`.
 2. `ApplicationTrackingService` создаёт `ApplicationRecord`.
 3. `GET /applications` возвращает список заявок пользователя.
+4. Streamlit dashboard использует этот список для отображения текущих откликов.
+5. `PATCH /applications/{application_id}/status` обновляет статус по разрешенным переходам.
 
 ### 7. Подготовка к интервью
 
@@ -443,6 +451,10 @@ tests/
 - review API для достижений
 - frontend gate, который блокирует импорт вакансии до подтверждения достижений
 - backend safety filter, который использует в документах только `confirmed` achievements
+
+- export approved-документов в TXT/MD
+- application dashboard во frontend
+- статусные переходы откликов: draft -> submitted -> interview/rejected/offer
 - PostgreSQL-схема через SQLAlchemy и Alembic
 - базовый healthcheck
 
