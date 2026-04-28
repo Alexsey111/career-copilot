@@ -39,8 +39,15 @@ class ApplicationRead(BaseModel):
 class ApplicationListItem(BaseModel):
     id: UUID
     vacancy_id: UUID
+    vacancy_title: str | None = None
+    vacancy_company: str | None = None
+    vacancy_location: str | None = None
+    resume_document_id: UUID | None
+    cover_letter_document_id: UUID | None
     status: str
+    channel: str | None
     applied_at: datetime | None
     outcome: str | None
     notes: str | None
     created_at: datetime
+    updated_at: datetime

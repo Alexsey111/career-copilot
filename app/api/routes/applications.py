@@ -79,19 +79,8 @@ async def list_applications(
     session: AsyncSession = Depends(get_db_session),
 ) -> list[ApplicationListItem]:
     service = ApplicationTrackingService()
-    items = await service.list_applications(
+    items = await service.list_application_dashboard_items(
         session,
         user_id=current_user.id,
     )
-    return [
-        ApplicationListItem(
-            id=item.id,
-            vacancy_id=item.vacancy_id,
-            status=item.status,
-            applied_at=item.applied_at,
-            outcome=item.outcome,
-            notes=item.notes,
-            created_at=item.created_at,
-        )
-        for item in items
-    ]
+    return [ApplicationListItem(**item) for item in items]

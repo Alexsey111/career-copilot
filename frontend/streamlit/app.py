@@ -17,6 +17,27 @@ st.set_page_config(
 )
 
 
+APPLICATION_STATUS_LABELS = {
+    "draft": "Черновик",
+    "submitted": "Отправлен вручную",
+    "interview": "Интервью",
+    "rejected": "Отказ",
+    "offer": "Оффер",
+}
+
+
+def format_application_status(value: str | None) -> str:
+    if not value:
+        return "—"
+    return APPLICATION_STATUS_LABELS.get(value, value)
+
+
+def format_optional_datetime(value: str | None) -> str:
+    if not value:
+        return "—"
+    return value.replace("T", " ")[:19]
+
+
 def init_session_state() -> None:
     if "source_file" not in st.session_state:
         st.session_state.source_file = None
@@ -40,6 +61,8 @@ def init_session_state() -> None:
         st.session_state.approved_cover_letter = None
     if "application" not in st.session_state:
         st.session_state.application = None
+    if "application_list" not in st.session_state:
+        st.session_state.application_list = None
     if "interview_session" not in st.session_state:
         st.session_state.interview_session = None
     if "interview_answers_result" not in st.session_state:
@@ -1352,6 +1375,7 @@ def render_application_creation_step(client: CareerCopilotApiClient) -> None:
             return
 
         st.session_state.application = result
+        st.session_state.application_list = None
         st.session_state.interview_session = None
         st.session_state.interview_answers_result = None
         st.success("Запись отклика создана")
@@ -1454,6 +1478,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient) -> Non
             return
 
         st.session_state.application = result
+        st.session_state.application_list = None
         st.session_state.interview_session = None
         st.session_state.interview_answers_result = None
         st.success("Отклик отмечен как отправленный")
@@ -1474,8 +1499,118 @@ def render_application_status_update_step(client: CareerCopilotApiClient) -> Non
         )
 
 
+def render_application_dashboard_step(client: CareerCopilotApiClient) -> None:
+    st.subheader("12. Дашборд откликов")
+
+    st.caption(
+        "Список внутренних записей откликов. Это не список реальных откликов на HH, "
+        "а локальный трекер статусов внутри проекта."
+    )
+
+    if st.button(
+        "Обновить список откликов",
+        type="primary",
+        use_container_width=True,
+        key="refresh_application_dashboard",
+    ):
+        try:
+            result = client.get_json("/applications")
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, list):
+            st.error("Backend вернул неожиданный формат списка откликов")
+            st.json(result)
+            return
+
+        st.session_state.application_list = result
+
+    applications = st.session_state.application_list
+
+    if applications is None:
+        st.info("Нажмите кнопку обновления, чтобы загрузить список откликов.")
+        return
+
+    if not applications:
+        st.info("Пока нет созданных записей откликов.")
+        return
+
+    status_counts: dict[str, int] = {}
+    for item in applications:
+        status_value = str(item.get("status") or "unknown")
+        status_counts[status_value] = status_counts.get(status_value, 0) + 1
+
+    col_total, col_draft, col_submitted, col_interview, col_final = st.columns(5)
+
+    with col_total:
+        st.metric("Всего", len(applications))
+
+    with col_draft:
+        st.metric("Черновики", status_counts.get("draft", 0))
+
+    with col_submitted:
+        st.metric("Отправлены", status_counts.get("submitted", 0))
+
+    with col_interview:
+        st.metric("Интервью", status_counts.get("interview", 0))
+
+    with col_final:
+        st.metric(
+            "Финальные",
+            status_counts.get("rejected", 0) + status_counts.get("offer", 0),
+        )
+
+    rows = []
+    for item in applications:
+        rows.append(
+            {
+                "Вакансия": item.get("vacancy_title") or "—",
+                "Компания": item.get("vacancy_company") or "—",
+                "Локация": item.get("vacancy_location") or "—",
+                "Статус": format_application_status(item.get("status")),
+                "Канал": item.get("channel") or "—",
+                "Дата отправки": format_optional_datetime(item.get("applied_at")),
+                "Outcome": item.get("outcome") or "—",
+                "Заметки": item.get("notes") or "—",
+            }
+        )
+
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    with st.expander("Технические детали откликов", expanded=False):
+        for index, item in enumerate(applications, start=1):
+            st.markdown(
+                f"#### {index}. {item.get('vacancy_title') or item.get('vacancy_id')}"
+            )
+            st.json(
+                {
+                    "application_id": item.get("id"),
+                    "vacancy_id": item.get("vacancy_id"),
+                    "resume_document_id": item.get("resume_document_id"),
+                    "cover_letter_document_id": item.get("cover_letter_document_id"),
+                    "status": item.get("status"),
+                    "channel": item.get("channel"),
+                    "applied_at": item.get("applied_at"),
+                    "outcome": item.get("outcome"),
+                    "notes": item.get("notes"),
+                    "created_at": item.get("created_at"),
+                    "updated_at": item.get("updated_at"),
+                }
+            )
+
+
 def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
-    st.subheader("12. Подготовка к собеседованию")
+    st.subheader("13. Подготовка к собеседованию")
 
     application = st.session_state.application
     if not application:
@@ -1792,6 +1927,10 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.divider()
 
     render_application_status_update_step(client)
+
+    st.divider()
+
+    render_application_dashboard_step(client)
 
     st.divider()
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -317,3 +318,43 @@ class ApplicationTrackingService:
         user_id: UUID,
     ):
         return await self.application_record_repository.list_by_user_id(session, user_id)
+
+    async def list_application_dashboard_items(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+    ) -> list[dict[str, Any]]:
+        applications = await self.application_record_repository.list_by_user_id(
+            session,
+            user_id,
+        )
+
+        dashboard_items: list[dict[str, Any]] = []
+
+        for application in applications:
+            vacancy = await self.vacancy_repository.get_by_id(
+                session,
+                application.vacancy_id,
+            )
+
+            dashboard_items.append(
+                {
+                    "id": application.id,
+                    "vacancy_id": application.vacancy_id,
+                    "vacancy_title": vacancy.title if vacancy else None,
+                    "vacancy_company": vacancy.company if vacancy else None,
+                    "vacancy_location": vacancy.location if vacancy else None,
+                    "resume_document_id": application.resume_document_id,
+                    "cover_letter_document_id": application.cover_letter_document_id,
+                    "status": application.status,
+                    "channel": application.channel,
+                    "applied_at": application.applied_at,
+                    "outcome": application.outcome,
+                    "notes": application.notes,
+                    "created_at": application.created_at,
+                    "updated_at": application.updated_at,
+                }
+            )
+
+        return dashboard_items
