@@ -330,15 +330,12 @@ class ApplicationTrackingService:
             user_id,
         )
 
-        dashboard_items: list[dict[str, Any]] = []
+        items: list[dict] = []
 
         for application in applications:
-            vacancy = await self.vacancy_repository.get_by_id(
-                session,
-                application.vacancy_id,
-            )
+            vacancy = application.vacancy
 
-            dashboard_items.append(
+            items.append(
                 {
                     "id": application.id,
                     "vacancy_id": application.vacancy_id,
@@ -357,4 +354,4 @@ class ApplicationTrackingService:
                 }
             )
 
-        return dashboard_items
+        return items

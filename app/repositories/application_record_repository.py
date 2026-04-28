@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import ApplicationRecord
 
@@ -73,6 +74,7 @@ class ApplicationRecordRepository:
     ) -> list[ApplicationRecord]:
         stmt = (
             select(ApplicationRecord)
+            .options(selectinload(ApplicationRecord.vacancy))
             .where(ApplicationRecord.user_id == user_id)
             .order_by(ApplicationRecord.created_at.desc())
         )
