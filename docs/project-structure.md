@@ -50,8 +50,6 @@ career-copilot/
 ├── .env.example
 ├── build_backend.py
 ├── Dockerfile
-├── api.out.log
-├── api.err.log
 ├── app/
 ├── alembic/
 ├── frontend/
