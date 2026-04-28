@@ -34,3 +34,20 @@ class InterviewSessionRead(BaseModel):
     score: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+
+
+class InterviewSessionListItem(BaseModel):
+    id: UUID
+    vacancy_id: UUID | None
+    vacancy_title: str | None = None
+    vacancy_company: str | None = None
+    vacancy_location: str | None = None
+    session_type: str
+    status: str
+    question_count: int
+    answered_count: int
+    unanswered_count: int
+    warning_count: int
+    readiness_score: int | None
+    created_at: datetime
+    updated_at: datetime

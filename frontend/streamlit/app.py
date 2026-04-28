@@ -2123,6 +2123,319 @@ def render_application_dashboard(client: CareerCopilotApiClient) -> None:
         st.rerun()
 
 
+def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
+    st.header("Интервью")
+    st.caption(
+        "Список внутренних сессий подготовки к интервью. "
+        "Здесь можно открыть старую сессию, дозаполнить ответы и пересчитать готовность."
+    )
+
+    try:
+        sessions = client.get_json("/interviews/sessions")
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    if not isinstance(sessions, list):
+        st.error("Backend вернул неожиданный формат списка interview sessions")
+        st.json(sessions)
+        return
+
+    if not sessions:
+        st.info("Пока нет созданных сессий подготовки к интервью.")
+        return
+
+    answered_count = sum(1 for item in sessions if item.get("status") == "answered")
+    draft_count = sum(1 for item in sessions if item.get("status") == "draft")
+    readiness_values = [
+        int(item["readiness_score"])
+        for item in sessions
+        if item.get("readiness_score") is not None
+    ]
+    average_readiness = (
+        round(sum(readiness_values) / len(readiness_values))
+        if readiness_values
+        else None
+    )
+
+    col_total, col_draft, col_answered, col_avg_score = st.columns(4)
+
+    with col_total:
+        st.metric("Всего сессий", len(sessions))
+
+    with col_draft:
+        st.metric("Черновики", draft_count)
+
+    with col_answered:
+        st.metric("С ответами", answered_count)
+
+    with col_avg_score:
+        st.metric(
+            "Средняя готовность",
+            f"{average_readiness} / 100" if average_readiness is not None else "—",
+        )
+
+    rows = []
+    for item in sessions:
+        rows.append(
+            {
+                "Вакансия": item.get("vacancy_title") or "—",
+                "Компания": item.get("vacancy_company") or "—",
+                "Локация": item.get("vacancy_location") or "—",
+                "Статус": item.get("status") or "—",
+                "Ответов": f"{item.get('answered_count', 0)} / {item.get('question_count', 0)}",
+                "Предупреждений": item.get("warning_count", 0),
+                "Готовность": (
+                    f"{item.get('readiness_score')} / 100"
+                    if item.get("readiness_score") is not None
+                    else "—"
+                ),
+                "Обновлено": format_optional_datetime(item.get("updated_at")),
+            }
+        )
+
+    st.markdown("### Список подготовок")
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    session_ids = [
+        str(item.get("id"))
+        for item in sessions
+        if item.get("id")
+    ]
+
+    if not session_ids:
+        st.warning("В списке нет корректных session_id.")
+        return
+
+    sessions_by_id = {
+        str(item.get("id")): item
+        for item in sessions
+        if item.get("id")
+    }
+
+    selected_session_id = st.selectbox(
+        "Выберите сессию подготовки",
+        options=session_ids,
+        format_func=lambda value: (
+            f"{sessions_by_id[value].get('vacancy_title') or 'Без названия'} "
+            f"· {sessions_by_id[value].get('status')} "
+            f"· {value[:8]}"
+        ),
+    )
+
+    if not selected_session_id:
+        return
+
+    try:
+        selected_session = client.get_json(f"/interviews/sessions/{selected_session_id}")
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    if not isinstance(selected_session, dict):
+        st.error("Backend вернул неожиданный формат interview session")
+        st.json(selected_session)
+        return
+
+    question_set = selected_session.get("question_set") or []
+    answers = selected_session.get("answers") or []
+    score = selected_session.get("score") or {}
+    feedback = selected_session.get("feedback") or {}
+
+    existing_answers_by_index = {}
+    for answer in answers:
+        question_index = answer.get("question_index")
+        if question_index is None:
+            continue
+        existing_answers_by_index[int(question_index)] = answer.get("answer_text") or ""
+
+    st.markdown("### Детали сессии")
+
+    col_status, col_questions, col_answers, col_score = st.columns(4)
+
+    with col_status:
+        st.metric("Статус", selected_session.get("status"))
+
+    with col_questions:
+        st.metric("Вопросов", len(question_set))
+
+    with col_answers:
+        st.metric("Ответов", score.get("answered_count", len(answers)))
+
+    with col_score:
+        readiness_score = score.get("readiness_score")
+        st.metric(
+            "Готовность",
+            f"{readiness_score} / 100" if readiness_score is not None else "—",
+        )
+
+    if not question_set:
+        st.warning("В этой сессии нет question_set.")
+        return
+
+    with st.expander("Список вопросов", expanded=False):
+        for index, question in enumerate(question_set, start=1):
+            st.markdown(f"**{index}. {question.get('type')}**")
+            st.write(question.get("prompt"))
+            if question.get("answer_format"):
+                st.caption(f"Формат ответа: {question.get('answer_format')}")
+
+    st.markdown("### Редактор ответов")
+
+    st.info(
+        "Можно дозаполнить ответы и сохранить промежуточный результат. "
+        "Пустые ответы не сохраняются. Для STAR-вопросов используйте: "
+        "Ситуация / Задача / Действия / Результат."
+    )
+
+    with st.form(f"interview_dashboard_answers_form_{selected_session_id}"):
+        answers_payload: list[dict] = []
+
+        for question_index, question in enumerate(question_set):
+            question_number = question_index + 1
+            question_type = question.get("type") or "unknown"
+            prompt = question.get("prompt") or f"Вопрос {question_number}"
+            answer_format = question.get("answer_format")
+
+            st.markdown(f"#### Вопрос {question_number}: {question_type}")
+            st.write(prompt)
+
+            if answer_format:
+                st.caption(f"Формат ответа: {answer_format}")
+
+            answer_text = st.text_area(
+                f"Ответ {question_number}",
+                value=existing_answers_by_index.get(question_index, ""),
+                height=150,
+                key=f"interview_dashboard_answer_{selected_session_id}_{question_index}",
+            )
+
+            if answer_text.strip():
+                answers_payload.append(
+                    {
+                        "question_index": question_index,
+                        "answer_text": answer_text.strip(),
+                    }
+                )
+
+        submitted = st.form_submit_button(
+            "Сохранить ответы и пересчитать готовность",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        if not answers_payload:
+            st.error("Нужно заполнить хотя бы один ответ.")
+            return
+
+        try:
+            updated_session = client.patch_json(
+                f"/interviews/sessions/{selected_session_id}/answers",
+                {
+                    "answers": answers_payload,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(updated_session, dict):
+            st.error("Backend вернул неожиданный формат interview session")
+            st.json(updated_session)
+            return
+
+        selected_session = updated_session
+        score = selected_session.get("score") or {}
+        feedback = selected_session.get("feedback") or {}
+
+        st.success("Ответы сохранены, готовность пересчитана")
+
+    if score:
+        st.markdown("### Текущая оценка готовности")
+
+        question_count = int(score.get("question_count") or len(question_set) or 0)
+        answered_score_count = int(score.get("answered_count") or 0)
+        unanswered_count = int(score.get("unanswered_count") or 0)
+        warning_count = int(score.get("warning_count") or 0)
+        readiness_score = score.get("readiness_score")
+
+        col_answered, col_unanswered, col_warnings, col_readiness = st.columns(4)
+
+        with col_answered:
+            st.metric("Ответов", f"{answered_score_count} / {question_count}")
+
+        with col_unanswered:
+            st.metric("Осталось", unanswered_count)
+
+        with col_warnings:
+            st.metric("Предупреждений", warning_count)
+
+        with col_readiness:
+            st.metric(
+                "Готовность",
+                f"{readiness_score} / 100" if readiness_score is not None else "—",
+            )
+
+        if question_count > 0:
+            st.progress(max(0.0, min(1.0, answered_score_count / question_count)))
+
+    feedback_items = feedback.get("items") or []
+    if feedback_items:
+        st.markdown("### Обратная связь")
+
+        for item in feedback_items:
+            with st.container(border=True):
+                st.markdown(
+                    f"**Вопрос {int(item.get('question_index', 0)) + 1} — "
+                    f"{item.get('question_type')}**"
+                )
+                st.caption(f"Длина ответа: {item.get('answer_length')} символов")
+
+                warnings = item.get("warnings") or []
+                suggestions = item.get("suggestions") or []
+
+                if warnings:
+                    st.warning("Предупреждения: " + ", ".join(warnings))
+                else:
+                    st.success("Критичных предупреждений нет")
+
+                if suggestions:
+                    st.markdown("Рекомендации:")
+                    for suggestion in suggestions:
+                        st.markdown(f"- {suggestion}")
+
+    with st.expander("Raw JSON сессии", expanded=False):
+        st.json(selected_session)
+
+
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
@@ -2188,8 +2501,8 @@ def main() -> None:
     init_session_state()
     _, client = render_sidebar()
 
-    tab_home, tab_flow, tab_applications = st.tabs(
-        ["Главная", "MVP-сценарий", "Отклики"]
+    tab_home, tab_flow, tab_applications, tab_interviews = st.tabs(
+        ["Главная", "MVP-сценарий", "Отклики", "Интервью"]
     )
 
     with tab_home:
@@ -2200,6 +2513,9 @@ def main() -> None:
 
     with tab_applications:
         render_application_dashboard(client)
+
+    with tab_interviews:
+        render_interview_dashboard(client)
 
 
 if __name__ == "__main__":

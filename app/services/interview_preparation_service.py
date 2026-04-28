@@ -130,6 +130,17 @@ class InterviewPreparationService:
 
         return interview_session
 
+    async def list_session_dashboard_items(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+    ) -> list[dict]:
+        return await self.interview_session_repository.list_dashboard_by_user_id(
+            session,
+            user_id,
+        )
+
     async def save_answers(
         self,
         session: AsyncSession,

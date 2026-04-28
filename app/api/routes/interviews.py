@@ -13,12 +13,26 @@ from app.models import User
 from app.schemas.interview import (
     InterviewAnswersUpdateRequest,
     InterviewSessionCreateRequest,
+    InterviewSessionListItem,
     InterviewSessionRead,
 )
 from app.services.interview_preparation_service import InterviewPreparationService
 
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
+
+
+@router.get("/sessions", response_model=list[InterviewSessionListItem])
+async def list_interview_sessions(
+    current_user: User = Depends(get_current_dev_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[InterviewSessionListItem]:
+    service = InterviewPreparationService()
+    items = await service.list_session_dashboard_items(
+        session,
+        user_id=current_user.id,
+    )
+    return [InterviewSessionListItem(**item) for item in items]
 
 
 @router.post("/sessions", response_model=InterviewSessionRead)
