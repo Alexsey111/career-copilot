@@ -81,12 +81,10 @@ class CoverLetterGenerationService:
             gaps_json=analysis.gaps_json,
         )
 
-        confirmed_achievement_titles = self._get_confirmed_achievement_titles(
-            profile.achievements
-        )
+        confirmed_achievements = self._get_confirmed_achievements(profile.achievements)
 
         selected_achievements = self._select_relevant_achievements(
-            confirmed_achievement_titles,
+            confirmed_achievements,
             matched_keywords,
         )
 
@@ -138,6 +136,11 @@ class CoverLetterGenerationService:
                 "selected_achievements": [
                     {
                         "title": item["title"],
+                        "situation": item.get("situation"),
+                        "task": item.get("task"),
+                        "action": item.get("action"),
+                        "result": item.get("result"),
+                        "metric_text": item.get("metric_text"),
                         "fact_status": item["fact_status"],
                         "reason": item["reason"],
                     }
@@ -221,26 +224,75 @@ class CoverLetterGenerationService:
         parts = [part.strip(" .") for part in joined.split(",") if part.strip()]
         return self._dedupe_preserve_order(parts)
 
-    def _get_confirmed_achievement_titles(self, achievements) -> list[str]:
-        titles: list[str] = []
+    def _get_confirmed_achievements(self, achievements) -> list[dict]:
+        items: list[dict] = []
 
         for achievement in achievements or []:
             title = str(getattr(achievement, "title", "") or "").strip()
             fact_status = str(getattr(achievement, "fact_status", "") or "").strip()
 
-            if title and fact_status == "confirmed":
-                titles.append(title)
+            if not title or fact_status != "confirmed":
+                continue
 
-        return self._dedupe_preserve_order(titles)
+            items.append(
+                {
+                    "title": title,
+                    "situation": getattr(achievement, "situation", None),
+                    "task": getattr(achievement, "task", None),
+                    "action": getattr(achievement, "action", None),
+                    "result": getattr(achievement, "result", None),
+                    "metric_text": getattr(achievement, "metric_text", None),
+                    "fact_status": "confirmed",
+                }
+            )
+
+        deduped: list[dict] = []
+        seen: set[str] = set()
+
+        for item in items:
+            normalized = re.sub(r"\s+", " ", item["title"].strip()).lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(item)
+
+        return deduped
+
+    def _get_confirmed_achievement_titles(self, achievements) -> list[str]:
+        """
+        Backward-compatible helper for existing tests and simple title-only flows.
+        Main generation path uses _get_confirmed_achievements().
+        """
+        return [
+            item["title"]
+            for item in self._get_confirmed_achievements(achievements)
+        ]
 
     def _select_relevant_achievements(
         self,
-        achievement_titles: list[str],
-        keywords: list[str],
+        achievements: list[dict] | None = None,
+        keywords: list[str] | None = None,
+        achievement_titles: list[str] | None = None,
     ) -> list[dict]:
+        keywords = keywords or []
+        legacy_title_only_mode = achievements is None
+
+        if achievements is None:
+            achievements = [
+                {
+                    "title": title,
+                    "fact_status": "confirmed",
+                }
+                for title in (achievement_titles or [])
+            ]
+
         selected: list[dict] = []
 
-        for title in achievement_titles:
+        for achievement in achievements:
+            title = str(achievement.get("title") or "").strip()
+            if not title:
+                continue
+
             reason = "profile_core"
             title_lower = title.lower()
 
@@ -251,13 +303,24 @@ class CoverLetterGenerationService:
             elif "анализ" in title_lower or "data" in title_lower:
                 reason = "analysis_relevance"
 
-            selected.append(
-                {
-                    "title": title,
-                    "fact_status": "confirmed",
-                    "reason": reason,
-                }
-            )
+            selected_item = {
+                "title": title,
+                "fact_status": "confirmed",
+                "reason": reason,
+            }
+
+            if not legacy_title_only_mode:
+                selected_item.update(
+                    {
+                        "situation": achievement.get("situation"),
+                        "task": achievement.get("task"),
+                        "action": achievement.get("action"),
+                        "result": achievement.get("result"),
+                        "metric_text": achievement.get("metric_text"),
+                    }
+                )
+
+            selected.append(selected_item)
 
         selected = sorted(
             selected,
@@ -309,7 +372,12 @@ class CoverLetterGenerationService:
             )
 
         if selected_achievements:
-            achievement_titles = [item["title"] for item in selected_achievements[:2]]
+            achievement_titles = []
+            for item in selected_achievements[:2]:
+                if item.get("metric_text"):
+                    achievement_titles.append(f"{item['title']} ({item['metric_text']})")
+                else:
+                    achievement_titles.append(item["title"])
             parts.append(
                 "Также могу обсудить релевантный проектный опыт: "
                 f"{'; '.join(achievement_titles)}."

@@ -1,3 +1,5 @@
+# app\repositories\candidate_achievement_repository.py
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -67,6 +69,11 @@ class CandidateAchievementRepository:
         achievement_id: UUID,
         user_id: UUID,
         title: str | None,
+        situation: str | None,
+        task: str | None,
+        action: str | None,
+        result: str | None,
+        metric_text: str | None,
         fact_status: str,
         evidence_note: str | None,
     ) -> CandidateAchievement | None:
@@ -81,11 +88,21 @@ class CandidateAchievementRepository:
         if title is not None:
             achievement.title = title.strip()
 
+        achievement.situation = self._clean_optional_text(situation)
+        achievement.task = self._clean_optional_text(task)
+        achievement.action = self._clean_optional_text(action)
+        achievement.result = self._clean_optional_text(result)
+        achievement.metric_text = self._clean_optional_text(metric_text)
+        achievement.evidence_note = self._clean_optional_text(evidence_note)
         achievement.fact_status = fact_status
-
-        if evidence_note is not None:
-            achievement.evidence_note = evidence_note.strip() or None
 
         await session.flush()
         await session.refresh(achievement)
         return achievement
+
+    def _clean_optional_text(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        cleaned = value.strip()
+        return cleaned or None

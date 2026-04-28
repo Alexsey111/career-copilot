@@ -31,6 +31,35 @@ from app.services.profile_structuring_service import ProfileStructuringService
 router = APIRouter(prefix="/profile", tags=["profile"])
 
 
+def _achievement_item_to_read(item) -> AchievementItemRead:
+    return AchievementItemRead(
+        id=item.id,
+        title=item.title,
+        situation=item.situation,
+        task=item.task,
+        action=item.action,
+        result=item.result,
+        metric_text=item.metric_text,
+        fact_status=item.fact_status,
+        evidence_note=item.evidence_note,
+    )
+
+
+def _achievement_item_to_review_response(item) -> AchievementReviewResponse:
+    return AchievementReviewResponse(
+        id=item.id,
+        title=item.title,
+        situation=item.situation,
+        task=item.task,
+        action=item.action,
+        result=item.result,
+        metric_text=item.metric_text,
+        fact_status=item.fact_status,
+        evidence_note=item.evidence_note,
+        updated_at=item.updated_at,
+    )
+
+
 @router.post("/import-resume", response_model=ResumeImportResponse)
 async def import_resume(
     payload: ResumeImportRequest,
@@ -101,12 +130,7 @@ async def extract_achievements(
         extraction_id=payload.extraction_id,
         achievement_count=len(result.achievements),
         achievements=[
-            AchievementItemRead(
-                id=item.id,
-                title=item.title,
-                fact_status=item.fact_status,
-                evidence_note=item.evidence_note,
-            )
+            _achievement_item_to_read(item)
             for item in result.achievements
             if item.id is not None
         ],
@@ -136,6 +160,11 @@ async def review_achievement(
         achievement_id=achievement_id,
         user_id=current_user.id,
         title=payload.title,
+        situation=payload.situation,
+        task=payload.task,
+        action=payload.action,
+        result=payload.result,
+        metric_text=payload.metric_text,
         fact_status=payload.fact_status,
         evidence_note=payload.evidence_note,
     )
@@ -148,10 +177,4 @@ async def review_achievement(
 
     await session.commit()
 
-    return AchievementReviewResponse(
-        id=achievement.id,
-        title=achievement.title,
-        fact_status=achievement.fact_status,
-        evidence_note=achievement.evidence_note,
-        updated_at=achievement.updated_at,
-    )
+    return _achievement_item_to_review_response(achievement)
