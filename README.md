@@ -1,4 +1,4 @@
-# AI Career Copilot for HH
+﻿# AI Career Copilot for HH
 
 AI-копилот для соискателя для:
 - импорта и анализа вакансий
@@ -86,7 +86,8 @@ python .\scripts\smoke_mvp_flow.py
 
 Ожидаемый baseline:
 
-- `pytest`: `58 passed`
+- `python -m py_compile .\frontend\streamlit\app.py`: `OK`
+- `pytest`: `70 passed`
 - `smoke_mvp_flow.py`: `MVP SMOKE PASSED`
 
 ## MVP flow

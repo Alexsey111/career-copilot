@@ -1,4 +1,4 @@
-# Структура проекта
+﻿# Структура проекта
 
 Этот документ описывает текущую структуру `career-copilot`, роли папок и то, как сейчас проходят основные запросы внутри backend.
 
@@ -111,9 +111,9 @@ app/api/
 - `routes/files.py` принимает upload файлов.
 - `routes/profile.py` запускает импорт резюме, структурирование профиля, извлечение достижений и review достижений.
 - `routes/vacancies.py` импортирует вакансии и запускает анализ.
-- `routes/documents.py` генерирует резюме, cover letter, выполняет review документов и экспортирует approved-документы в TXT/MD.
+- `routes/documents.py` генерирует резюме, cover letter, выполняет review документов и экспортирует approved-документы в TXT/MD/DOCX.
 - `routes/applications.py` создает, читает, обновляет статусы и возвращает список application records для dashboard.
-- `routes/interviews.py` создает interview session и принимает ответы на вопросы.
+- `routes/interviews.py` создает interview session, возвращает список sessions, читает session и принимает ответы на вопросы.
 
 ### `app/core/`
 
@@ -285,7 +285,7 @@ frontend/
 - `app.py` показывает кнопки экспорта approved документов в TXT, MD и DOCX.
 - `app.py` содержит export-блок для approved резюме и сопроводительного письма.
 - `app.py` содержит application dashboard для просмотра откликов.
-- `api_client.py` инкапсулирует вызовы backend API, включая JSON-запросы и text export.
+- `api_client.py` инкапсулирует вызовы backend API, включая JSON-запросы и text/bytes export для TXT/MD/DOCX.
 
 ## Папка `scripts/`
 
@@ -397,11 +397,10 @@ tests/
 5. Создается `DocumentVersion` в статусе `draft`.
 6. Далее документ должен пройти review через `PATCH /documents/{document_id}/review`.
 7. После approval и активации документ можно экспортировать через `GET /documents/{document_id}/export/{format}`.
-8. Поддерживаются форматы `txt`, `md`, `docx`.
-
-7. После approval документ можно экспортировать:
-   - `GET /documents/{document_id}/export/txt`
-   - `GET /documents/{document_id}/export/md`
+8. Поддерживаются форматы:
+   - `txt`
+   - `md`
+   - `docx`
 
 ### 6. Заявки
 
@@ -456,9 +455,9 @@ tests/
 - backend safety filter, который использует в документах только `confirmed` achievements
 - export API для approved+active документов в TXT/MD/DOCX
 - Streamlit download-кнопки для экспорта документов
-
-- export approved-документов в TXT/MD
 - application dashboard во frontend
+- interview dashboard во frontend
+- full interview answer editor для всех вопросов
 - статусные переходы откликов: draft -> submitted -> interview/rejected/offer
 - PostgreSQL-схема через SQLAlchemy и Alembic
 - базовый healthcheck

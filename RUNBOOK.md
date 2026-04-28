@@ -1,4 +1,4 @@
-# Career Copilot Backend Runbook
+﻿# Career Copilot Backend Runbook
 
 Runbook для локальной проверки backend после изменений.
 
@@ -34,7 +34,7 @@ pytest -q
 Ожидаемый текущий baseline:
 
 ```text
-50 passed
+70 passed
 ```
 
 Если тесты падают, сначала чинить тесты, потом запускать live smoke.
@@ -408,6 +408,6 @@ live smoke passed
 Текущий known baseline:
 
 ```text
-50 passed
+70 passed
 MVP SMOKE PASSED
 ```
