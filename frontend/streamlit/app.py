@@ -1227,11 +1227,17 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
             try:
                 resume_txt = client.get_text(f"/documents/{approved_resume_id}/export/txt")
                 resume_md = client.get_text(f"/documents/{approved_resume_id}/export/md")
+                resume_docx = client.get_bytes(
+                    f"/documents/{approved_resume_id}/export/docx"
+                )
                 cover_letter_txt = client.get_text(
                     f"/documents/{approved_cover_letter_id}/export/txt"
                 )
                 cover_letter_md = client.get_text(
                     f"/documents/{approved_cover_letter_id}/export/md"
+                )
+                cover_letter_docx = client.get_bytes(
+                    f"/documents/{approved_cover_letter_id}/export/docx"
                 )
             except httpx.HTTPStatusError as exc:
                 st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при экспорте")
@@ -1258,6 +1264,13 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
                         mime="text/markdown",
                         use_container_width=True,
                     )
+                    st.download_button(
+                        "Скачать резюме DOCX",
+                        data=resume_docx,
+                        file_name="resume.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                    )
 
                 with col_letter_export:
                     st.markdown("#### Сопроводительное письмо")
@@ -1273,6 +1286,13 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
                         data=cover_letter_md,
                         file_name="cover_letter.md",
                         mime="text/markdown",
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        "Скачать письмо DOCX",
+                        data=cover_letter_docx,
+                        file_name="cover_letter.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         use_container_width=True,
                     )
 

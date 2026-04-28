@@ -141,4 +141,4 @@ async def test_document_export_rejects_unknown_format(client) -> None:
     response = await client.get(f"{API_PREFIX}/documents/{resume_document_id}/export/pdf")
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "unsupported export format; use txt or md"
+    assert response.json()["detail"] == "unsupported export format; use txt, md or docx"

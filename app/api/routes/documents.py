@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from uuid import UUID
 
+from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +33,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 SUPPORTED_EXPORT_FORMATS = {
     "txt": "text/plain; charset=utf-8",
     "md": "text/markdown; charset=utf-8",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 
@@ -42,6 +45,17 @@ def _build_export_filename(
 ) -> str:
     safe_kind = document_kind.replace("_", "-")
     return f"career-copilot-{safe_kind}-{document_id}.{export_format}"
+
+
+def _build_docx_export_bytes(*, rendered_text: str) -> bytes:
+    document = DocxDocument()
+
+    for line in rendered_text.splitlines():
+        document.add_paragraph(line)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
 
 
 @router.post("/resumes/generate", response_model=ResumeGenerateResponse)
@@ -138,7 +152,7 @@ async def export_document(
     if normalized_format not in SUPPORTED_EXPORT_FORMATS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="unsupported export format; use txt or md",
+            detail="unsupported export format; use txt, md or docx",
         )
 
     repo = DocumentVersionRepository()
@@ -168,8 +182,13 @@ async def export_document(
         export_format=normalized_format,
     )
 
+    if normalized_format == "docx":
+        content = _build_docx_export_bytes(rendered_text=document.rendered_text)
+    else:
+        content = document.rendered_text
+
     return Response(
-        content=document.rendered_text,
+        content=content,
         media_type=SUPPORTED_EXPORT_FORMATS[normalized_format],
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
