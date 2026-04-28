@@ -1883,6 +1883,225 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
             st.json(answered)
 
 
+
+def render_application_dashboard(client: CareerCopilotApiClient) -> None:
+    st.header("Дашборд откликов")
+    st.caption(
+        "Список внутренних записей откликов. Это не отправляет отклики на HH и не выполняет внешних действий."
+    )
+
+    status_labels = {
+        "draft": "Черновик",
+        "submitted": "Отправлен вручную",
+        "interview": "Интервью",
+        "rejected": "Отказ",
+        "offer": "Оффер",
+    }
+
+    allowed_next_statuses = {
+        "draft": ["submitted"],
+        "submitted": ["interview", "rejected", "offer"],
+        "interview": ["rejected", "offer"],
+        "rejected": [],
+        "offer": [],
+    }
+
+    try:
+        applications = client.get_json("/applications")
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    if not isinstance(applications, list):
+        st.error("Backend вернул неожиданный формат списка откликов")
+        st.json(applications)
+        return
+
+    if not applications:
+        st.info("Пока нет созданных откликов.")
+        return
+
+    counts_by_status = {
+        "draft": 0,
+        "submitted": 0,
+        "interview": 0,
+        "rejected": 0,
+        "offer": 0,
+    }
+
+    for application in applications:
+        status_value = application.get("status")
+        if status_value in counts_by_status:
+            counts_by_status[status_value] += 1
+
+    metric_cols = st.columns(5)
+
+    for col, status_value in zip(metric_cols, counts_by_status.keys()):
+        with col:
+            st.metric(
+                status_labels.get(status_value, status_value),
+                counts_by_status[status_value],
+            )
+
+    table_rows = []
+    for application in applications:
+        status_value = application.get("status")
+        table_rows.append(
+            {
+                "Статус": status_labels.get(status_value, status_value),
+                "application_id": application.get("id"),
+                "vacancy_id": application.get("vacancy_id"),
+                "applied_at": application.get("applied_at"),
+                "outcome": application.get("outcome"),
+                "created_at": application.get("created_at"),
+                "notes": application.get("notes"),
+            }
+        )
+
+    st.markdown("### Список откликов")
+    st.dataframe(
+        table_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    application_ids = [
+        str(application.get("id"))
+        for application in applications
+        if application.get("id")
+    ]
+
+    if not application_ids:
+        st.warning("В списке откликов нет корректных application_id.")
+        return
+
+    applications_by_id = {
+        str(application.get("id")): application
+        for application in applications
+        if application.get("id")
+    }
+
+    selected_application_id = st.selectbox(
+        "Выберите отклик для просмотра и обновления статуса",
+        options=application_ids,
+        format_func=lambda value: (
+            f"{status_labels.get(applications_by_id[value].get('status'), applications_by_id[value].get('status'))} "
+            f"· {value[:8]} "
+            f"· {applications_by_id[value].get('created_at') or ''}"
+        ),
+    )
+
+    if not selected_application_id:
+        return
+
+    try:
+        selected_application = client.get_json(f"/applications/{selected_application_id}")
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    if not isinstance(selected_application, dict):
+        st.error("Backend вернул неожиданный формат отклика")
+        st.json(selected_application)
+        return
+
+    st.markdown("### Детали отклика")
+    st.json(
+        {
+            "application_id": selected_application.get("id"),
+            "vacancy_id": selected_application.get("vacancy_id"),
+            "resume_document_id": selected_application.get("resume_document_id"),
+            "cover_letter_document_id": selected_application.get("cover_letter_document_id"),
+            "status": selected_application.get("status"),
+            "channel": selected_application.get("channel"),
+            "applied_at": selected_application.get("applied_at"),
+            "outcome": selected_application.get("outcome"),
+            "notes": selected_application.get("notes"),
+            "created_at": selected_application.get("created_at"),
+            "updated_at": selected_application.get("updated_at"),
+        }
+    )
+
+    current_status = str(selected_application.get("status") or "").strip().lower()
+    next_statuses = allowed_next_statuses.get(current_status, [])
+
+    st.markdown("### Ручное обновление статуса")
+
+    if not next_statuses:
+        st.info(
+            "Для текущего статуса нет разрешённых следующих переходов. "
+            "Финальные статусы не переоткрываются автоматически."
+        )
+        return
+
+    with st.form(f"application_status_dashboard_form_{selected_application_id}"):
+        next_status = st.selectbox(
+            "Новый статус",
+            options=next_statuses,
+            format_func=lambda value: status_labels.get(value, value),
+        )
+
+        notes = st.text_area(
+            "Заметка к изменению статуса",
+            value="Статус обновлён вручную через Streamlit dashboard.",
+            height=90,
+        )
+
+        submitted = st.form_submit_button(
+            "Сохранить новый статус",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        try:
+            updated_application = client.patch_json(
+                f"/applications/{selected_application_id}/status",
+                {
+                    "status": next_status,
+                    "notes": notes.strip() or None,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(updated_application, dict):
+            st.error("Backend вернул неожиданный формат отклика")
+            st.json(updated_application)
+            return
+
+        st.success("Статус отклика обновлён")
+        st.rerun()
+
+
 def render_mvp_flow(client: CareerCopilotApiClient) -> None:
     st.header("MVP-сценарий")
 
@@ -1948,13 +2167,18 @@ def main() -> None:
     init_session_state()
     _, client = render_sidebar()
 
-    tab_home, tab_flow = st.tabs(["Главная", "MVP-сценарий"])
+    tab_home, tab_flow, tab_applications = st.tabs(
+        ["Главная", "MVP-сценарий", "Отклики"]
+    )
 
     with tab_home:
         render_home()
 
     with tab_flow:
         render_mvp_flow(client)
+
+    with tab_applications:
+        render_application_dashboard(client)
 
 
 if __name__ == "__main__":
