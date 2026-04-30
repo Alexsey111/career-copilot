@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from app.api.router import build_api_router
 from app.api.routes.interviews import router as interviews_router
@@ -24,6 +25,16 @@ def create_app() -> FastAPI:
         debug=settings.app_debug,
         lifespan=lifespan,
     )
+
+    @app.get("/", tags=["root"])
+    async def root() -> JSONResponse:
+        return JSONResponse(
+            {
+                "service": settings.app_name,
+                "status": "ok",
+            }
+        )
+
     app.include_router(build_api_router())
     app.include_router(interviews_router, prefix="/api/v1")
     return app
