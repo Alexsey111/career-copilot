@@ -8,8 +8,10 @@
 flowchart TD
     U[Пользователь] --> API[FastAPI app]
     U --> FE[Streamlit frontend]
+    U --> ROOT[GET /]
     API --> RT[API router]
     RT --> R1[health]
+    RT --> R8[auth]
     RT --> R2[files]
     RT --> R3[profile]
     RT --> R4[vacancies]
@@ -32,6 +34,7 @@ flowchart TD
     S6 --> REP
     REP --> DB[(PostgreSQL)]
 
+    ROOT --> CFG[app/core/config.py]
     API --> CFG[app/core/config.py]
     API --> LOG[app/core/logging.py]
     API --> DBS[app/db/session.py]
@@ -72,6 +75,7 @@ app/
 ├── models/
 ├── repositories/
 ├── schemas/
+├── security/
 ├── services/
 ├── tasks/
 ├── main.py
@@ -86,6 +90,7 @@ app/
 - поднимает `lifespan`
 - включает основной router из `app/api/router.py`
 - использует настройки из `app/core/config.py`
+- добавляет корневой `GET /`, который возвращает service name и `status: ok`
 
 ### `app/api/`
 
@@ -93,9 +98,11 @@ HTTP-слой приложения.
 
 ```text
 app/api/
+├── dependencies.py
 ├── router.py
 └── routes/
     ├── health.py
+    ├── auth.py
     ├── files.py
     ├── profile.py
     ├── vacancies.py
@@ -106,12 +113,29 @@ app/api/
 
 - `router.py` собирает все роутеры в общий API.
 - `routes/health.py` отвечает за healthcheck.
+- `routes/auth.py` содержит auth-ready endpoint для проверки auth-слоя.
 - `routes/files.py` принимает upload файлов.
 - `routes/profile.py` запускает импорт резюме, структурирование профиля, извлечение достижений и review достижений.
 - `routes/vacancies.py` импортирует вакансии и запускает анализ.
 - `routes/documents.py` генерирует резюме, cover letter, выполняет review документов и экспортирует approved-документы в TXT/MD/DOCX.
 - `routes/applications.py` создает, читает, обновляет статусы и возвращает список application records для dashboard.
 - `routes/interviews.py` создает interview session, возвращает список sessions, читает session и принимает ответы на вопросы.
+- `dependencies.py` содержит shared dependencies, включая `get_current_dev_user()`.
+
+### `app/security/`
+
+Переиспользуемые security helpers для auth, паролей и токенов.
+
+```text
+app/security/
+├── auth.py
+├── passwords.py
+└── tokens.py
+```
+
+- `auth.py` содержит `get_current_user_id()` для dev auth flow.
+- `passwords.py` хранит argon2-хелперы для hashing и verification паролей.
+- `tokens.py` генерирует session tokens и их SHA-256 hash.
 
 ### `app/core/`
 
@@ -452,13 +476,15 @@ tests/
 - frontend gate, который блокирует импорт вакансии до подтверждения достижений
 - backend safety filter, который использует в документах только `confirmed` achievements
 - export API для approved+active документов в TXT/MD/DOCX
+- отдельный `auth` route и слой security helpers
 - Streamlit download-кнопки для экспорта документов
 - application dashboard во frontend
 - interview dashboard во frontend
 - full interview answer editor для всех вопросов
 - статусные переходы откликов: draft -> submitted -> interview/rejected/offer
 - PostgreSQL-схема через SQLAlchemy и Alembic
-- базовый healthcheck
+- healthcheck на `GET /health`
+- корневой `GET /`, возвращающий `{"service": "...", "status": "ok"}`
 
 Заготовлено:
 

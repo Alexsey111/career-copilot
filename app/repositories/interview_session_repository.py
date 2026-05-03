@@ -43,8 +43,14 @@ class InterviewSessionRepository:
         self,
         session: AsyncSession,
         session_id: UUID,
+        *,
+        user_id: UUID,
     ) -> InterviewSession | None:
-        stmt = select(InterviewSession).where(InterviewSession.id == session_id)
+        stmt = (
+            select(InterviewSession)
+            .where(InterviewSession.id == session_id)
+            .where(InterviewSession.user_id == user_id)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 

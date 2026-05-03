@@ -136,14 +136,12 @@ class VacancyAnalysisService:
         vacancy_id: UUID,
         user_id: UUID,
     ):
-        vacancy = await self.vacancy_repository.get_by_id(session, vacancy_id)
+        vacancy = await self.vacancy_repository.get_by_id(
+            session,
+            vacancy_id,
+            user_id=user_id,
+        )
         if vacancy is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="vacancy not found",
-            )
-
-        if vacancy.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="vacancy not found",

@@ -40,7 +40,17 @@ class VacancyRepository:
         await session.flush()
         return vacancy
 
-    async def get_by_id(self, session: AsyncSession, vacancy_id: UUID) -> Vacancy | None:
-        stmt = select(Vacancy).where(Vacancy.id == vacancy_id)
+    async def get_by_id(
+        self,
+        session: AsyncSession,
+        vacancy_id: UUID,
+        *,
+        user_id: UUID,
+    ) -> Vacancy | None:
+        stmt = (
+            select(Vacancy)
+            .where(Vacancy.id == vacancy_id)
+            .where(Vacancy.user_id == user_id)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()

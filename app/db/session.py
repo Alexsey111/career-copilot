@@ -1,10 +1,16 @@
 """Database session placeholder."""
 
+import asyncio
 from collections.abc import AsyncGenerator
+import sys
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
+
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 settings = get_settings()

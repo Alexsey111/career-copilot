@@ -9,7 +9,7 @@ from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.document_version_repository import DocumentVersionRepository
@@ -61,7 +61,7 @@ def _build_docx_export_bytes(*, rendered_text: str) -> bytes:
 @router.post("/resumes/generate", response_model=ResumeGenerateResponse)
 async def generate_resume(
     payload: ResumeGenerateRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> ResumeGenerateResponse:
     service = ResumeGenerationService()
@@ -86,7 +86,7 @@ async def generate_resume(
 @router.post("/letters/generate", response_model=CoverLetterGenerateResponse)
 async def generate_cover_letter(
     payload: CoverLetterGenerateRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> CoverLetterGenerateResponse:
     service = CoverLetterGenerationService()
@@ -111,11 +111,15 @@ async def generate_cover_letter(
 @router.get("/{document_id}", response_model=DocumentVersionRead)
 async def get_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentVersionRead:
     repo = DocumentVersionRepository()
-    document = await repo.get_by_id(session, document_id)
+    document = await repo.get_by_id(
+        session,
+        document_id,
+        user_id=current_user.id,
+    )
     if document is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -144,7 +148,7 @@ async def get_document(
 async def export_document(
     document_id: UUID,
     export_format: str,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     normalized_format = export_format.lower().strip()
@@ -156,7 +160,11 @@ async def export_document(
         )
 
     repo = DocumentVersionRepository()
-    document = await repo.get_by_id(session, document_id)
+    document = await repo.get_by_id(
+        session,
+        document_id,
+        user_id=current_user.id,
+    )
 
     if document is None or document.user_id != current_user.id:
         raise HTTPException(
@@ -200,7 +208,7 @@ async def export_document(
 async def review_document(
     document_id: UUID,
     payload: DocumentReviewRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentReviewResponse:
     service = DocumentReviewService()

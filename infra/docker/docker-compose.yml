@@ -14,7 +14,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       MINIO_ENDPOINT: minio:9000
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
       SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
       MINIO_SECURE: "false"
     ports:

@@ -40,11 +40,15 @@ class FileExtractionRepository:
         self,
         session: AsyncSession,
         extraction_id: UUID,
+        *,
+        user_id: UUID,
     ) -> FileExtraction | None:
         stmt = (
             select(FileExtraction)
             .options(selectinload(FileExtraction.source_file))
             .where(FileExtraction.id == extraction_id)
+            .join(SourceFile, SourceFile.id == FileExtraction.source_file_id)
+            .where(SourceFile.user_id == user_id)
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()

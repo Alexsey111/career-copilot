@@ -76,14 +76,12 @@ class ApplicationTrackingService:
         cover_letter_document_id: UUID | None,
         notes: str | None,
     ):
-        vacancy = await self.vacancy_repository.get_by_id(session, vacancy_id)
+        vacancy = await self.vacancy_repository.get_by_id(
+            session,
+            vacancy_id,
+            user_id=user_id,
+        )
         if vacancy is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="vacancy not found",
-            )
-
-        if vacancy.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="vacancy not found",
@@ -179,14 +177,12 @@ class ApplicationTrackingService:
         expected_kind: str,
         required: bool,
     ):
-        document = await self.document_version_repository.get_by_id(session, document_id)
+        document = await self.document_version_repository.get_by_id(
+            session,
+            document_id,
+            user_id=user_id,
+        )
         if document is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"{expected_kind} document not found",
-            )
-
-        if document.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"{expected_kind} document not found",
@@ -227,14 +223,12 @@ class ApplicationTrackingService:
         status_value: str,
         notes: str | None,
     ):
-        application = await self.application_record_repository.get_by_id(session, application_id)
+        application = await self.application_record_repository.get_by_id(
+            session,
+            application_id,
+            user_id=user_id,
+        )
         if application is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="application not found",
-            )
-
-        if application.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="application not found",
@@ -298,13 +292,12 @@ class ApplicationTrackingService:
         application_id: UUID,
         user_id: UUID,
     ):
-        application = await self.application_record_repository.get_by_id(session, application_id)
+        application = await self.application_record_repository.get_by_id(
+            session,
+            application_id,
+            user_id=user_id,
+        )
         if application is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="application not found",
-            )
-        if application.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="application not found",

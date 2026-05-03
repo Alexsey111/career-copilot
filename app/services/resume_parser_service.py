@@ -8,9 +8,13 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-import docx2txt
 import fitz
 from fastapi import HTTPException, status
+
+try:
+    import docx2txt
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    docx2txt = None
 
 
 @dataclass
@@ -74,6 +78,12 @@ class ResumeParserService:
         )
 
     def _parse_docx(self, file_bytes: bytes, filename: str) -> ParsedResume:
+        if docx2txt is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="DOCX parsing is unavailable because docx2txt is not installed",
+            )
+
         suffix = Path(filename).suffix or ".docx"
 
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:

@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 
-DATABASE_URL = "postgresql+asyncpg://career_user:career_pass@localhost:5432/career_copilot"
+DATABASE_URL = "postgresql+psycopg://career_user:career_pass@localhost:5432/career_copilot"
 
 
 def configure_stdout() -> None:

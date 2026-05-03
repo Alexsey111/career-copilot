@@ -61,7 +61,11 @@ class AchievementExtractionService:
         extraction_id: UUID,
         user_id: UUID,
     ) -> AchievementExtractionResult:
-        extraction = await self.file_extraction_repository.get_by_id(session, extraction_id)
+        extraction = await self.file_extraction_repository.get_by_id(
+            session,
+            extraction_id,
+            user_id=user_id,
+        )
         if extraction is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -74,15 +78,9 @@ class AchievementExtractionService:
                 detail="source file for extraction not found",
             )
 
-        if extraction.source_file.user_id != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="file extraction not found",
-            )
-
         profile = await self.candidate_profile_repository.get_by_user_id(
             session,
-            extraction.source_file.user_id,
+            user_id,
         )
         if profile is None:
             raise HTTPException(
@@ -369,36 +367,6 @@ class AchievementExtractionService:
 
     def _strip_numbering(self, line: str) -> str:
         return NUMBERED_ITEM_RE.sub("", line).strip()
-
-    def _looks_like_achievement_stop(self, line: str) -> bool:
-        normalized = self._normalize(line)
-
-        stop_headings = {
-            "ОБРАЗОВАНИЕ",
-            "ОПЫТ РАБОТЫ",
-            "КОНТАКТЫ",
-            "НАВЫКИ",
-            "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
-            "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
-        }
-        if normalized in stop_headings:
-            return True
-
-        # Строки с годом в начале — у тебя это уже ушло в шумный 4-й achievement
-        if re.match(r"^\d{4}\b", line.strip()):
-            return True
-
-        # Курсы / доп. обучение после блока стажировок
-        if "УНИВЕРСИТЕТ ИСКУССТВЕННОГО ИНТЕЛЛЕКТА" in normalized:
-            return True
-
-        if "PYTHON С НУЛЯ" in normalized:
-            return True
-
-        if "АНАЛИТИК ДАННЫХ" in normalized:
-            return True
-
-        return False
 
     def _looks_like_achievement_stop(self, line: str) -> bool:
         return self._looks_like_hard_achievement_stop(line)

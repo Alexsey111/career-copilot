@@ -1,5 +1,3 @@
-"""Dependencies for API routes."""
-
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, status
@@ -9,6 +7,7 @@ from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.user_repository import UserRepository
+from app.security.dependencies import get_current_active_user
 
 
 async def get_current_dev_user(
@@ -33,12 +32,15 @@ async def get_current_dev_user(
 
     user = await user_repository.get_by_email(session, email)
     if user is None:
-        user = await user_repository.create(
-            session,
+        user = User(
             email=email,
             auth_provider="dev",
         )
+        session.add(user)
         await session.commit()
         await session.refresh(user)
 
     return user
+
+
+__all__ = ["get_current_active_user", "get_current_dev_user"]

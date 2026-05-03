@@ -22,7 +22,7 @@ from app.services.vacancy_analysis_service import (
 
 
 DEFAULT_DATABASE_URL = (
-    "postgresql+asyncpg://career_user:career_pass@localhost:5432/career_copilot"
+    "postgresql+psycopg://career_user:career_pass@localhost:5432/career_copilot"
 )
 
 
@@ -31,14 +31,14 @@ def _configure_stdout() -> None:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
-def _to_asyncpg_url(database_url: str) -> str:
+def _to_psycopg_url(database_url: str) -> str:
     url = make_url(database_url)
 
     if url.drivername == "postgresql":
-        return str(url.set(drivername="postgresql+asyncpg"))
+        return str(url.set(drivername="postgresql+psycopg"))
 
     if url.drivername == "postgresql+psycopg":
-        return str(url.set(drivername="postgresql+asyncpg"))
+        return str(url.set(drivername="postgresql+psycopg"))
 
     return database_url
 
@@ -48,7 +48,7 @@ async def load_vacancy_description(
     database_url: str,
     vacancy_id: UUID,
 ) -> str:
-    engine = create_async_engine(_to_asyncpg_url(database_url), future=True)
+    engine = create_async_engine(_to_psycopg_url(database_url), future=True)
 
     try:
         async with engine.connect() as conn:

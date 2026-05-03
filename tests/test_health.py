@@ -9,3 +9,14 @@ def test_healthcheck() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_root_liveness() -> None:
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "career-copilot",
+        "status": "ok",
+    }

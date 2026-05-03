@@ -46,8 +46,14 @@ class ApplicationRecordRepository:
         self,
         session: AsyncSession,
         application_id: UUID,
+        *,
+        user_id: UUID,
     ) -> ApplicationRecord | None:
-        stmt = select(ApplicationRecord).where(ApplicationRecord.id == application_id)
+        stmt = (
+            select(ApplicationRecord)
+            .where(ApplicationRecord.id == application_id)
+            .where(ApplicationRecord.user_id == user_id)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 

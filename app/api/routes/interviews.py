@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.schemas.interview import (
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/interviews", tags=["interviews"])
 
 @router.get("/sessions", response_model=list[InterviewSessionListItem])
 async def list_interview_sessions(
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[InterviewSessionListItem]:
     service = InterviewPreparationService()
@@ -38,7 +38,7 @@ async def list_interview_sessions(
 @router.post("/sessions", response_model=InterviewSessionRead)
 async def create_interview_session(
     payload: InterviewSessionCreateRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> InterviewSessionRead:
     service = InterviewPreparationService()
@@ -55,7 +55,7 @@ async def create_interview_session(
 async def update_interview_answers(
     session_id: UUID,
     payload: InterviewAnswersUpdateRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> InterviewSessionRead:
     service = InterviewPreparationService()
@@ -74,7 +74,7 @@ async def update_interview_answers(
 @router.get("/sessions/{session_id}", response_model=InterviewSessionRead)
 async def get_interview_session(
     session_id: UUID,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> InterviewSessionRead:
     service = InterviewPreparationService()

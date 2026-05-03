@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +16,7 @@ from sqlalchemy.pool import NullPool
 
 from app import models  # noqa: F401
 from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
@@ -22,9 +25,13 @@ from app.services.resume_parser_service import ResumeParserService
 from app.services.storage_service import StorageService
 
 
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://career_user:career_pass@localhost:5432/career_copilot_test",
+    "postgresql+psycopg://career_user:career_pass@localhost:5432/career_copilot_test",
 )
 
 
@@ -41,9 +48,7 @@ def ensure_test_database_exists(database_url: str) -> None:
             "Use only letters, digits, and underscores."
         )
 
-    sync_admin_url = make_url(database_url.replace("+asyncpg", "+psycopg")).set(
-        database="postgres"
-    )
+    sync_admin_url = make_url(database_url).set(database="postgres")
 
     engine = create_engine(
         sync_admin_url,
@@ -69,7 +74,7 @@ ensure_test_database_exists(TEST_DATABASE_URL)
 test_engine = create_async_engine(
     TEST_DATABASE_URL,
     future=True,
-    poolclass=NullPool,  # critical: do not reuse asyncpg connections across loops/tests
+    poolclass=NullPool,  # critical: do not reuse psycopg connections across loops/tests
 )
 
 TestSessionLocal = async_sessionmaker(
@@ -115,6 +120,7 @@ async def db_session(prepare_test_db):
 async def test_user(db_session: AsyncSession) -> User:
     user = User(
         email="test@local.test",
+        password_hash="test-password-hash",
         auth_provider="test",
     )
     db_session.add(user)
@@ -181,9 +187,14 @@ async def client(db_session: AsyncSession, test_user: User):
         yield db_session
 
     def override_current_user():
-        return SimpleNamespace(id=test_user.id)
+        return SimpleNamespace(
+            id=test_user.id,
+            is_active=True,
+            is_verified=True,
+        )
 
     app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_current_active_user] = override_current_user
     app.dependency_overrides[get_current_dev_user] = override_current_user
 
     async with AsyncClient(

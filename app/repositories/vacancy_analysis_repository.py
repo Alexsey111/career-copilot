@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import VacancyAnalysis
+from app.models import Vacancy, VacancyAnalysis
 
 
 class VacancyAnalysisRepository:
@@ -47,10 +47,14 @@ class VacancyAnalysisRepository:
         self,
         session: AsyncSession,
         vacancy_id: UUID,
+        *,
+        user_id: UUID,
     ) -> VacancyAnalysis | None:
         stmt = (
             select(VacancyAnalysis)
+            .join(Vacancy, VacancyAnalysis.vacancy_id == Vacancy.id)
             .where(VacancyAnalysis.vacancy_id == vacancy_id)
+            .where(Vacancy.user_id == user_id)
             .order_by(VacancyAnalysis.created_at.desc())
             .limit(1)
         )

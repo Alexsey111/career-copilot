@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/vacancies", tags=["vacancies"])
 @router.post("/import", response_model=VacancyImportResponse)
 async def import_vacancy(
     payload: VacancyImportRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyImportResponse:
     service = VacancyImportService()
@@ -60,11 +60,15 @@ async def import_vacancy(
 @router.get("/{vacancy_id}", response_model=VacancyRead)
 async def get_vacancy(
     vacancy_id: UUID,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyRead:
     repo = VacancyRepository()
-    vacancy = await repo.get_by_id(session, vacancy_id)
+    vacancy = await repo.get_by_id(
+        session,
+        vacancy_id,
+        user_id=current_user.id,
+    )
     if vacancy is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -94,7 +98,7 @@ async def get_vacancy(
 @router.post("/{vacancy_id}/analyze", response_model=VacancyAnalysisResponse)
 async def analyze_vacancy(
     vacancy_id: UUID,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyAnalysisResponse:
     service = VacancyAnalysisService()
@@ -121,11 +125,15 @@ async def analyze_vacancy(
 @router.get("/{vacancy_id}/analysis/latest", response_model=VacancyAnalysisResponse)
 async def get_latest_vacancy_analysis(
     vacancy_id: UUID,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyAnalysisResponse:
     vacancy_repo = VacancyRepository()
-    vacancy = await vacancy_repo.get_by_id(session, vacancy_id)
+    vacancy = await vacancy_repo.get_by_id(
+        session,
+        vacancy_id,
+        user_id=current_user.id,
+    )
     if vacancy is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -43,14 +43,12 @@ class ResumeGenerationService:
         vacancy_id: UUID,
         user_id: UUID,
     ):
-        vacancy = await self.vacancy_repository.get_by_id(session, vacancy_id)
+        vacancy = await self.vacancy_repository.get_by_id(
+            session,
+            vacancy_id,
+            user_id=user_id,
+        )
         if vacancy is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="vacancy not found",
-            )
-
-        if vacancy.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="vacancy not found",
@@ -59,6 +57,7 @@ class ResumeGenerationService:
         analysis = await self.vacancy_analysis_repository.get_latest_for_vacancy(
             session,
             vacancy_id,
+            user_id=user_id,
         )
         if analysis is None:
             raise HTTPException(
@@ -78,7 +77,7 @@ class ResumeGenerationService:
 
         latest_extraction = await self.file_extraction_repository.get_latest_for_user(
             session,
-            vacancy.user_id,
+            user_id,
         )
 
         raw_skills = self._extract_skills_from_profile_or_raw_text(

@@ -40,14 +40,12 @@ class InterviewPreparationService:
         vacancy_id: UUID,
         session_type: str,
     ):
-        vacancy = await self.vacancy_repository.get_by_id(session, vacancy_id)
+        vacancy = await self.vacancy_repository.get_by_id(
+            session,
+            vacancy_id,
+            user_id=user_id,
+        )
         if vacancy is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="vacancy not found",
-            )
-
-        if vacancy.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="vacancy not found",
@@ -56,6 +54,7 @@ class InterviewPreparationService:
         analysis = await self.vacancy_analysis_repository.get_latest_for_vacancy(
             session,
             vacancy_id,
+            user_id=user_id,
         )
         if analysis is None:
             raise HTTPException(
@@ -115,14 +114,9 @@ class InterviewPreparationService:
         interview_session = await self.interview_session_repository.get_by_id(
             session,
             session_id,
+            user_id=user_id,
         )
         if interview_session is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="interview session not found",
-            )
-
-        if interview_session.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="interview session not found",

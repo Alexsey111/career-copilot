@@ -9,6 +9,11 @@ from app.models import User
 
 
 class UserRepository:
+    async def get_by_id(self, session: AsyncSession, user_id) -> User | None:
+        stmt = select(User).where(User.id == user_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_by_email(self, session: AsyncSession, email: str) -> User | None:
         stmt = select(User).where(User.email == email)
         result = await session.execute(stmt)
@@ -19,10 +24,12 @@ class UserRepository:
         session: AsyncSession,
         *,
         email: str,
+        password_hash: str,
         auth_provider: str | None = "local",
     ) -> User:
         user = User(
             email=email,
+            password_hash=password_hash,
             auth_provider=auth_provider,
         )
         session.add(user)

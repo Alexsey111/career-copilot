@@ -61,7 +61,11 @@ class ProfileStructuringService:
         extraction_id: UUID,
         user_id: UUID,
     ) -> tuple[CandidateProfile, StructuredProfileDraft]:
-        extraction = await self.file_extraction_repository.get_by_id(session, extraction_id)
+        extraction = await self.file_extraction_repository.get_by_id(
+            session,
+            extraction_id,
+            user_id=user_id,
+        )
         if extraction is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -74,22 +78,16 @@ class ProfileStructuringService:
                 detail="source file for extraction not found",
             )
 
-        if extraction.source_file.user_id != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="file extraction not found",
-            )
-
         draft = self._build_draft(extraction.extracted_text)
 
         profile = await self.candidate_profile_repository.get_by_user_id(
             session,
-            extraction.source_file.user_id,
+            user_id,
         )
         if profile is None:
             profile = await self.candidate_profile_repository.create_empty(
                 session,
-                user_id=extraction.source_file.user_id,
+                user_id=user_id,
             )
 
         self._apply_profile_fields(profile, draft)

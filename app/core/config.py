@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
 
+    # JWT & Auth
+    jwt_secret: str = Field(alias="JWT_SECRET_KEY")
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    jwt_access_token_expire_minutes: int = Field(
+        default=15,
+        alias="ACCESS_TOKEN_EXPIRE_MINUTES",
+    )
+    refresh_token_expire_days: int = Field(
+        default=30,
+        alias="REFRESH_TOKEN_EXPIRE_DAYS",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

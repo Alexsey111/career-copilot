@@ -88,13 +88,12 @@ class SourceFileService:
         file_id: uuid.UUID,
         user_id: UUID,
     ) -> SourceFile:
-        source_file = await self.source_file_repository.get_by_id(session, file_id)
+        source_file = await self.source_file_repository.get_by_id(
+            session,
+            file_id,
+            user_id=user_id,
+        )
         if source_file is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="file not found",
-            )
-        if source_file.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="file not found",

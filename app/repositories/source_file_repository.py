@@ -40,10 +40,12 @@ class SourceFileRepository:
         session: AsyncSession,
         file_id: UUID,
         *,
-        user_id: UUID | None = None,
+        user_id: UUID,
     ) -> SourceFile | None:
-        stmt = select(SourceFile).where(SourceFile.id == file_id)
-        if user_id is not None:
-            stmt = stmt.where(SourceFile.user_id == user_id)
+        stmt = (
+            select(SourceFile)
+            .where(SourceFile.id == file_id)
+            .where(SourceFile.user_id == user_id)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()

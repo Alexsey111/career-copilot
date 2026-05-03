@@ -52,37 +52,24 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False, index=True)
-    auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth_provider: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="email",
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    profile: Mapped["CandidateProfile | None"] = relationship(
-        back_populates="user",
-        uselist=False,
-        cascade="all, delete-orphan",
-    )
-    source_files: Mapped[list["SourceFile"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    vacancies: Mapped[list["Vacancy"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    document_versions: Mapped[list["DocumentVersion"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    application_records: Mapped[list["ApplicationRecord"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    interview_sessions: Mapped[list["InterviewSession"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    ai_runs: Mapped[list["AIRun"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
+    profile: Mapped["CandidateProfile | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    source_files: Mapped[list["SourceFile"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    vacancies: Mapped[list["Vacancy"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    document_versions: Mapped[list["DocumentVersion"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    application_records: Mapped[list["ApplicationRecord"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    interview_sessions: Mapped[list["InterviewSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    ai_runs: Mapped[list["AIRun"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    refresh_sessions: Mapped[list["RefreshSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -426,3 +413,62 @@ class AIRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="ai_runs")
+
+
+class RefreshSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "refresh_sessions"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    user: Mapped["User"] = relationship(back_populates="refresh_sessions")
+
+
+class AuthEvent(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "auth_events"
+
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    meta_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class PasswordResetToken(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "password_reset_tokens"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

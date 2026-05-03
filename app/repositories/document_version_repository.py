@@ -45,8 +45,14 @@ class DocumentVersionRepository:
         self,
         session: AsyncSession,
         document_id: UUID,
+        *,
+        user_id: UUID,
     ) -> DocumentVersion | None:
-        stmt = select(DocumentVersion).where(DocumentVersion.id == document_id)
+        stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.id == document_id)
+            .where(DocumentVersion.user_id == user_id)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 

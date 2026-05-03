@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.main import app
 from app.models import User
 
@@ -26,6 +26,7 @@ async def test_file_access_is_scoped_to_current_user(client, db_session, test_us
 
     other_user = User(
         email="other@local.test",
+        password_hash="test-password-hash",
         auth_provider="test",
     )
     db_session.add(other_user)
@@ -33,15 +34,23 @@ async def test_file_access_is_scoped_to_current_user(client, db_session, test_us
     await db_session.refresh(other_user)
 
     def override_other_user():
-        return SimpleNamespace(id=other_user.id)
+        return SimpleNamespace(
+            id=other_user.id,
+            is_active=True,
+            is_verified=True,
+        )
 
-    app.dependency_overrides[get_current_dev_user] = override_other_user
+    app.dependency_overrides[get_current_active_user] = override_other_user
 
     forbidden_response = await client.get(f"{API_PREFIX}/files/{file_id}")
     assert forbidden_response.status_code == 404, forbidden_response.text
     assert forbidden_response.json()["detail"] == "file not found"
 
     def override_original_user():
-        return SimpleNamespace(id=test_user.id)
+        return SimpleNamespace(
+            id=test_user.id,
+            is_active=True,
+            is_verified=True,
+        )
 
-    app.dependency_overrides[get_current_dev_user] = override_original_user
+    app.dependency_overrides[get_current_active_user] = override_original_user

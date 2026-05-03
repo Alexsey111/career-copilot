@@ -3,13 +3,25 @@
 import logging
 import sys
 
-import structlog
+try:
+    import structlog
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    structlog = None
 
 from app.core.config import get_settings
 
 
 def setup_logging() -> None:
     settings = get_settings()
+
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format="%(message)s",
+        stream=sys.stdout,
+    )
+
+    if structlog is None:
+        return
 
     timestamper = structlog.processors.TimeStamper(fmt="iso")
 
@@ -25,10 +37,4 @@ def setup_logging() -> None:
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
-    )
-
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(message)s",
-        stream=sys.stdout,
     )

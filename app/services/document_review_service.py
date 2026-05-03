@@ -40,14 +40,12 @@ class DocumentReviewService:
                 detail=f"review_status must be one of: {sorted(ALLOWED_REVIEW_STATUSES)}",
             )
 
-        document = await self.document_version_repository.get_by_id(session, document_id)
+        document = await self.document_version_repository.get_by_id(
+            session,
+            document_id,
+            user_id=user_id,
+        )
         if document is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="document not found",
-            )
-
-        if document.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="document not found",

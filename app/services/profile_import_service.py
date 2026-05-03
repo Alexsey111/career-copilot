@@ -39,14 +39,12 @@ class ProfileImportService:
         source_file_id,
         user_id: UUID,
     ) -> tuple[CandidateProfile, FileExtraction, str]:
-        source_file = await self.source_file_repository.get_by_id(session, source_file_id)
+        source_file = await self.source_file_repository.get_by_id(
+            session,
+            source_file_id,
+            user_id=user_id,
+        )
         if source_file is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="source file not found",
-            )
-
-        if source_file.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="source file not found",
@@ -68,12 +66,12 @@ class ProfileImportService:
 
         profile = await self.candidate_profile_repository.get_by_user_id(
             session,
-            source_file.user_id,
+            user_id,
         )
         if profile is None:
             profile = await self.candidate_profile_repository.create_empty(
                 session,
-                user_id=source_file.user_id,
+                user_id=user_id,
             )
 
         extraction = await self.file_extraction_repository.create(

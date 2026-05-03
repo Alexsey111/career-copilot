@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.schemas.source_file import SourceFileRead
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/files", tags=["files"])
 async def upload_file(
     file_kind: str = Form("resume"),
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> SourceFileRead:
     service = SourceFileService()
@@ -37,7 +37,7 @@ async def upload_file(
 @router.get("/{file_id}", response_model=SourceFileRead)
 async def get_file(
     file_id: UUID,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> SourceFileRead:
     service = SourceFileService()

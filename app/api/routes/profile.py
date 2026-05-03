@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
@@ -63,7 +63,7 @@ def _achievement_item_to_review_response(item) -> AchievementReviewResponse:
 @router.post("/import-resume", response_model=ResumeImportResponse)
 async def import_resume(
     payload: ResumeImportRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> ResumeImportResponse:
     service = ProfileImportService()
@@ -90,7 +90,7 @@ async def import_resume(
 @router.post("/extract-structured", response_model=StructuredProfileExtractResponse)
 async def extract_structured_profile(
     payload: StructuredProfileExtractRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> StructuredProfileExtractResponse:
     service = ProfileStructuringService()
@@ -115,7 +115,7 @@ async def extract_structured_profile(
 @router.post("/extract-achievements", response_model=AchievementExtractResponse)
 async def extract_achievements(
     payload: AchievementExtractRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> AchievementExtractResponse:
     service = AchievementExtractionService()
@@ -145,7 +145,7 @@ async def extract_achievements(
 async def review_achievement(
     achievement_id: UUID,
     payload: AchievementReviewRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> AchievementReviewResponse:
     if payload.title is not None and not payload.title.strip():

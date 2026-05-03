@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_dev_user
+from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.schemas.application import (
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/applications", tags=["applications"])
 @router.post("", response_model=ApplicationRead)
 async def create_application(
     payload: ApplicationCreateRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> ApplicationRead:
     service = ApplicationTrackingService()
@@ -43,7 +43,7 @@ async def create_application(
 @router.get("/{application_id}", response_model=ApplicationRead)
 async def get_application(
     application_id: UUID,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> ApplicationRead:
     service = ApplicationTrackingService()
@@ -59,7 +59,7 @@ async def get_application(
 async def update_application_status(
     application_id: UUID,
     payload: ApplicationStatusUpdateRequest,
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> ApplicationRead:
     service = ApplicationTrackingService()
@@ -75,7 +75,7 @@ async def update_application_status(
 
 @router.get("", response_model=list[ApplicationListItem])
 async def list_applications(
-    current_user: User = Depends(get_current_dev_user),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[ApplicationListItem]:
     service = ApplicationTrackingService()
