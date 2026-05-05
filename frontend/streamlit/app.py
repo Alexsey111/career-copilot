@@ -181,36 +181,57 @@ def init_session_state() -> None:
         st.session_state.interview_session = None
     if "interview_answers_result" not in st.session_state:
         st.session_state.interview_answers_result = None
+    if "auth_token" not in st.session_state:
+        st.session_state.auth_token = None
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
 
 
-def render_sidebar() -> tuple[str, CareerCopilotApiClient]:
+def render_sidebar() -> tuple[str, CareerCopilotApiClient, str | None]:
     st.sidebar.header("Backend")
-
-    default_api_base_url = os.getenv(
-        "CAREER_COPILOT_API_BASE_URL",
-        DEFAULT_API_BASE_URL,
-    )
 
     api_base_url = st.sidebar.text_input(
         "Базовый URL API",
-        value=default_api_base_url,
+        value=os.getenv("CAREER_COPILOT_API_BASE_URL", DEFAULT_API_BASE_URL),
         help="Например: http://localhost:8000/api/v1",
     ).strip()
 
     client = CareerCopilotApiClient(api_base_url=api_base_url)
+    token = st.session_state.get("auth_token")
 
-    if st.sidebar.button("Проверить соединение с backend", use_container_width=True):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔐 Авторизация")
+
+    if not token:
+        email = st.sidebar.text_input("Email", key="auth_email")
+        password = st.sidebar.text_input("Пароль", type="password", key="auth_password")
+        if st.sidebar.button("Войти", use_container_width=True, type="primary"):
+            try:
+                result = client.login(email.strip(), password)
+                st.session_state.auth_token = result.get("access_token")
+                st.session_state.user_email = email.strip()
+                st.sidebar.success("✅ Авторизация успешна")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Ошибка входа: {e}")
+    else:
+        st.sidebar.success(f"👤 {st.session_state.get('user_email', 'user')}")
+        st.sidebar.caption(f"Токен активен до завершения сессии")
+        if st.sidebar.button("Выйти", use_container_width=True):
+            st.session_state.pop("auth_token", None)
+            st.session_state.pop("user_email", None)
+            st.rerun()
+
+    st.sidebar.markdown("---")
+
+    if st.sidebar.button("Проверить соединение", use_container_width=True):
         result = client.check_backend()
-
         if result.ok:
-            st.sidebar.success("Backend доступен")
-            st.sidebar.caption(f"Название API: {result.app_title}")
-            st.sidebar.caption(f"OpenAPI routes: {result.path_count}")
+            st.sidebar.success("✅ Backend доступен")
         else:
-            st.sidebar.error("Не удалось подключиться к backend")
-            st.sidebar.caption(result.error)
+            st.sidebar.error(f"❌ {result.error}")
 
-    return api_base_url, client
+    return api_base_url, client, token
 
 
 def render_home() -> None:
@@ -244,7 +265,7 @@ def render_home() -> None:
     )
 
 
-def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
+def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("1. Загрузка резюме")
 
     uploaded_file = st.file_uploader(
@@ -263,13 +284,11 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Загрузить резюме", type="primary", use_container_width=True):
         try:
-            result = client.upload_file(
-                path="/files/upload",
+            result = client.upload_file(path="/files/upload",
                 file_kind="resume",
                 filename=uploaded_file.name,
                 content=uploaded_file.getvalue(),
-                content_type=uploaded_file.type or "application/octet-stream",
-            )
+                content_type=uploaded_file.type or "application/octet-stream", token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -311,7 +330,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient) -> None:
         )
 
 
-def render_resume_import_step(client: CareerCopilotApiClient) -> None:
+def render_resume_import_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("2. Импорт резюме")
 
     source_file = st.session_state.source_file
@@ -329,12 +348,10 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Импортировать резюме", type="primary", use_container_width=True):
         try:
-            result = client.post_json(
-                "/profile/import-resume",
+            result = client.post_json("/profile/import-resume",
                 {
                     "source_file_id": source_file_id,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -387,7 +404,7 @@ def render_resume_import_step(client: CareerCopilotApiClient) -> None:
                 st.text(text_preview)
 
 
-def render_structured_profile_step(client: CareerCopilotApiClient) -> None:
+def render_structured_profile_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("3. Извлечение структурированного профиля")
 
     resume_import = st.session_state.resume_import
@@ -405,12 +422,10 @@ def render_structured_profile_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Извлечь структурированный профиль", type="primary", use_container_width=True):
         try:
-            result = client.post_json(
-                "/profile/extract-structured",
+            result = client.post_json("/profile/extract-structured",
                 {
                     "extraction_id": extraction_id,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -489,7 +504,7 @@ def render_structured_profile_step(client: CareerCopilotApiClient) -> None:
             st.json(profile)
 
 
-def render_achievements_step(client: CareerCopilotApiClient) -> None:
+def render_achievements_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("4. Извлечение достижений")
 
     resume_import = st.session_state.resume_import
@@ -512,12 +527,10 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Извлечь достижения", type="primary", use_container_width=True):
         try:
-            result = client.post_json(
-                "/profile/extract-achievements",
+            result = client.post_json("/profile/extract-achievements",
                 {
                     "extraction_id": extraction_id,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -679,15 +692,13 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
                     updated_items: list[dict] = []
 
                     for item in reviewed_items:
-                        result = client.patch_json(
-                            f"/profile/achievements/{item['id']}/review",
+                        result = client.patch_json(f"/profile/achievements/{item['id']}/review",
                             {
                                 "title": str(item["title"]).strip(),
                                 "fact_status": item["fact_status"],
                                 "evidence_note": str(item.get("evidence_note") or "").strip()
                                 or None,
-                            },
-                        )
+                            }, token=token)
 
                         if not isinstance(result, dict):
                             st.error("Backend вернул неожиданный формат ответа")
@@ -736,7 +747,7 @@ def render_achievements_step(client: CareerCopilotApiClient) -> None:
             st.json(achievements_result)
 
 
-def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
+def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("5. Импорт вакансии")
 
     achievements = st.session_state.achievements
@@ -812,10 +823,8 @@ def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
         }
 
         try:
-            result = client.post_json(
-                "/vacancies/import",
-                payload,
-            )
+            result = client.post_json("/vacancies/import",
+                payload, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -863,7 +872,7 @@ def render_vacancy_import_step(client: CareerCopilotApiClient) -> None:
         )
 
 
-def render_vacancy_analysis_step(client: CareerCopilotApiClient) -> None:
+def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("6. Анализ вакансии")
 
     vacancy = st.session_state.vacancy
@@ -881,10 +890,8 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Проанализировать вакансию", type="primary", use_container_width=True):
         try:
-            result = client.post_json(
-                f"/vacancies/{vacancy_id}/analyze",
-                {},
-            )
+            result = client.post_json(f"/vacancies/{vacancy_id}/analyze",
+                {}, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -994,7 +1001,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient) -> None:
             st.json(analysis)
 
 
-def render_resume_generation_step(client: CareerCopilotApiClient) -> None:
+def render_resume_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("7. Генерация адаптированного резюме")
 
     vacancy = st.session_state.vacancy
@@ -1025,12 +1032,10 @@ def render_resume_generation_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Сгенерировать адаптированное резюме", type="primary", use_container_width=True):
         try:
-            result = client.post_json(
-                "/documents/resumes/generate",
+            result = client.post_json("/documents/resumes/generate",
                 {
                     "vacancy_id": vacancy_id,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -1087,7 +1092,7 @@ def render_resume_generation_step(client: CareerCopilotApiClient) -> None:
             st.info("Статус документа: draft. Следующий шаг — проверка и подтверждение.")
 
 
-def render_cover_letter_generation_step(client: CareerCopilotApiClient) -> None:
+def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("8. Генерация сопроводительного письма")
 
     vacancy = st.session_state.vacancy
@@ -1127,12 +1132,10 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient) -> None:
         use_container_width=True,
     ):
         try:
-            result = client.post_json(
-                "/documents/letters/generate",
+            result = client.post_json("/documents/letters/generate",
                 {
                     "vacancy_id": vacancy_id,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -1183,12 +1186,30 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient) -> None:
                 disabled=True,
             )
 
+        # ---------------------------------------------------------
+        # Блок: что было адаптировано в письме (gap-mitigation)
+        # ---------------------------------------------------------
+        with st.expander("📋 Что было адаптировано под эту вакансию", expanded=False):
+            st.markdown("Письмо усилено следующими элементами:")
+            matched = [s.get("keyword") for s in (vacancy_analysis.get("strengths") or []) if s.get("keyword")]
+            gaps = [g.get("keyword") for g in (vacancy_analysis.get("gaps") or []) if g.get("keyword")]
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("✅ **Усилено** (есть в профиле + в вакансии)")
+                for kw in matched[:5]:
+                    st.markdown(f"- {kw}")
+            with col2:
+                st.markdown("💡 **Проактивно закрыто** (есть в вакансии, добавлен контекст)")
+                for kw in gaps[:5]:
+                    st.markdown(f"- {kw}")
+            st.caption("Письмо не дублирует резюме, а объясняет мотивацию и релевантность.")
+
         review_status = letter.get("review_status")
         if review_status == "draft":
             st.info("Статус документа: draft. Следующий шаг — проверка и подтверждение.")
 
 
-def render_document_approval_step(client: CareerCopilotApiClient) -> None:
+def render_document_approval_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("9. Проверка и подтверждение документов")
 
     generated_resume = st.session_state.generated_resume
@@ -1253,23 +1274,19 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
         use_container_width=True,
     ):
         try:
-            approved_resume = client.patch_json(
-                f"/documents/{resume_document_id}/review",
+            approved_resume = client.patch_json(f"/documents/{resume_document_id}/review",
                 {
                     "review_status": "approved",
                     "review_comment": review_comment.strip() or None,
                     "set_active_when_approved": True,
-                },
-            )
+                }, token=token)
 
-            approved_cover_letter = client.patch_json(
-                f"/documents/{cover_letter_document_id}/review",
+            approved_cover_letter = client.patch_json(f"/documents/{cover_letter_document_id}/review",
                 {
                     "review_status": "approved",
                     "review_comment": review_comment.strip() or None,
                     "set_active_when_approved": True,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -1339,20 +1356,16 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
 
         if approved_resume_id and approved_cover_letter_id:
             try:
-                resume_txt = client.get_text(f"/documents/{approved_resume_id}/export/txt")
-                resume_md = client.get_text(f"/documents/{approved_resume_id}/export/md")
+                resume_txt = client.get_text(f"/documents/{approved_resume_id}/export/txt", token=token)
+                resume_md = client.get_text(f"/documents/{approved_resume_id}/export/md", token=token)
                 resume_docx = client.get_bytes(
-                    f"/documents/{approved_resume_id}/export/docx"
-                )
+                    f"/documents/{approved_resume_id}/export/docx", token=token)
                 cover_letter_txt = client.get_text(
-                    f"/documents/{approved_cover_letter_id}/export/txt"
-                )
+                    f"/documents/{approved_cover_letter_id}/export/txt", token=token)
                 cover_letter_md = client.get_text(
-                    f"/documents/{approved_cover_letter_id}/export/md"
-                )
+                    f"/documents/{approved_cover_letter_id}/export/md", token=token)
                 cover_letter_docx = client.get_bytes(
-                    f"/documents/{approved_cover_letter_id}/export/docx"
-                )
+                    f"/documents/{approved_cover_letter_id}/export/docx", token=token)
             except httpx.HTTPStatusError as exc:
                 st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при экспорте")
                 st.code(exc.response.text)
@@ -1411,7 +1424,7 @@ def render_document_approval_step(client: CareerCopilotApiClient) -> None:
                     )
 
 
-def render_application_creation_step(client: CareerCopilotApiClient) -> None:
+def render_application_creation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("10. Создание записи отклика")
 
     vacancy = st.session_state.vacancy
@@ -1476,15 +1489,13 @@ def render_application_creation_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Создать запись отклика", type="primary", use_container_width=True):
         try:
-            result = client.post_json(
-                "/applications",
+            result = client.post_json("/applications",
                 {
                     "vacancy_id": vacancy_id,
                     "resume_document_id": resume_document_id,
                     "cover_letter_document_id": cover_letter_document_id,
                     "notes": notes.strip() or None,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 409:
                 st.warning("Отклик для этой вакансии уже существует. Дубликат не создан.")
@@ -1539,7 +1550,7 @@ def render_application_creation_step(client: CareerCopilotApiClient) -> None:
             )
 
 
-def render_application_status_update_step(client: CareerCopilotApiClient) -> None:
+def render_application_status_update_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("11. Отметка ручной отправки отклика")
 
     application = st.session_state.application
@@ -1586,13 +1597,11 @@ def render_application_status_update_step(client: CareerCopilotApiClient) -> Non
         use_container_width=True,
     ):
         try:
-            result = client.patch_json(
-                f"/applications/{application_id}/status",
+            result = client.patch_json(f"/applications/{application_id}/status",
                 {
                     "status": "submitted",
                     "notes": notes.strip() or None,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -1633,7 +1642,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient) -> Non
         )
 
 
-def render_application_dashboard_step(client: CareerCopilotApiClient) -> None:
+def render_application_dashboard_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("12. Дашборд откликов")
 
     st.caption(
@@ -1648,7 +1657,7 @@ def render_application_dashboard_step(client: CareerCopilotApiClient) -> None:
         key="refresh_application_dashboard",
     ):
         try:
-            result = client.get_json("/applications")
+            result = client.get_json("/applications", token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -1743,7 +1752,7 @@ def render_application_dashboard_step(client: CareerCopilotApiClient) -> None:
             )
 
 
-def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
+def render_interview_preparation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("13. Подготовка к собеседованию")
 
     application = st.session_state.application
@@ -1779,13 +1788,11 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
 
     if st.button("Создать подготовку к интервью", type="primary", use_container_width=True):
         try:
-            result = client.post_json(
-                "/interviews/sessions",
+            result = client.post_json("/interviews/sessions",
                 {
                     "vacancy_id": vacancy_id,
                     "session_type": "vacancy",
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -1916,12 +1923,10 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
             return
 
         try:
-            result = client.patch_json(
-                f"/interviews/sessions/{session_id}/answers",
+            result = client.patch_json(f"/interviews/sessions/{session_id}/answers",
                 {
                     "answers": answers_payload,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -2019,7 +2024,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient) -> None:
             st.json(answered)
 
 
-def render_application_dashboard(client: CareerCopilotApiClient) -> None:
+def render_application_dashboard(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("Дашборд откликов")
     st.caption(
         "Список внутренних записей откликов. Это не отправляет отклики на HH и не выполняет внешних действий."
@@ -2042,7 +2047,7 @@ def render_application_dashboard(client: CareerCopilotApiClient) -> None:
     }
 
     try:
-        applications = client.get_json("/applications")
+        applications = client.get_json("/applications", token=token)
     except httpx.HTTPStatusError as exc:
         st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
         st.code(exc.response.text)
@@ -2140,7 +2145,7 @@ def render_application_dashboard(client: CareerCopilotApiClient) -> None:
         return
 
     try:
-        selected_application = client.get_json(f"/applications/{selected_application_id}")
+        selected_application = client.get_json(f"/applications/{selected_application_id}", token=token)
     except httpx.HTTPStatusError as exc:
         st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
         st.code(exc.response.text)
@@ -2209,13 +2214,11 @@ def render_application_dashboard(client: CareerCopilotApiClient) -> None:
 
     if submitted:
         try:
-            updated_application = client.patch_json(
-                f"/applications/{selected_application_id}/status",
+            updated_application = client.patch_json(f"/applications/{selected_application_id}/status",
                 {
                     "status": next_status,
                     "notes": notes.strip() or None,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -2238,7 +2241,7 @@ def render_application_dashboard(client: CareerCopilotApiClient) -> None:
         st.rerun()
 
 
-def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
+def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("Интервью")
     st.caption(
         "Список внутренних сессий подготовки к интервью. "
@@ -2246,7 +2249,7 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
     )
 
     try:
-        sessions = client.get_json("/interviews/sessions")
+        sessions = client.get_json("/interviews/sessions", token=token)
     except httpx.HTTPStatusError as exc:
         st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
         st.code(exc.response.text)
@@ -2351,7 +2354,7 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
         return
 
     try:
-        selected_session = client.get_json(f"/interviews/sessions/{selected_session_id}")
+        selected_session = client.get_json(f"/interviews/sessions/{selected_session_id}", token=token)
     except httpx.HTTPStatusError as exc:
         st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
         st.code(exc.response.text)
@@ -2463,12 +2466,10 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
             return
 
         try:
-            updated_session = client.patch_json(
-                f"/interviews/sessions/{selected_session_id}/answers",
+            updated_session = client.patch_json(f"/interviews/sessions/{selected_session_id}/answers",
                 {
                     "answers": answers_payload,
-                },
-            )
+                }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -2551,58 +2552,58 @@ def render_interview_dashboard(client: CareerCopilotApiClient) -> None:
         st.json(selected_session)
 
 
-def render_mvp_flow(client: CareerCopilotApiClient) -> None:
+def render_mvp_flow(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("MVP-сценарий")
 
-    render_resume_upload_step(client)
+    render_resume_upload_step(client, token=token)
 
     st.divider()
 
-    render_resume_import_step(client)
+    render_resume_import_step(client, token=token)
 
     st.divider()
 
-    render_structured_profile_step(client)
+    render_structured_profile_step(client, token=token)
 
     st.divider()
 
-    render_achievements_step(client)
+    render_achievements_step(client, token=token)
 
     st.divider()
 
-    render_vacancy_import_step(client)
+    render_vacancy_import_step(client, token=token)
 
     st.divider()
 
-    render_vacancy_analysis_step(client)
+    render_vacancy_analysis_step(client, token=token)
 
     st.divider()
 
-    render_resume_generation_step(client)
+    render_resume_generation_step(client, token=token)
 
     st.divider()
 
-    render_cover_letter_generation_step(client)
+    render_cover_letter_generation_step(client, token=token)
 
     st.divider()
 
-    render_document_approval_step(client)
+    render_document_approval_step(client, token=token)
 
     st.divider()
 
-    render_application_creation_step(client)
+    render_application_creation_step(client, token=token)
 
     st.divider()
 
-    render_application_status_update_step(client)
+    render_application_status_update_step(client, token=token)
 
     st.divider()
 
-    render_application_dashboard_step(client)
+    render_application_dashboard_step(client, token=token)
 
     st.divider()
 
-    render_interview_preparation_step(client)
+    render_interview_preparation_step(client, token=token)
 
     st.divider()
 
@@ -2614,7 +2615,7 @@ def render_mvp_flow(client: CareerCopilotApiClient) -> None:
 
 def main() -> None:
     init_session_state()
-    _, client = render_sidebar()
+    _, client, token = render_sidebar()
 
     tab_home, tab_flow, tab_applications, tab_interviews = st.tabs(
         ["Главная", "MVP-сценарий", "Отклики", "Интервью"]
@@ -2624,13 +2625,13 @@ def main() -> None:
         render_home()
 
     with tab_flow:
-        render_mvp_flow(client)
+        render_mvp_flow(client, token=token)
 
     with tab_applications:
-        render_application_dashboard(client)
+        render_application_dashboard(client, token=token)
 
     with tab_interviews:
-        render_interview_dashboard(client)
+        render_interview_dashboard(client, token=token)
 
 
 if __name__ == "__main__":

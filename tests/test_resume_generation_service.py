@@ -1,6 +1,163 @@
 from types import SimpleNamespace
 
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.ai.orchestrator import AIOrchestrator
+from app.api.ai.clients.base import BaseLLMClient
 from app.services.resume_generation_service import ResumeGenerationService
+
+
+class MockResumeClient(BaseLLMClient):
+    """Mock LLM client для тестов resume enhancement."""
+
+    def __init__(self, enhanced_text: str = "Enhanced: Built robust API with Python"):
+        self.enhanced_text = enhanced_text
+
+    async def generate(self, prompt: str, **kwargs):
+        return {
+            "content": "ok",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "model": kwargs.get("model"),
+        }
+
+    async def generate_structured(self, prompt: str, output_schema: dict, **kwargs):
+        return {
+            "content": {"enhanced_text": self.enhanced_text},
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "model": kwargs.get("model"),
+        }
+
+    @property
+    def provider_name(self):
+        return "mock"
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_with_ai(db_session: AsyncSession, test_user):
+    """Тест что enhance_resume_with_ai вызывает AI оркестратор и возвращает улучшенный текст."""
+    # Более длинный оригинал, чтобы улучшения проходили проверку безопасности
+    original_text = """Built a REST API with Python and FastAPI.
+Implemented user authentication and authorization.
+Integrated with PostgreSQL database for data persistence."""
+    
+    enhanced_text = """Built a robust REST API with Python and FastAPI.
+Implemented secure user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence."""
+    
+    client = MockResumeClient(enhanced_text=enhanced_text)
+    orchestrator = AIOrchestrator(client=client)
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    enhanced = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original_text,
+    )
+
+    assert isinstance(enhanced, str)
+    assert "robust" in enhanced
+    assert "secure" in enhanced
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_rejects_bad_output(db_session: AsyncSession, test_user):
+    """Тест что небезопасное улучшение отклоняется и возвращается оригинал."""
+
+    class BadClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {
+                    "enhanced_text": "Short",  # Слишком коротко по сравнению с оригиналом
+                },
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=BadClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    # Оригинальный текст с ~37 словами, BadClient вернёт 1 слово (< 50%)
+    original = """Built a robust REST API with Python and FastAPI.
+Implemented secure user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence.
+Added comprehensive error handling and logging."""
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    assert result == original
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_rejects_lost_keywords(db_session: AsyncSession, test_user):
+    """Тест что потеря ключевых слов (>4 символов) отклоняется."""
+
+    class KeywordLosingClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {
+                    # Убраны ключевые слова: Python, FastAPI, PostgreSQL
+                    "enhanced_text": "Built improved backend systems with authentication and logging.",
+                },
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=KeywordLosingClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    original = """Built a robust REST API with Python and FastAPI.
+Implemented secure user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence."""
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    # Ключевые слова Python, FastAPI, PostgreSQL потеряны → фолбэк на оригинал
+    assert result == original
+    assert "Python" in result
+    assert "FastAPI" in result
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_in_russian(db_session: AsyncSession, test_user):
+    """Тест что AI enhancement работает с русским языком."""
+
+    original = "Python Developer с опытом создания REST API"
+
+    class RussianClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            # Сохраняем ключевые слова (Python, API) чтобы пройти проверку безопасности
+            return {
+                "content": {
+                    "enhanced_text": "Python Developer с богатым опытом создания надежных REST API",
+                },
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=RussianClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+        language="ru",
+    )
+
+    # Ключевые слова Python и API сохранены, добавлены улучшения
+    assert "Python" in result
+    assert "API" in result
+    assert "богатым" in result or "надежных" in result
 
 
 def test_resume_generation_extracts_match_keywords_from_analysis_json() -> None:

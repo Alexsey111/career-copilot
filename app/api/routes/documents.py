@@ -19,6 +19,8 @@ from app.schemas.document import (
     DocumentReviewRequest,
     DocumentReviewResponse,
     DocumentVersionRead,
+    ResumeEnhanceRequest,
+    ResumeEnhanceResponse,
     ResumeGenerateRequest,
     ResumeGenerateResponse,
 )
@@ -80,6 +82,42 @@ async def generate_resume(
         version_label=document.version_label,
         created_at=document.created_at,
         rendered_text_preview=preview,
+    )
+
+
+@router.post("/resumes/{document_id}/enhance", response_model=ResumeEnhanceResponse)
+async def enhance_resume(
+    document_id: UUID,
+    payload: ResumeEnhanceRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ResumeEnhanceResponse:
+    repo = DocumentVersionRepository()
+    document = await repo.get_by_id(
+        session,
+        document_id,
+        user_id=current_user.id,
+    )
+    if document is None or document.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="document not found",
+        )
+
+    service = ResumeGenerationService()
+    enhanced_text = await service.enhance_resume_with_ai(
+        session,
+        user_id=current_user.id,
+        resume_text=payload.resume_text,
+    )
+
+    return ResumeEnhanceResponse(
+        document_id=document.id,
+        vacancy_id=document.vacancy_id,
+        review_status=document.review_status,
+        version_label=document.version_label,
+        created_at=document.created_at,
+        enhanced_text=enhanced_text,
     )
 
 

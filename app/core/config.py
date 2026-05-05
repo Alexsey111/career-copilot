@@ -55,6 +55,19 @@ class Settings(BaseSettings):
         alias="REFRESH_TOKEN_EXPIRE_DAYS",
     )
 
+    # AI Orchestrator
+    ai_default_model: str = Field(default="gigachat-pro", alias="AI_DEFAULT_MODEL")
+    ai_request_timeout: float = Field(default=30.0, alias="AI_REQUEST_TIMEOUT")
+    ai_max_retries: int = Field(default=3, alias="AI_MAX_RETRIES")
+    ai_temperature: float = Field(default=0.1, alias="AI_TEMPERATURE")
+
+    # Provider: GigaChat (или любой OpenAI-compatible)
+    gigachat_api_key: str | None = Field(default=None, alias="GIGACHAT_API_KEY")
+    gigachat_base_url: str | None = Field(
+        default=None,
+        alias="GIGACHAT_BASE_URL",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

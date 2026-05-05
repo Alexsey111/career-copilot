@@ -59,3 +59,16 @@ class DocumentReviewResponse(BaseModel):
     is_active: bool
     review_comment: str | None
     updated_at: datetime
+
+
+class ResumeEnhanceRequest(BaseModel):
+    resume_text: str
+
+
+class ResumeEnhanceResponse(BaseModel):
+    document_id: UUID
+    vacancy_id: UUID
+    review_status: str
+    version_label: str | None
+    created_at: datetime
+    enhanced_text: str

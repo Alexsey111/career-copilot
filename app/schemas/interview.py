@@ -51,3 +51,30 @@ class InterviewSessionListItem(BaseModel):
     readiness_score: int | None
     created_at: datetime
     updated_at: datetime
+
+
+class InterviewAnswerEvaluateRequest(BaseModel):
+    question_id: str | None = None
+    question_text: str
+    answer_text: str
+
+
+class InterviewAnswerEvaluateResponse(BaseModel):
+    score: float
+    feedback: list[str]
+
+
+class InterviewAnswerImproveRequest(BaseModel):
+    question_text: str
+    answer_text: str
+
+
+class InterviewAnswerImproveResponse(BaseModel):
+    improved_answer: str
+    explanation: str
+
+
+class InterviewAttemptProgressResponse(BaseModel):
+    attempts: list[dict]
+    progress: dict
+    last_diff: dict | None = None

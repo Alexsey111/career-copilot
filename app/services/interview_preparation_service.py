@@ -343,6 +343,242 @@ class InterviewPreparationService:
 
         return False
 
+    def _word_count(self, text: str) -> int:
+        return len(text.split())
+
+    def _is_safe_enhancement(self, original: str, enhanced: str) -> bool:
+        orig_words = self._word_count(original)
+        enh_words = self._word_count(enhanced)
+
+        # Если улучшенный ответ более чем в 5 раз длиннее - подозрительно
+        if enh_words > orig_words * 5:
+            return False
+
+        return True
+
+    def compute_progress(self, attempts: list) -> dict:
+        """
+        Вычисляет прогресс по попыткам ответа.
+        
+        Args:
+            attempts: список попыток (InterviewAnswerAttempt)
+        
+        Returns:
+            dict с first_score, last_score, improvement
+        """
+        if not attempts:
+            return {
+                "first_score": None,
+                "last_score": None,
+                "improvement": None,
+            }
+
+        scores = [a.score for a in attempts if a.score is not None]
+        
+        if not scores:
+            return {
+                "first_score": None,
+                "last_score": None,
+                "improvement": None,
+            }
+
+        return {
+            "first_score": scores[0],
+            "last_score": scores[-1],
+            "improvement": scores[-1] - scores[0],
+        }
+
+    @staticmethod
+    def build_attempt_diff(prev: str, current: str) -> dict:
+        """
+        Сравнивает два ответа и показывает добавленные/удалённые ключевые слова.
+        
+        Args:
+            prev: текст предыдущего ответа
+            current: текста текущего ответа
+        
+        Returns:
+            dict с added_keywords и removed_keywords
+        """
+        prev_words = set(prev.lower().split())
+        curr_words = set(current.lower().split())
+        
+        added = list(curr_words - prev_words)
+        removed = list(prev_words - curr_words)
+        
+        return {
+            "added_keywords": added[:10],
+            "removed_keywords": removed[:10],
+        }
+
+    @staticmethod
+    def build_attempt_insight(prev_attempt, current_attempt) -> dict:
+        """
+        Формирует insight о прогрессе между двумя попытками.
+        
+        Args:
+            prev_attempt: предыдущая попытка (InterviewAnswerAttempt)
+            current_attempt: текущая попытка (InterviewAnswerAttempt)
+        
+        Returns:
+            dict с improved, score_delta, diff
+        """
+        diff = InterviewPreparationService.build_attempt_diff(
+            prev_attempt.answer_text or "",
+            current_attempt.answer_text or ""
+        )
+
+        improved = (current_attempt.score or 0) > (prev_attempt.score or 0)
+        score_delta = (current_attempt.score or 0) - (prev_attempt.score or 0)
+        
+        return {
+            "improved": improved,
+            "score_delta": score_delta,
+            "diff": diff,
+        }
+
+    def _evaluate_answer_basic(
+        self,
+        *,
+        question: str,
+        answer: str,
+    ) -> dict:
+        """
+        Базовая детерминированная оценка ответа (без AI).
+        
+        Критерии:
+        1. Длина (proxy на глубину)
+        2. Наличие конкретики (цифры)
+        3. Наличие глаголов действия
+        4. Структура STAR
+        """
+        score = 0
+        feedback = []
+
+        # 1. Длина (proxy на глубину)
+        if len(answer.split()) > 20:
+            score += 1
+        else:
+            feedback.append("Answer is too short")
+
+        # 2. Наличие конкретики (очень грубо)
+        if any(word.isdigit() for word in answer.split()):
+            score += 1
+        else:
+            feedback.append("No measurable results mentioned")
+
+        # 3. Наличие глаголов действия
+        action_words = ["built", "implemented", "designed", "led"]
+        answer_lower = answer.lower()
+        if any(w in answer_lower for w in action_words):
+            score += 1
+        else:
+            feedback.append("Lacks strong action verbs")
+
+        # 4. Структура (очень MVP)
+        if "situation" in answer_lower or "result" in answer_lower:
+            score += 1
+        else:
+            feedback.append("STAR structure not clear")
+
+        return {
+            "score": score / 4,
+            "feedback": feedback,
+        }
+
+    async def coach_answer(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        question: str,
+        answer: str,
+        evaluation: dict,
+        language: str = "ru",
+    ) -> dict:
+        """
+        AI-коуч: улучшает ответ с учётом детерминированной оценки.
+        
+        Использует safety guard для защиты от выдумок.
+        """
+        if not self.ai_orchestrator:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AI orchestrator not configured",
+            )
+
+        from app.ai.orchestrator import AIOrchestrator
+        from app.ai.registry.prompts import PromptTemplate
+
+        evaluation_text = f"Score: {evaluation.get('score', 0)}/1. Feedback: {', '.join(evaluation.get('feedback', []))}"
+
+        result = await self.ai_orchestrator.execute(
+            session=session,
+            user_id=user_id,
+            prompt_template=PromptTemplate.INTERVIEW_COACH_V1,
+            prompt_vars={
+                "question": question,
+                "answer": answer,
+                "evaluation": evaluation_text,
+            },
+            workflow_name="interview_coach",
+            target_type="interview_answer",
+            language=language,
+        )
+
+        improved = result["result"]["improved_answer"]
+
+        # reuse guard!
+        if not self._is_safe_enhancement(answer, improved):
+            return {
+                "improved_answer": answer,
+                "explanation": "AI suggestion rejected (safety guard)",
+            }
+
+        return result["result"]
+
+    async def improve_answer_with_ai(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        question: str,
+        answer: str,
+        evaluation: dict,
+        language: str = "ru",
+    ) -> dict:
+        """
+        AI-улучшение ответа на вопрос собеседования.
+        
+        Использует детерминированную оценку как контекст для AI.
+        """
+        if not self.ai_orchestrator:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AI orchestrator not configured",
+            )
+
+        from app.ai.orchestrator import AIOrchestrator
+        from app.ai.registry.prompts import PromptTemplate
+
+        evaluation_text = f"Score: {evaluation.get('score', 0)}/1. Feedback: {', '.join(evaluation.get('feedback', []))}"
+
+        result = await self.ai_orchestrator.execute(
+            session=session,
+            user_id=user_id,
+            prompt_template=PromptTemplate.INTERVIEW_COACH_V1,
+            prompt_vars={
+                "question": question,
+                "answer": answer,
+                "evaluation": evaluation_text,
+            },
+            workflow_name="interview_coach",
+            target_type="interview_answer",
+            language=language,
+        )
+
+        return result["result"]
+
     def _build_question_set(
         self,
         *,
@@ -477,3 +713,62 @@ class InterviewPreparationService:
             )
 
         return questions[:15]
+
+    def _build_questions(
+        self,
+        *,
+        strengths: list[str],
+        gaps: list[str],
+        achievements: list[str] | None = None,
+    ) -> list[dict]:
+        """
+        Строит список вопросов для собеседования.
+        
+        Ключевая идея: gap → прямой вопрос
+        Это то, что реально происходит на интервью.
+        """
+        achievements = achievements or []
+        questions = []
+
+        # Strength-based
+        for skill in strengths[:3]:
+            expected = self._build_expected_answer(
+                skill=skill,
+                achievements=achievements,
+            )
+            questions.append({
+                "type": "strength",
+                "skill": skill,
+                "question": f"Can you describe your experience with {skill}?",
+                "expected_answer": expected,
+            })
+
+        # Gap-based (самое ценное)
+        for gap in gaps[:3]:
+            expected = self._build_expected_answer(
+                skill=gap,
+                achievements=achievements,
+            )
+            questions.append({
+                "type": "gap",
+                "skill": gap,
+                "question": f"You have less experience with {gap}. How are you addressing this?",
+                "expected_answer": expected,
+            })
+
+        return questions
+
+    def _build_expected_answer(
+        self,
+        *,
+        skill: str,
+        achievements: list[str],
+    ) -> str:
+        relevant = [
+            a for a in achievements if skill.lower() in a.lower()
+        ]
+
+        if not relevant:
+            return "Explain learning efforts and practical steps taken."
+
+        return "Use STAR format: " + "; ".join(relevant[:2])

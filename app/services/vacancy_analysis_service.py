@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
+from app.models.entities import VacancyAnalysis
 
 
 SKILL_PATTERNS: dict[str, list[str]] = {
@@ -121,11 +122,11 @@ class VacancyAnalysisService:
         vacancy_analysis_repository: VacancyAnalysisRepository | None = None,
         candidate_profile_repository: CandidateProfileRepository | None = None,
     ) -> None:
-        self.vacancy_repository = vacancy_repository or VacancyRepository()
-        self.vacancy_analysis_repository = (
+        self.vacancy_repo = vacancy_repository or VacancyRepository()
+        self.analysis_repo = (
             vacancy_analysis_repository or VacancyAnalysisRepository()
         )
-        self.candidate_profile_repository = (
+        self.profile_repo = (
             candidate_profile_repository or CandidateProfileRepository()
         )
 
@@ -136,7 +137,7 @@ class VacancyAnalysisService:
         vacancy_id: UUID,
         user_id: UUID,
     ):
-        vacancy = await self.vacancy_repository.get_by_id(
+        vacancy = await self.vacancy_repo.get_by_id(
             session,
             vacancy_id,
             user_id=user_id,
@@ -166,7 +167,7 @@ class VacancyAnalysisService:
 
         keywords = self._extract_keywords(vacancy.title, vacancy.description_raw)
 
-        profile = await self.candidate_profile_repository.get_with_related_by_user_id(
+        profile = await self.profile_repo.get_with_related_by_user_id(
             session,
             vacancy.user_id,
         )
@@ -177,7 +178,7 @@ class VacancyAnalysisService:
             nice_to_have=nice_to_have,
         )
 
-        analysis = await self.vacancy_analysis_repository.replace_for_vacancy(
+        analysis = await self.analysis_repo.replace_for_vacancy(
             session,
             vacancy_id=vacancy.id,
             must_have_json=[{"text": item} for item in must_have],
@@ -192,6 +193,106 @@ class VacancyAnalysisService:
         await session.commit()
         await session.refresh(analysis)
         return analysis
+
+    async def match_vacancy(
+        self,
+        session: AsyncSession,
+        *,
+        vacancy_id: UUID,
+        user_id: UUID,
+    ) -> VacancyAnalysis:
+        analysis = await self.analysis_repo.get_latest_for_vacancy(
+            session,
+            vacancy_id,
+            user_id=user_id,
+        )
+
+        if analysis is None:
+            analysis = await self.analyze_vacancy(
+                session,
+                vacancy_id=vacancy_id,
+                user_id=user_id,
+            )
+
+        profile = await self.profile_repo.get_with_related_by_user_id(
+            session, user_id=user_id
+        )
+
+        strengths, gaps, score = self._compare_with_profile_simple(
+            keywords=analysis.keywords_json or [],
+            profile=profile,
+        )
+
+        return await self.analysis_repo.replace_for_vacancy(
+            session,
+            vacancy_id=vacancy_id,
+            must_have_json=analysis.must_have_json or [],
+            nice_to_have_json=analysis.nice_to_have_json or [],
+            keywords_json=analysis.keywords_json or [],
+            gaps_json=gaps,
+            strengths_json=strengths,
+            match_score=score,
+            analysis_version="deterministic_match_v1",
+        )
+
+    def _compare_with_profile_simple(
+        self,
+        *,
+        keywords: list[str],
+        profile,
+    ) -> tuple[list[dict], list[dict], int | None]:
+        if profile is None or not keywords:
+            return (
+                [],
+                [
+                    {
+                        "keyword": kw,
+                        "scope": "keyword",
+                        "requirement_text": None,
+                        "weight": 1,
+                        "reason": "profile_not_found"
+                        if profile is None
+                        else "no_keywords",
+                    }
+                    for kw in keywords
+                ],
+                None,
+            )
+
+        profile_corpus = self._build_profile_corpus(profile)
+
+        strengths: list[dict] = []
+        gaps: list[dict] = []
+        matched = 0
+
+        for keyword in keywords:
+            if self._profile_satisfies_keyword(keyword, profile_corpus):
+                matched += 1
+                strengths.append(
+                    {
+                        "keyword": keyword,
+                        "scope": "keyword",
+                        "requirement_text": None,
+                        "weight": 1,
+                        "evidence": "profile_keyword_or_alias_overlap",
+                    }
+                )
+            else:
+                gaps.append(
+                    {
+                        "keyword": keyword,
+                        "scope": "keyword",
+                        "requirement_text": None,
+                        "weight": 1,
+                        "reason": "not_found_in_profile_text",
+                    }
+                )
+
+        if len(keywords) <= 0:
+            return strengths, gaps, None
+
+        score = round((matched / len(keywords)) * 100)
+        return strengths, gaps, score
 
     def _compare_with_profile(
         self,

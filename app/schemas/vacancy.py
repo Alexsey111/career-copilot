@@ -65,3 +65,12 @@ class VacancyAnalysisResponse(BaseModel):
     match_score: int | None
     analysis_version: str
     created_at: datetime
+
+
+class VacancyMatchResponse(BaseModel):
+    vacancy_id: str
+    user_id: str
+    match_score: int | None
+    strengths: list[dict[str, Any]]
+    gaps: list[dict[str, Any]]
+    message: str | None = None

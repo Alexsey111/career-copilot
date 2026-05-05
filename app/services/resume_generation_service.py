@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import difflib
 import re
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.ai.orchestrator import AIOrchestrator
 
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.document_version_repository import DocumentVersionRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
+
 
 
 class ResumeGenerationService:
@@ -35,6 +41,7 @@ class ResumeGenerationService:
         self.document_version_repository = (
             document_version_repository or DocumentVersionRepository()
         )
+        self.ai_orchestrator: AIOrchestrator | None = None
 
     async def generate_resume(
         self,
@@ -42,6 +49,7 @@ class ResumeGenerationService:
         *,
         vacancy_id: UUID,
         user_id: UUID,
+        use_ai_enhancement: bool = False,
     ):
         vacancy = await self.vacancy_repository.get_by_id(
             session,
@@ -133,6 +141,31 @@ class ResumeGenerationService:
             analysis_match_score=analysis.match_score,
             missing_keywords=missing_keywords,
         )
+
+        # Опциональный AI-усиленный шаг
+        if self.ai_orchestrator and use_ai_enhancement:
+            from app.ai.orchestrator import AIOrchestrator
+            from app.ai.registry.prompts import PromptTemplate
+            ai_result = await self.ai_orchestrator.execute(
+                session,
+                user_id=vacancy.user_id,
+                prompt_template=PromptTemplate.RESUME_TAILOR_V1,
+                prompt_vars={
+                    "vacancy_title": vacancy.title,
+                    "company": vacancy.company,
+                    "must_have": [item.get("text") for item in analysis.must_have_json],
+                    "profile_summary": profile.summary or "",
+                    "confirmed_achievements": [ach["title"] for ach in selected_achievements],
+                },
+                workflow_name="resume_tailoring",
+                target_type="vacancy",
+                target_id=str(vacancy.id),
+            )
+            # Если AI вернул улучшенный текст — можно применить к sections
+            if ai_result and isinstance(ai_result, dict):
+                ai_summary = ai_result.get("summary")
+                if ai_summary:
+                    fit_summary = ai_summary
 
         content_json = {
             "document_kind": "resume",
@@ -521,20 +554,15 @@ class ResumeGenerationService:
             for field in ("company", "role", "description_raw")
         )
         normalized = combined.lower()
-
-        if re.search(r"\b\d+\.\s+", combined):
-            return True
-
-        noise_markers = [
-            "ии-контроль",
-            "пвх оконных",
-            "по изображениям",
-            "видео",
-            "университет",
-            "автоматизированный",
+        # Оставляем только явный шум от PDF-парсера
+        noise_patterns = [
+            r"\b\d+\.\s+",  # нумерация вместо названия
+            r"ии-контроль",
+            r"пвх оконных",
+            r"по изображениям",
+            r"видео layout noise",
         ]
-
-        return any(marker in normalized for marker in noise_markers)
+        return any(re.search(pattern, normalized) for pattern in noise_patterns)
 
     def _build_claims_needing_confirmation(
         self,
@@ -688,3 +716,76 @@ class ResumeGenerationService:
             result.append(value.strip())
 
         return result
+
+    async def enhance_resume_with_ai(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        resume_text: str,
+        language: str = "ru",
+    ) -> str:
+        if not self.ai_orchestrator:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AI orchestrator not configured",
+            )
+
+        from app.ai.orchestrator import AIOrchestrator
+        from app.ai.registry.prompts import PromptTemplate
+
+        result = await self.ai_orchestrator.execute(
+            session=session,
+            user_id=user_id,
+            prompt_template=PromptTemplate.RESUME_ENHANCE_V1,
+            prompt_vars={
+                "resume_text": resume_text,
+            },
+            workflow_name="resume_enhance",
+            target_type="document",
+            language=language,
+        )
+
+        enhanced = result["result"]["enhanced_text"]
+
+        if not self._is_safe_enhancement(resume_text, enhanced):
+            # fallback → возвращаем оригинал
+            return resume_text
+
+        return enhanced
+
+    def _compute_diff(self, original: str, enhanced: str) -> str:
+        diff = difflib.unified_diff(
+            original.splitlines(),
+            enhanced.splitlines(),
+            lineterm="",
+        )
+        return "\n".join(diff)
+
+    def _word_count(self, text: str) -> int:
+        return len(text.split())
+
+    def _is_safe_enhancement(self, original: str, enhanced: str) -> bool:
+        orig_words = self._word_count(original)
+        enh_words = self._word_count(enhanced)
+
+        # 1. защита от пустого / деградации
+        if enh_words == 0:
+            return False
+
+        # 2. слишком сильное сжатие
+        if enh_words < orig_words * 0.5:
+            return False
+
+        # 3. слишком сильное раздувание (более мягкое)
+        if enh_words > orig_words * 2.5:
+            return False
+
+        # 4. ключевые слова не должны исчезнуть
+        for word in original.split():
+            # Убираем пунктуацию для сравнения
+            clean_word = re.sub(r'[^\w]', '', word).lower()
+            if len(clean_word) > 4 and clean_word not in enhanced.lower():
+                return False
+
+        return True

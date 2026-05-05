@@ -20,11 +20,12 @@ flowchart TD
     RT --> R7[interviews]
 
     R2 --> S1[SourceFileService]
-    R3 --> S2[ProfileImportService / ProfileStructuringService / AchievementExtractionService]
+    R3 --> S2[ProfileImportService / ProfileStructuringService / ProfileBuilderService / AchievementExtractionService]
     R4 --> S3[VacancyImportService / VacancyAnalysisService]
     R5 --> S4[ResumeGenerationService / CoverLetterGenerationService / DocumentReviewService]
     R6 --> S5[ApplicationTrackingService]
     R7 --> S6[InterviewPreparationService]
+    R8 --> S7[AuthService / PasswordResetService]
 
     S1 --> REP[repositories]
     S2 --> REP
@@ -32,6 +33,7 @@ flowchart TD
     S4 --> REP
     S5 --> REP
     S6 --> REP
+    S7 --> REP
     REP --> DB[(PostgreSQL)]
 
     ROOT --> CFG[app/core/config.py]
@@ -59,7 +61,8 @@ career-copilot/
 ├── docs/
 ├── scripts/
 ├── infra/
-└── tests/
+├── tests/
+└── data/
 ```
 
 ## Папка `app/`
@@ -129,11 +132,13 @@ app/api/
 ```text
 app/security/
 ├── auth.py
+├── dependencies.py
 ├── passwords.py
 └── tokens.py
 ```
 
-- `auth.py` содержит `get_current_user_id()` для dev auth flow.
+- `auth.py` содержит `get_current_user_id()` для dev auth flow и session management.
+- `dependencies.py` содержит FastAPI dependencies для аутентификации и авторизации.
 - `passwords.py` хранит argon2-хелперы для hashing и verification паролей.
 - `tokens.py` генерирует session tokens и их SHA-256 hash.
 
@@ -232,7 +237,8 @@ app/schemas/
 ├── vacancy.py
 ├── document.py
 ├── application.py
-└── interview.py
+├── interview.py
+└── auth.py
 ```
 
 Что покрывают схемы:
@@ -245,6 +251,7 @@ app/schemas/
 - `document.py` - генерация, review, чтение и экспорт документов.
 - `application.py` - создание, чтение, список и обновление статусов заявок.
 - `interview.py` - создание interview session и сохранение ответов.
+- `auth.py` - схемы для аутентификации, сессий и сброса пароля.
 
 ### `app/services/`
 
@@ -257,6 +264,7 @@ app/services/
 ├── source_file_service.py
 ├── profile_import_service.py
 ├── profile_structuring_service.py
+├── profile_builder_service.py
 ├── achievement_extraction_service.py
 ├── vacancy_import_service.py
 ├── vacancy_analysis_service.py
@@ -264,7 +272,9 @@ app/services/
 ├── cover_letter_generation_service.py
 ├── document_review_service.py
 ├── application_tracking_service.py
-└── interview_preparation_service.py
+├── interview_preparation_service.py
+├── auth_service.py
+└── password_reset_service.py
 ```
 
 Кратко по ответственности:
@@ -274,6 +284,7 @@ app/services/
 - `source_file_service.py` - загрузка файла, поиск пользователя и создание source file.
 - `profile_import_service.py` - запуск импорта профиля из source file.
 - `profile_structuring_service.py` - извлечение структурированных данных и опыта.
+- `profile_builder_service.py` - сборка и консолидация профиля кандидата из различных источников.
 - `achievement_extraction_service.py` - извлечение достижений из raw текста с `fact_status = needs_confirmation`.
 - `vacancy_import_service.py` - импорт вакансии из текста или URL.
 - `vacancy_analysis_service.py` - анализ вакансии и сопоставление с профилем.
@@ -282,6 +293,8 @@ app/services/
 - `document_review_service.py` - изменение review-статуса документа.
 - `application_tracking_service.py` - создание заявок, проверка approved-пакета документов, список заявок и статусные переходы.
 - `interview_preparation_service.py` - построение interview session, feedback и readiness score.
+- `auth_service.py` - управление сессиями аутентификации, refresh tokens и events.
+- `password_reset_service.py` - генерация и валидация токенов сброса пароля.
 
 ### `app/tasks/` и `app/workflows/`
 
@@ -337,7 +350,14 @@ alembic/
 ├── script.py.mako
 └── versions/
     ├── 9de02e41efad_initial_schema.py
-    └── c5e1b2062553_add_file_extractions.py
+    ├── c5e1b2062553_add_file_extractions.py
+    ├── a1b2c3d4e5f6_add_auth_fields_and_refresh_sessions.py
+    ├── 8f1a2b3c4d5e_add_auth_events.py
+    ├── 9a7b6c5d4e3f_add_updated_at_to_refresh_sessions.py
+    ├── 3c7e9f2a8b4d_auth_hardening_adjustments.py
+    ├── b2c3d4e5f6a7_add_password_reset_tokens.py
+    ├── badc1805f0ba_password_reset_token_indexes.py
+    └── 6b8d2f4a1c01_add_unique_constraint_application_user_vacancy.py
 ```
 
 - `env.py` подключает Alembic к модели и настройкам проекта.
@@ -355,6 +375,19 @@ infra/
 
 В этой папке лежит локальная docker-compose конфигурация для запуска сервисов окружения.
 
+## Папка `docs/`
+
+Документация проекта.
+
+```text
+docs/
+├── project-structure.md
+└── local-operational-routine.md
+```
+
+- `project-structure.md` - текущий документ со структурой проекта.
+- `local-operational-routine.md` - инструкции по локальной эксплуатации и отладке.
+
 ## Папка `tests/`
 
 Тесты проекта.
@@ -364,13 +397,48 @@ tests/
 ├── conftest.py
 ├── test_health.py
 ├── test_mvp_flow_e2e.py
+├── test_profile_pipeline.py
+├── test_profile_structuring_service.py
+├── test_achievement_extraction_service.py
+├── test_vacancy_import_service.py
+├── test_vacancy_analysis_service.py
+├── test_vacancy_analysis_api_flow.py
+├── test_resume_generation_service.py
+├── test_cover_letter_generation_service.py
+├── test_document_export_api.py
+├── test_document_docx_export_api.py
+├── test_document_content_json_audit.py
+├── test_achievement_proof_review_api.py
+├── test_application_list_api.py
+├── test_application_status_api_flow.py
+├── test_application_status_transitions.py
+├── test_application_package_integrity.py
 ├── test_interview_api_flow.py
+├── test_interview_session_list_api.py
 ├── test_interview_answers_api_flow.py
 ├── test_interview_preparation_service.py
+├── test_interview_answer_feedback_service.py
+├── test_auth_sessions.py
+├── test_auth_audit.py
+├── test_password_reset.py
+├── test_access_scope.py
+├── test_resume_parser_service.py
+├── test_migration_drift.py
 └── ... другие service/API тесты
 ```
 
-Сейчас в проекте есть набор service- и API-тестов для vacancy, documents, applications, interview flow и smoke-покрытия. Общие фикстуры находятся в `conftest.py`.
+Сейчас в проекте есть набор service- и API-тестов для vacancy, documents, applications, interview flow, auth, password reset и smoke-покрытия. Общие фикстуры находятся в `conftest.py`.
+
+## Папка `data/`
+
+Локальное хранилище для данных и артефактов.
+
+```text
+data/
+└── ...
+```
+
+Используется для хранения локальных файлов, кэшированных данных и временных артефактов.
 
 ## Основные потоки данных
 
@@ -439,6 +507,21 @@ tests/
 3. Клиент сохраняет ответы через `PATCH /interviews/sessions/{id}/answers`.
 4. Сервис считает feedback и readiness score.
 
+### 8. Аутентификация и управление сессиями
+
+1. Клиент вызывает `POST /auth/login` с учетными данными.
+2. `AuthService` создает session и возвращает access token.
+3. Access token используется в заголовке `Authorization: Bearer <token>`.
+4. Refresh token позволяет получать новые access tokens.
+5. События аудита логируются для мониторинга безопасности.
+
+### 9. Сброс пароля
+
+1. Клиент вызывает `POST /auth/password-reset/request` для запроса сброса.
+2. `PasswordResetService` генерирует токен и отправляет ссылку.
+3. Клиент вызывает `POST /auth/password-reset/confirm` с токеном и новым паролем.
+4. Токен валидируется и пароль обновляется.
+
 ## Ключевые таблицы и связи
 
 - `users`
@@ -476,7 +559,12 @@ tests/
 - frontend gate, который блокирует импорт вакансии до подтверждения достижений
 - backend safety filter, который использует в документах только `confirmed` achievements
 - export API для approved+active документов в TXT/MD/DOCX
+- auth-слой с сессиями, refresh tokens и событиями аудита
+- password reset flow с токенами
 - отдельный `auth` route и слой security helpers
+- `auth_service.py` для управления сессиями
+- `password_reset_service.py` для сброса пароля
+- `profile_builder_service.py` для сборки профиля
 - Streamlit download-кнопки для экспорта документов
 - application dashboard во frontend
 - interview dashboard во frontend
@@ -485,6 +573,7 @@ tests/
 - PostgreSQL-схема через SQLAlchemy и Alembic
 - healthcheck на `GET /health`
 - корневой `GET /`, возвращающий `{"service": "...", "status": "ok"}`
+- набор тестов для auth, password reset, application status transitions и integrity checks
 
 Заготовлено:
 

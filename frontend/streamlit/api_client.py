@@ -86,47 +86,84 @@ class CareerCopilotApiClient:
             error=None,
         )
 
-    def get_json(self, path: str) -> Any:
+    def login(self, email: str, password: str) -> dict[str, Any]:
+        """Вход через JSON-контракт: {"email": "...", "password": "..."}"""
+        payload = {"email": email, "password": password}
+        response = httpx.post(
+            self._build_url("/auth/login"),
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        result = response.json()
+        # Нормализуем ответ под единый ключ
+        if "access_token" not in result and "token" in result:
+            result["access_token"] = result["token"]
+        return result
+
+    def _build_headers(self, token: str | None) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def get_json(self, path: str, token: str | None = None) -> Any:
         response = httpx.get(
             self._build_url(path),
+            headers=self._build_headers(token),
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
         return response.json()
 
-    def get_text(self, path: str) -> str:
+    def get_text(self, path: str, token: str | None = None) -> str:
         response = httpx.get(
             self._build_url(path),
+            headers=self._build_headers(token),
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
         return response.text
 
-    def get_bytes(self, path: str) -> bytes:
+    def get_bytes(self, path: str, token: str | None = None) -> bytes:
         response = httpx.get(
             self._build_url(path),
+            headers=self._build_headers(token),
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
         return response.content
 
-    def post_json(self, path: str, payload: dict[str, Any]) -> Any:
+    def post_json(self, path: str, payload: dict[str, Any], token: str | None = None) -> Any:
         response = httpx.post(
             self._build_url(path),
             json=payload,
+            headers=self._build_headers(token),
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
         return response.json()
 
-    def patch_json(self, path: str, payload: dict[str, Any]) -> Any:
+    def patch_json(self, path: str, payload: dict[str, Any], token: str | None = None) -> Any:
         response = httpx.patch(
             self._build_url(path),
             json=payload,
+            headers=self._build_headers(token),
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
         return response.json()
+
+    def match_vacancy(self, vacancy_id: str, token: str | None = None) -> dict[str, Any]:
+        """
+        Запускает match-анализ вакансии с профилем текущего пользователя.
+        Возвращает: match_score, strengths, gaps, analysis_version.
+        """
+        return self.post_json(
+            f"/vacancies/{vacancy_id}/match",
+            {},  # пустой payload, user_id берётся из сессии на бэкенде
+            token=token,
+        )
 
     def upload_file(
         self,
@@ -136,25 +173,21 @@ class CareerCopilotApiClient:
         filename: str,
         content: bytes,
         content_type: str,
+        token: str | None = None,
     ) -> dict[str, Any]:
+        headers = self._build_headers(token)
+        headers.pop("Content-Type", None)  # httpx сам выставит multipart boundary
         response = httpx.post(
             self._build_url(path),
             data={"file_kind": file_kind},
-            files={
-                "file": (
-                    filename,
-                    content,
-                    content_type,
-                )
-            },
+            files={"file": (filename, content, content_type)},
+            headers=headers,
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
         payload = response.json()
-
         if not isinstance(payload, dict):
             raise ValueError("Expected JSON object from file upload endpoint")
-
         return payload
 
     def _build_url(self, path: str) -> str:

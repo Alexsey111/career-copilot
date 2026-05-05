@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    Float,
     JSON,
     Boolean,
     Date,
@@ -386,6 +387,28 @@ class InterviewSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     user: Mapped["User"] = relationship(back_populates="interview_sessions")
     vacancy: Mapped["Vacancy | None"] = relationship(back_populates="interview_sessions")
+    answer_attempts: Mapped[list["InterviewAnswerAttempt"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
+
+class InterviewAnswerAttempt(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "interview_answer_attempts"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    question_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feedback_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    session: Mapped["InterviewSession"] = relationship(back_populates="answer_attempts")
 
 
 class AIRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -403,6 +426,7 @@ class AIRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     target_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="started")
+    provider_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 

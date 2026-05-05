@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import InterviewSession, Vacancy
+from app.models import InterviewAnswerAttempt, InterviewSession, Vacancy
 
 
 class InterviewSessionRepository:
@@ -53,6 +53,21 @@ class InterviewSessionRepository:
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def update_question_set(
+        self,
+        session: AsyncSession,
+        interview_session: InterviewSession,
+        *,
+        question_set_json: list[dict],
+        status: str | None = None,
+    ) -> InterviewSession:
+        interview_session.question_set_json = question_set_json
+        if status is not None:
+            interview_session.status = status
+        await session.flush()
+        await session.refresh(interview_session)
+        return interview_session
 
     async def list_dashboard_by_user_id(
         self,
@@ -123,3 +138,25 @@ class InterviewSessionRepository:
         await session.flush()
         await session.refresh(interview_session)
         return interview_session
+
+    async def create_attempt(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+        question_id: str,
+        answer_text: str,
+        score: float,
+        feedback_json: dict,
+    ) -> InterviewAnswerAttempt:
+        attempt = InterviewAnswerAttempt(
+            session_id=session_id,
+            question_id=question_id,
+            answer_text=answer_text,
+            score=score,
+            feedback_json=feedback_json,
+        )
+        session.add(attempt)
+        await session.flush()
+        await session.refresh(attempt)
+        return attempt

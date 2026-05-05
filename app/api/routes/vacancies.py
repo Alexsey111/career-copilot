@@ -146,7 +146,8 @@ async def get_latest_vacancy_analysis(
         )
 
     repo = VacancyAnalysisRepository()
-    analysis = await repo.get_latest_for_vacancy(session, vacancy_id)
+    # FIX: добавлен user_id=current_user.id
+    analysis = await repo.get_latest_for_vacancy(session, vacancy_id, user_id=current_user.id)
     if analysis is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -161,6 +162,36 @@ async def get_latest_vacancy_analysis(
         keywords=analysis.keywords_json,
         strengths=analysis.strengths_json,
         gaps=analysis.gaps_json,
+        match_score=analysis.match_score,
+        analysis_version=analysis.analysis_version,
+        created_at=analysis.created_at,
+    )
+
+
+@router.post("/{vacancy_id}/match", response_model=VacancyAnalysisResponse)
+async def match_vacancy(
+    vacancy_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user),
+):
+    service = VacancyAnalysisService()
+
+    analysis = await service.match_vacancy(
+        session,
+        vacancy_id=vacancy_id,
+        user_id=current_user.id,
+    )
+
+    await session.commit()
+
+    return VacancyAnalysisResponse(
+        analysis_id=analysis.id,
+        vacancy_id=analysis.vacancy_id,
+        must_have=analysis.must_have_json or [],
+        nice_to_have=analysis.nice_to_have_json or [],
+        keywords=analysis.keywords_json or [],
+        strengths=analysis.strengths_json or [],
+        gaps=analysis.gaps_json or [],
         match_score=analysis.match_score,
         analysis_version=analysis.analysis_version,
         created_at=analysis.created_at,
