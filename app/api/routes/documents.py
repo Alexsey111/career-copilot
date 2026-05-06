@@ -9,11 +9,14 @@ from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_active_user
+from app.api.dependencies import get_ai_orchestrator, get_current_active_user
+from app.ai.orchestrator import AIOrchestrator
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.document_version_repository import DocumentVersionRepository
 from app.schemas.document import (
+    CoverLetterEnhanceRequest,
+    CoverLetterEnhanceResponse,
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
     DocumentReviewRequest,
@@ -65,8 +68,9 @@ async def generate_resume(
     payload: ResumeGenerateRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
+    ai: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> ResumeGenerateResponse:
-    service = ResumeGenerationService()
+    service = ResumeGenerationService(ai_orchestrator=ai)
     document = await service.generate_resume(
         session,
         vacancy_id=payload.vacancy_id,
@@ -91,6 +95,7 @@ async def enhance_resume(
     payload: ResumeEnhanceRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
+    ai: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> ResumeEnhanceResponse:
     repo = DocumentVersionRepository()
     document = await repo.get_by_id(
@@ -104,7 +109,7 @@ async def enhance_resume(
             detail="document not found",
         )
 
-    service = ResumeGenerationService()
+    service = ResumeGenerationService(ai_orchestrator=ai)
     enhanced_text = await service.enhance_resume_with_ai(
         session,
         user_id=current_user.id,
@@ -126,8 +131,9 @@ async def generate_cover_letter(
     payload: CoverLetterGenerateRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
+    ai: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> CoverLetterGenerateResponse:
-    service = CoverLetterGenerationService()
+    service = CoverLetterGenerationService(ai_orchestrator=ai)
     document = await service.generate_cover_letter(
         session,
         vacancy_id=payload.vacancy_id,
@@ -143,6 +149,43 @@ async def generate_cover_letter(
         version_label=document.version_label,
         created_at=document.created_at,
         rendered_text_preview=preview,
+    )
+
+
+@router.post("/letters/{document_id}/enhance", response_model=CoverLetterEnhanceResponse)
+async def enhance_cover_letter(
+    document_id: UUID,
+    payload: CoverLetterEnhanceRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+    ai: AIOrchestrator = Depends(get_ai_orchestrator),
+) -> CoverLetterEnhanceResponse:
+    repo = DocumentVersionRepository()
+    document = await repo.get_by_id(
+        session,
+        document_id,
+        user_id=current_user.id,
+    )
+    if document is None or document.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="document not found",
+        )
+
+    service = CoverLetterGenerationService(ai_orchestrator=ai)
+    enhanced_text = await service.enhance_cover_letter_with_ai(
+        session,
+        user_id=current_user.id,
+        draft_text=payload.cover_letter_text,
+    )
+
+    return CoverLetterEnhanceResponse(
+        document_id=document.id,
+        vacancy_id=document.vacancy_id,
+        review_status=document.review_status,
+        version_label=document.version_label,
+        created_at=document.created_at,
+        enhanced_text=enhanced_text,
     )
 
 

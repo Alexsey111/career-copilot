@@ -31,6 +31,7 @@ class ResumeGenerationService:
         candidate_profile_repository: CandidateProfileRepository | None = None,
         file_extraction_repository: FileExtractionRepository | None = None,
         document_version_repository: DocumentVersionRepository | None = None,
+        ai_orchestrator: AIOrchestrator | None = None,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.vacancy_analysis_repository = (
@@ -43,7 +44,7 @@ class ResumeGenerationService:
         self.document_version_repository = (
             document_version_repository or DocumentVersionRepository()
         )
-        self.ai_orchestrator: AIOrchestrator | None = None
+        self.ai_orchestrator = ai_orchestrator
 
     async def generate_resume(
         self,

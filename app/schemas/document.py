@@ -73,3 +73,16 @@ class ResumeEnhanceResponse(BaseModel):
     version_label: str | None
     created_at: datetime
     enhanced_text: str
+
+
+class CoverLetterEnhanceRequest(BaseModel):
+    cover_letter_text: str
+
+
+class CoverLetterEnhanceResponse(BaseModel):
+    document_id: UUID
+    vacancy_id: UUID
+    review_status: str
+    version_label: str | None
+    created_at: datetime
+    enhanced_text: str

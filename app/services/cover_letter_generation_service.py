@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.ai.orchestrator import AIOrchestrator
 
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.document_version_repository import DocumentVersionRepository
@@ -25,6 +30,7 @@ class CoverLetterGenerationService:
         candidate_profile_repository: CandidateProfileRepository | None = None,
         file_extraction_repository: FileExtractionRepository | None = None,
         document_version_repository: DocumentVersionRepository | None = None,
+        ai_orchestrator: AIOrchestrator | None = None,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.vacancy_analysis_repository = (
@@ -37,6 +43,7 @@ class CoverLetterGenerationService:
         self.document_version_repository = (
             document_version_repository or DocumentVersionRepository()
         )
+        self.ai_orchestrator = ai_orchestrator
 
     async def generate_cover_letter(
         self,
