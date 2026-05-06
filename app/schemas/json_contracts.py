@@ -65,6 +65,38 @@ class VacancyAnalysisSchema(BaseModel):
 # DocumentVersion content_json
 # ---------------------------------------------------------------------------
 
+class ContentMeta(BaseModel):
+    """Мета-информация о происхождении контента.
+    
+    source: откуда пришёл контент
+        - "extracted" — извлечён из исходных файлов пользователя
+        - "ai_generated" — сгенерирован LLM
+        - "user_edited" — отредактирован пользователем
+        - "hybrid" — смесь вышеперечисленного
+    
+    based_on_achievements: UUID-ы достижений, на основе которых
+        сгенерирован этот контент (для explainability)
+    
+    based_on_analysis_id: UUID анализа вакансии, использованного
+        для генерации (redundant с DocumentVersion.analysis_id,
+        но полезен для self-contained JSON)
+    
+    confidence: уверенность в фактах (0-1)
+        - 1.0 = подтверждено пользователем или извлечено
+        - 0.5-0.9 = сгенерировано на основе подтверждённых данных
+        - 0.1-0.4 = предположение / gap mitigation
+    
+    generation_prompt_version: какая версия промпта использовалась
+    """
+    source: str = "ai_generated"  # extracted | ai_generated | user_edited | hybrid
+    based_on_achievements: list[str] = Field(default_factory=list)
+    based_on_analysis_id: str | None = None
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    generation_prompt_version: str | None = None
+    generated_at: str | None = None  # ISO timestamp
+    warnings: list[str] = Field(default_factory=list)
+
+
 class CandidateInfo(BaseModel):
     full_name: str | None = None
     headline: str | None = None
@@ -119,6 +151,7 @@ class DocumentContentSchema(BaseModel):
     candidate: CandidateInfo = Field(default_factory=CandidateInfo)
     target_vacancy: TargetVacancy | None = None
     sections: DocumentSections = Field(default_factory=DocumentSections)
+    meta: ContentMeta = Field(default_factory=ContentMeta)
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +195,7 @@ class ResumeContent(BaseModel):
     candidate: CandidateInfo = Field(default_factory=CandidateInfo)
     target_vacancy: TargetVacancy | None = None
     sections: ResumeSections = Field(default_factory=ResumeSections)
+    meta: ContentMeta = Field(default_factory=ContentMeta)
 
 
 class CoverLetterContent(BaseModel):
@@ -171,6 +205,7 @@ class CoverLetterContent(BaseModel):
     candidate: CandidateInfo = Field(default_factory=CandidateInfo)
     target_vacancy: TargetVacancy | None = None
     sections: CoverLetterSections = Field(default_factory=CoverLetterSections)
+    meta: ContentMeta = Field(default_factory=ContentMeta)
 
 
 # ---------------------------------------------------------------------------

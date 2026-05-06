@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -183,6 +184,7 @@ class ResumeGenerationService:
                 "experience": experience_items,
                 "selected_achievements": [
                     {
+                        "id": item.get("id"),
                         "title": item["title"],
                         "situation": item.get("situation"),
                         "task": item.get("task"),
@@ -201,6 +203,22 @@ class ResumeGenerationService:
                 "claims_needing_confirmation": claims_needing_confirmation,
                 "selection_rationale": selection_rationale,
                 "warnings": warnings,
+            },
+            "meta": {
+                "source": "hybrid" if use_ai_enhancement else "extracted",
+                "based_on_achievements": [
+                    item.get("id") for item in selected_achievements if item.get("id")
+                ],
+                "based_on_analysis_id": str(analysis.id),
+                "confidence": self._compute_confidence(
+                    selected_achievements=selected_achievements,
+                    missing_keywords=missing_keywords,
+                ),
+                "generation_prompt_version": (
+                    "resume_tailor_v1" if use_ai_enhancement else None
+                ),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "warnings": [],
             },
         }
 
@@ -384,6 +402,7 @@ class ResumeGenerationService:
 
             items.append(
                 {
+                    "id": str(getattr(achievement, "id", "")),
                     "title": title,
                     "situation": getattr(achievement, "situation", None),
                     "task": getattr(achievement, "task", None),
@@ -647,6 +666,37 @@ class ResumeGenerationService:
 
         warnings.append("resume draft is ATS-safe plaintext-oriented and not final formatted output")
         return warnings
+
+    def _compute_confidence(
+        self,
+        *,
+        selected_achievements: list[dict],
+        missing_keywords: list[str],
+    ) -> float:
+        """Вычисляет confidence score на основе качества исходных данных.
+
+        - 1.0: все достижения confirmed, нет missing keywords
+        - 0.7-0.9: есть confirmed достижения, но есть gaps
+        - 0.4-0.6: мало confirmed достижений или большие gaps
+        """
+        if not selected_achievements:
+            return 0.3
+
+        confirmed_count = sum(
+            1 for item in selected_achievements
+            if item.get("fact_status") == "confirmed"
+        )
+        confirmed_ratio = confirmed_count / len(selected_achievements)
+
+        # Базовый score от confirmed ratio
+        base_score = 0.4 + (confirmed_ratio * 0.6)
+
+        # Штраф за missing keywords
+        if missing_keywords:
+            penalty = min(len(missing_keywords) * 0.05, 0.3)
+            base_score -= penalty
+
+        return round(max(0.1, min(1.0, base_score)), 2)
 
     def _render_resume_text(self, content_json: dict) -> str:
         candidate = content_json["candidate"]

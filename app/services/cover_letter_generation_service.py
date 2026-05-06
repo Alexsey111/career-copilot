@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -172,6 +173,7 @@ class CoverLetterGenerationService:
                 "gap_requirements": analysis.gaps_json,
                 "selected_achievements": [
                     {
+                        "id": item.get("id"),
                         "title": item["title"],
                         "situation": item.get("situation"),
                         "task": item.get("task"),
@@ -185,6 +187,22 @@ class CoverLetterGenerationService:
                 ],
                 "claims_needing_confirmation": claims_needing_confirmation,
                 "warnings": warnings,
+            },
+            "meta": {
+                "source": "hybrid" if use_ai_enhancement else "extracted",
+                "based_on_achievements": [
+                    item.get("id") for item in selected_achievements if item.get("id")
+                ],
+                "based_on_analysis_id": str(analysis.id),
+                "confidence": self._compute_confidence(
+                    selected_achievements=selected_achievements,
+                    missing_keywords=missing_keywords,
+                ),
+                "generation_prompt_version": (
+                    "cover_letter_v1" if use_ai_enhancement else None
+                ),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "warnings": [],
             },
         }
 
@@ -307,6 +325,7 @@ class CoverLetterGenerationService:
 
             items.append(
                 {
+                    "id": str(getattr(achievement, "id", "")),
                     "title": title,
                     "situation": getattr(achievement, "situation", None),
                     "task": getattr(achievement, "task", None),
@@ -579,6 +598,30 @@ class CoverLetterGenerationService:
 
         warnings.append("cover letter draft should be reviewed before sending")
         return warnings
+
+    def _compute_confidence(
+        self,
+        *,
+        selected_achievements: list[dict],
+        missing_keywords: list[str],
+    ) -> float:
+        """Вычисляет confidence score на основе качества исходных данных."""
+        if not selected_achievements:
+            return 0.3
+
+        confirmed_count = sum(
+            1 for item in selected_achievements
+            if item.get("fact_status") == "confirmed"
+        )
+        confirmed_ratio = confirmed_count / len(selected_achievements)
+
+        base_score = 0.4 + (confirmed_ratio * 0.6)
+
+        if missing_keywords:
+            penalty = min(len(missing_keywords) * 0.05, 0.3)
+            base_score -= penalty
+
+        return round(max(0.1, min(1.0, base_score)), 2)
 
     def _render_cover_letter(self, content_json: dict) -> str:
         sections = content_json["sections"]
