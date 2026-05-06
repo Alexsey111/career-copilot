@@ -432,6 +432,7 @@ class AIRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     input_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     output_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    tokens_used_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

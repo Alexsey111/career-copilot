@@ -43,6 +43,7 @@ class AIRunRepository:
             prompt_version=prompt_version,
             input_snapshot_json=input_snapshot,
             output_snapshot_json=output_snapshot,
+            tokens_used_json=tokens_used,
             duration_ms=duration_ms,
         )
         await session.execute(stmt)
@@ -69,6 +70,7 @@ class AIRunRepository:
         input_snapshot: dict,
         error_text: str,
         duration_ms: int | None,
+        tokens_used: dict | None = None,
     ) -> AIRun:
         """Сохраняет неудачный AI-запрос"""
         stmt = insert(AIRun).values(
@@ -83,6 +85,7 @@ class AIRunRepository:
             prompt_version=prompt_version,
             input_snapshot_json=input_snapshot,
             output_snapshot_json={},
+            tokens_used_json=tokens_used,
             error_text=error_text,
             duration_ms=duration_ms,
         )
