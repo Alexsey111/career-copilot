@@ -156,7 +156,7 @@ class ResumeGenerationService:
             )
             # Если AI вернул улучшенный текст — можно применить к sections
             if ai_result and isinstance(ai_result, dict):
-                ai_summary = ai_result.get("summary")
+                ai_summary = ai_result.get("result", {}).get("summary")
                 if ai_summary:
                     fit_summary = ai_summary
 
