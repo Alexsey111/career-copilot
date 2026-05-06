@@ -203,6 +203,9 @@ class AIOrchestrator:
                     )
             except LLMClientError as e:
                 last_error = e
+                # Если ошибка не retryable (401, 400) — сразу прерываем
+                if not e.retryable:
+                    break
                 if attempt < self.config.max_retries:
                     # Экспоненциальная задержка с jitter (±20%)
                     await asyncio.sleep(

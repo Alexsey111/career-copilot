@@ -8,7 +8,10 @@ from typing import Any
 
 class LLMClientError(Exception):
     """Базовое исключение для ошибок LLM-клиента"""
-    pass
+    
+    def __init__(self, message: str, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class BaseLLMClient(ABC):

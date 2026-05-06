@@ -61,6 +61,10 @@ class GigaChatClient(BaseLLMClient):
 
             resp = await self.client.post("/chat/completions", json=payload)
 
+            if resp.status_code == 401:
+                raise LLMClientError(f"HTTP {resp.status_code}: Unauthorized", retryable=False)
+            if resp.status_code == 400:
+                raise LLMClientError(f"HTTP {resp.status_code}: Bad Request", retryable=False)
             if resp.status_code != 200:
                 raise LLMClientError(f"HTTP {resp.status_code}: {resp.text}")
 
