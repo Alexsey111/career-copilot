@@ -97,16 +97,22 @@ class AIOrchestrator:
         start_ts = time.time()
         
         try:
-            # 5. Выполнение с ретраями
-            result = await self._execute_with_retry(
-                prompt=prompt,
-                model=model,
-                temperature=temperature,
-                response_format=response_format,
-            )
-            
+            try:
+                # 5. Выполнение с ретраями (с глобальным timeout)
+                async with asyncio.timeout(self.config.request_timeout_sec):
+                    result = await self._execute_with_retry(
+                        prompt=prompt,
+                        model=model,
+                        temperature=temperature,
+                        response_format=response_format,
+                    )
+            except TimeoutError as e:
+                raise LLMClientError(
+                    f"Orchestrator timeout after {self.config.request_timeout_sec}s"
+                ) from e
+
             duration_ms = int((time.time() - start_ts) * 1000)
-            
+
             # 6. Трассировка успеха
             if self.config.enable_tracing:
                 await self.ai_run_repo.create_success(
@@ -124,14 +130,14 @@ class AIOrchestrator:
                     duration_ms=duration_ms,
                     tokens_used=result.get("usage", {}),
                 )
-            
+
             return {
                 "result": result.get("content"),
                 "usage": result.get("usage", {}),
                 "cost": self._calc_cost(result.get("usage", {})),
                 "model": model,
             }
-            
+
         except LLMClientError as e:
             # 7. Трассировка ошибки
             duration_ms = int((time.time() - start_ts) * 1000)
