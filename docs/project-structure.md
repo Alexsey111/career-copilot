@@ -389,6 +389,74 @@ service → use_case(
 
 Циклические зависимости между `ai` и `services` запрещены. Если AI-клиенту нужны данные — сервис должен их подготовить и передать в `prompt_vars`.
 
+### Зафиксированные архитектурные решения
+
+Эти паттерны закреплены в коде и документации. Их нарушение требует обсуждения.
+
+#### 1. Prompt registry с версиями
+
+Каждый промпт — это `PromptTemplate.V1`, а не просто строка.
+
+```python
+PromptTemplate.RESUME_TAILOR_V1
+PromptTemplate.INTERVIEW_COACHING_V1
+```
+
+👉 Это база для:
+- A/B тестов промптов
+- Миграций между версиями
+- Rollback при деградации качества
+
+Новый промпт добавляется только через новый enum-член + `PromptSpec` в `PROMPT_REGISTRY`.
+
+#### 2. PromptSpec как DSL
+
+Каждый промпт описан структурой:
+
+```python
+@dataclass(frozen=True)
+class PromptSpec:
+    template: str           # шаблон с placeholder'ами
+    input_schema: dict      # ожидаемые переменные
+    output_schema: dict     # jsonschema для structured output
+    model_hint: str | None
+    temperature_hint: float | None
+```
+
+👉 Это почти DSL: шаблон, входная схема и выходная схема живут рядом. LLM-клиент валидирует ответ по `output_schema` через `jsonschema`.
+
+#### 3. Fact-safety в генерации документов
+
+AI не видит достижения со статусом `needs_confirmation`. В `ResumeGenerationService` и `CoverLetterGenerationService`:
+
+```python
+confirmed_achievements = [
+    ach for ach in profile.achievements
+    if ach.fact_status == "confirmed"
+]
+```
+
+👉 Это ключевая дифференциация продукта: AI работает только с фактами, подтверждёнными пользователем. Нет риска выдумать опыт.
+
+#### 4. Orchestrator как единая точка входа
+
+Все AI-вызовы идут через `AIOrchestrator.execute()`. Запрещено:
+
+```python
+# ❌ ХАОС — сервис напрямую в client
+client = GigaChatClient()
+result = await client.generate(...)
+```
+
+Разрешено:
+
+```python
+# ✅ Единый вход — retry, fallback, tracing, validation
+result = await orchestrator.execute(...)
+```
+
+👉 Orchestrator гарантирует: retry с jitter, jsonschema-валидация, timeout, fallback, tracing, sanitization. Ни один сервис не может обойти эти гарантии.
+
 ## Папка `frontend/`
 
 Streamlit-интерфейс и HTTP-клиент для работы с backend.
