@@ -217,19 +217,21 @@ class AIOrchestrator:
                     continue
                 # Если есть fallback-клиент — пробуем его
                 elif self.fallback_client:
+                    # Fallback использует другую модель (если настроена)
+                    fallback_model = self.config.fallback_model or model
                     try:
                         if response_format:
                             return await self.fallback_client.generate_structured(
                                 prompt=prompt,
                                 output_schema=response_format,
-                                model=model,
+                                model=fallback_model,
                                 temperature=temperature,
                                 max_tokens=self.config.max_tokens,
                             )
                         else:
                             return await self.fallback_client.generate(
                                 prompt=prompt,
-                                model=model,
+                                model=fallback_model,
                                 temperature=temperature,
                                 max_tokens=self.config.max_tokens,
                             )

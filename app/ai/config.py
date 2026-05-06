@@ -20,6 +20,9 @@ class AIOrchestratorConfig(BaseModel):
     # Модель по умолчанию
     default_model: str = Field(default="gigachat-pro", description="Default LLM model")
     
+    # Fallback модель (для резервного провайдера/модели)
+    fallback_model: str | None = Field(default=None, description="Fallback LLM model if primary fails")
+    
     # Таймауты и ретраи
     request_timeout_sec: float = Field(default=30.0)
     max_retries: int = Field(default=3)
