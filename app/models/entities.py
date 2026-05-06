@@ -285,6 +285,12 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    analysis_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("vacancy_analyses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     document_kind: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     version_label: Mapped[str | None] = mapped_column(String(100), nullable=True)

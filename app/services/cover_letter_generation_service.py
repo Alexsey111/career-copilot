@@ -197,6 +197,7 @@ class CoverLetterGenerationService:
             user_id=vacancy.user_id,
             vacancy_id=vacancy.id,
             derived_from_id=None,
+            analysis_id=analysis.id,
             document_kind="cover_letter",
             version_label="cover_letter_draft_v1" if not use_ai_enhancement else "cover_letter_ai_enhanced_v1",
             review_status="draft",

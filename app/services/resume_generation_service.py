@@ -215,6 +215,7 @@ class ResumeGenerationService:
             user_id=vacancy.user_id,
             vacancy_id=vacancy.id,
             derived_from_id=None,
+            analysis_id=analysis.id,
             document_kind="resume",
             version_label="resume_draft_v2_review_ready",
             review_status="draft",

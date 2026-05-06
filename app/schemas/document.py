@@ -15,6 +15,7 @@ class ResumeGenerateRequest(BaseModel):
 class DocumentVersionRead(BaseModel):
     id: UUID
     vacancy_id: UUID | None
+    analysis_id: UUID | None
     document_kind: str
     version_label: str | None
     review_status: str

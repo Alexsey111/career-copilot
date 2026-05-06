@@ -172,6 +172,7 @@ async def get_document(
     return DocumentVersionRead(
         id=document.id,
         vacancy_id=document.vacancy_id,
+        analysis_id=document.analysis_id,
         document_kind=document.document_kind,
         version_label=document.version_label,
         review_status=document.review_status,
