@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_active_user
+from app.api.dependencies import get_ai_orchestrator, get_current_active_user
+from app.ai.orchestrator import AIOrchestrator
 from app.db.session import get_db_session
 from app.models import User
 from app.models.entities import InterviewAnswerAttempt
@@ -25,7 +26,7 @@ from app.schemas.interview import (
 )
 from app.repositories.interview_session_repository import InterviewSessionRepository
 from app.services.interview_preparation_service import InterviewPreparationService
-
+    
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
 
@@ -41,7 +42,7 @@ async def list_interview_sessions(
         user_id=current_user.id,
     )
     return [InterviewSessionListItem(**item) for item in items]
-
+    
 
 @router.post("/sessions", response_model=InterviewSessionRead)
 async def create_interview_session(
@@ -287,6 +288,7 @@ async def get_question_progress(
     question_id: str,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
+    orchestrator: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> InterviewAttemptProgressResponse:
     """
     Возвращает прогресс по ответу на конкретный вопрос.
@@ -295,6 +297,7 @@ async def get_question_progress(
     - attempts: список всех попыток
     - progress: first_score, last_score, improvement
     - last_diff: сравнение последних двух попыток
+    - coaching: AI-фидбек при наличии >= 2 попыток
     """
     service = InterviewPreparationService()
     
@@ -320,8 +323,23 @@ async def get_question_progress(
     
     # Вычисляем diff между последними двумя попытками
     last_diff = None
+    coaching = None
     if len(attempts) >= 2:
         last_diff = service.build_attempt_insight(attempts[-2], attempts[-1])
+    
+        # Генерируем coaching-фидбек
+        diff = service.build_attempt_diff(
+            attempts[-2].answer_text or "",
+            attempts[-1].answer_text or ""
+        )
+        coaching = await service.generate_coaching_hint(
+            prev_attempt=attempts[-2],
+            current_attempt=attempts[-1],
+            diff=diff,
+            orchestrator=orchestrator,
+            session=session,
+            user_id=current_user.id,
+        )
     
     return InterviewAttemptProgressResponse(
         attempts=[
@@ -336,4 +354,5 @@ async def get_question_progress(
         ],
         progress=progress,
         last_diff=last_diff,
+        coaching=coaching,
     )

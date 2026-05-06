@@ -5,11 +5,22 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.factory import create_ai_orchestrator
+from app.ai.orchestrator import AIOrchestrator
 from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.user_repository import UserRepository
 from app.security.dependencies import get_current_active_user
+
+
+def get_ai_orchestrator() -> AIOrchestrator:
+    """FastAPI dependency для получения AI-оркестратора.
+
+    Все endpoint'ы и сервисы, которым нужен AI,
+    должны использовать эту dependency вместо прямого вызова factory.
+    """
+    return create_ai_orchestrator()
 
 
 async def get_current_dev_user(
@@ -45,4 +56,4 @@ async def get_current_dev_user(
     return user
 
 
-__all__ = ["get_current_active_user", "get_current_dev_user"]
+__all__ = ["get_current_active_user", "get_current_dev_user", "get_ai_orchestrator"]

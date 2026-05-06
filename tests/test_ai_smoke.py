@@ -10,9 +10,9 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.api.ai.clients.gigachat import GigaChatClient
-from app.api.ai.orchestrator import AIOrchestrator
-from app.api.ai.registry.prompts import PromptTemplate
+from app.ai.clients.gigachat import GigaChatClient
+from app.ai.orchestrator import AIOrchestrator
+from app.ai.registry.prompts import PromptTemplate
 from app.models.entities import AIRun
 
 
@@ -43,8 +43,8 @@ async def test_gigachat_client_generate_smoke():
     }
     mock_http_client.post = AsyncMock(return_value=mock_response)
 
-    with patch("app.api.ai.clients.gigachat.get_settings", return_value=mock_settings):
-        with patch("app.api.ai.clients.gigachat.httpx.AsyncClient", return_value=mock_http_client):
+    with patch("app.ai.clients.gigachat.get_settings", return_value=mock_settings):
+        with patch("app.ai.clients.gigachat.httpx.AsyncClient", return_value=mock_http_client):
             client = GigaChatClient()
 
     result = await client.generate("Say OK")
@@ -86,8 +86,8 @@ async def test_orchestrator_execute_creates_ai_run(db_session, test_user):
     }
     mock_http_client.post = AsyncMock(return_value=mock_response)
 
-    with patch("app.api.ai.clients.gigachat.get_settings", return_value=mock_settings):
-        with patch("app.api.ai.clients.gigachat.httpx.AsyncClient", return_value=mock_http_client):
+    with patch("app.ai.clients.gigachat.get_settings", return_value=mock_settings):
+        with patch("app.ai.clients.gigachat.httpx.AsyncClient", return_value=mock_http_client):
             client = GigaChatClient()
 
     orchestrator = AIOrchestrator(client=client)

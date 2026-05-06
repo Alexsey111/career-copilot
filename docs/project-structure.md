@@ -36,6 +36,10 @@ flowchart TD
     S7 --> REP
     REP --> DB[(PostgreSQL)]
 
+    S4 --> AI[AIOrchestrator]
+    S6 --> AI
+    AI --> EXT[(External LLM API)]
+
     ROOT --> CFG[app/core/config.py]
     API --> CFG[app/core/config.py]
     API --> LOG[app/core/logging.py]
@@ -122,8 +126,8 @@ app/api/
 - `routes/vacancies.py` импортирует вакансии и запускает анализ.
 - `routes/documents.py` генерирует резюме, cover letter, выполняет review документов и экспортирует approved-документы в TXT/MD/DOCX.
 - `routes/applications.py` создает, читает, обновляет статусы и возвращает список application records для dashboard.
-- `routes/interviews.py` создает interview session, возвращает список sessions, читает session и принимает ответы на вопросы.
-- `dependencies.py` содержит shared dependencies, включая `get_current_dev_user()`.
+- `routes/interviews.py` создает interview session, возвращает список sessions, читает session, принимает ответы на вопросы, оценивает ответы и предоставляет AI-коучинг.
+- `dependencies.py` содержит shared dependencies: `get_current_dev_user()`, `get_ai_orchestrator()`.
 
 ### `app/security/`
 
@@ -191,6 +195,7 @@ app/models/
 - `DocumentVersion`
 - `ApplicationRecord`
 - `InterviewSession`
+- `InterviewAnswerAttempt`
 - `AIRun`
 
 ### `app/repositories/`
@@ -222,7 +227,7 @@ app/repositories/
 - `vacancy_analysis_repository.py` - анализ вакансий.
 - `document_version_repository.py` - версии документов, активные документы и чтение документов для review/export.
 - `application_record_repository.py` - application records, поиск дублей и список откликов пользователя.
-- `interview_session_repository.py` - interview session и ответы на интервью.
+- `interview_session_repository.py` - interview session, ответы на интервью и попытки ответа.
 
 ### `app/schemas/`
 
@@ -250,7 +255,7 @@ app/schemas/
 - `vacancy.py` - импорт и чтение вакансий, а также анализ.
 - `document.py` - генерация, review, чтение и экспорт документов.
 - `application.py` - создание, чтение, список и обновление статусов заявок.
-- `interview.py` - создание interview session и сохранение ответов.
+- `interview.py` - создание interview session, сохранение ответов, оценка, улучшение и прогресс попыток.
 - `auth.py` - схемы для аутентификации, сессий и сброса пароля.
 
 ### `app/services/`
@@ -292,7 +297,7 @@ app/services/
 - `cover_letter_generation_service.py` - генерация cover letter.
 - `document_review_service.py` - изменение review-статуса документа.
 - `application_tracking_service.py` - создание заявок, проверка approved-пакета документов, список заявок и статусные переходы.
-- `interview_preparation_service.py` - построение interview session, feedback и readiness score.
+- `interview_preparation_service.py` - построение interview session, feedback, readiness score, AI-улучшение ответов и AI-коучинг между попытками.
 - `auth_service.py` - управление сессиями аутентификации, refresh tokens и events.
 - `password_reset_service.py` - генерация и валидация токенов сброса пароля.
 
@@ -302,6 +307,70 @@ app/services/
 
 - `app/tasks/` - место для background jobs.
 - `app/workflows/` - место для orchestration-слоя, если логика станет многошаговой.
+
+### `app/ai/`
+
+Core AI layer (LLM orchestration). **НЕ относится к API.**
+
+Подробное описание структуры, контрактов и правил зависимостей см. в отдельном разделе **AI Layer (LLM Orchestration)** ниже.
+
+## AI Layer (LLM Orchestration)
+
+AI-слой отвечает за вызовы внешних LLM, retry / fallback, structured output, трассировку (`AI_RUNS`) и cost tracking.
+
+**AI — это core-слой, а не часть API.** Сервисы используют его опционально через dependency injection.
+
+### Структура
+
+```text
+app/ai/
+├── clients/
+│   ├── base.py          # BaseLLMClient (abstract)
+│   └── gigachat.py      # GigaChatClient
+├── registry/
+│   └── prompts.py       # PromptTemplate, PromptSpec, PROMPT_REGISTRY
+├── config.py            # AIOrchestratorConfig
+├── factory.py           # create_ai_orchestrator() — единая точка входа
+├── orchestrator.py      # AIOrchestrator (retry, fallback, tracing)
+└── tracing.py           # trace_ai_run()
+```
+
+- `clients/base.py` — абстрактный интерфейс LLM-клиента (`BaseLLMClient`).
+- `clients/gigachat.py` — реализация клиента для GigaChat API.
+- `registry/prompts.py` — реестр промптов с версиями (`PromptTemplate`, `PromptSpec`).
+- `config.py` — конфигурация AI-оркестратора (`AIOrchestratorConfig`).
+- `factory.py` — единая точка создания `AIOrchestrator` (`create_ai_orchestrator()`). Все сервисы и роуты используют её через FastAPI dependency `get_ai_orchestrator()` из `app/api/dependencies.py`.
+- `orchestrator.py` — retry, fallback, tracing, cost tracking.
+- `tracing.py` — трассировка AI-запросов в БД (`AI_RUNS`).
+
+### Где используется AI
+
+AI вызывается из сервисов (не из роутов напрямую):
+
+- `ResumeGenerationService` — AI-улучшение резюме (`RESUME_ENHANCE_V1`)
+- `CoverLetterGenerationService` — AI-улучшение cover letter (`COVER_LETTER_ENHANCE_V1`)
+- `InterviewPreparationService` — AI-коучинг ответов (`INTERVIEW_COACH_V1`, `INTERVIEW_COACHING_V1`)
+- (дальше будет: `VacancyAnalysisService` v2)
+
+### Поток вызова
+
+```
+service → AIOrchestrator.execute(
+    prompt_template: PromptTemplate,
+    prompt_vars: dict,
+    workflow_name: str,
+    target_type: str,
+) → LLMClient.generate_structured() → provider API
+```
+
+### Dependency rules
+
+- `services → ai` ✅
+- `ai → services` ❌
+- `ai → repositories` ❌ (кроме tracing через `AIRunRepository` внутри `orchestrator.py`)
+- `routes → ai` ❌ (только через services)
+
+Циклические зависимости между `ai` и `services` запрещены. Если AI-клиенту нужны данные — сервис должен их подготовить и передать в `prompt_vars`.
 
 ## Папка `frontend/`
 
@@ -506,6 +575,9 @@ data/
 2. `InterviewPreparationService` строит набор вопросов на основе вакансии.
 3. Клиент сохраняет ответы через `PATCH /interviews/sessions/{id}/answers`.
 4. Сервис считает feedback и readiness score.
+5. `POST /interviews/sessions/{id}/evaluate` сохраняет попытку ответа и оценивает его.
+6. `POST /interviews/sessions/{id}/coach` улучшает ответ с помощью AI.
+7. `GET /interviews/sessions/{session_id}/questions/{question_id}/progress` возвращает прогресс по вопросу, включая AI-коучинг при наличии >= 2 попыток.
 
 ### 8. Аутентификация и управление сессиями
 
@@ -549,6 +621,10 @@ data/
   - история заявок
 - `interview_sessions`
   - сессии подготовки к интервью, вопросы, ответы и scoring
+- `interview_answer_attempts`
+  - попытки ответа на вопросы интервью
+  - хранит `answer_text`, `score`, `feedback_json`, `created_at`
+  - позволяет отслеживать прогресс между попытками
 
 ## Что уже есть и что еще заготовлено
 
@@ -569,6 +645,9 @@ data/
 - application dashboard во frontend
 - interview dashboard во frontend
 - full interview answer editor для всех вопросов
+- AI-оценка ответов на интервью
+- AI-улучшение ответов с safety guard
+- AI-коучинг между попытками ответа
 - статусные переходы откликов: draft -> submitted -> interview/rejected/offer
 - PostgreSQL-схема через SQLAlchemy и Alembic
 - healthcheck на `GET /health`

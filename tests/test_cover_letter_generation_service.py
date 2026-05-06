@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.ai.orchestrator import AIOrchestrator
-from app.api.ai.clients.base import BaseLLMClient
+from app.ai.orchestrator import AIOrchestrator
+from app.ai.clients.base import BaseLLMClient
 from app.services.cover_letter_generation_service import CoverLetterGenerationService
 
 

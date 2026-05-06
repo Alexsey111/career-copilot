@@ -164,8 +164,8 @@ def test_evaluate_answer_missing_action_verbs() -> None:
 @pytest.mark.asyncio
 async def test_coach_answer_improves_structure(db_session, test_user):
     """Тест что coach_answer улучшает структуру ответа."""
-    from app.api.ai.clients.base import BaseLLMClient, LLMClientError
-    from app.api.ai.orchestrator import AIOrchestrator
+    from app.ai.clients.base import BaseLLMClient, LLMClientError
+    from app.ai.orchestrator import AIOrchestrator
 
     class MockCoachClient(BaseLLMClient):
         @property
@@ -205,8 +205,8 @@ async def test_coach_answer_improves_structure(db_session, test_user):
 @pytest.mark.asyncio
 async def test_coach_answer_rejects_unsafe_enhancement(db_session, test_user):
     """Тест что coach_answer отклоняет небезопасные улучшения."""
-    from app.api.ai.clients.base import BaseLLMClient, LLMClientError
-    from app.api.ai.orchestrator import AIOrchestrator
+    from app.ai.clients.base import BaseLLMClient, LLMClientError
+    from app.ai.orchestrator import AIOrchestrator
 
     class MockUnsafeCoachClient(BaseLLMClient):
         @property
@@ -445,3 +445,90 @@ def test_attempt_diff() -> None:
     assert "python" in diff["added_keywords"]
     assert "built" not in diff["added_keywords"]  # общее слово
     assert "built" not in diff["removed_keywords"]  # общее слово
+
+
+@pytest.mark.asyncio
+async def test_generate_coaching_hint_with_mock(db_session, test_user):
+    """Тест что generate_coaching_hint возвращает AI-коучинг при >= 2 попытках."""
+    from app.ai.clients.base import BaseLLMClient, LLMClientError
+    from app.ai.orchestrator import AIOrchestrator
+    from app.models.entities import InterviewAnswerAttempt, InterviewSession
+    import uuid
+
+    class MockCoachClient(BaseLLMClient):
+        @property
+        def provider_name(self):
+            return "mock"
+
+        async def generate(self, *args, **kwargs):
+            raise LLMClientError("Not implemented")
+
+        async def generate_structured(self, prompt, output_schema, **kwargs):
+            return {
+                "content": {
+                    "improvement": "More structured",
+                    "gap": "No metrics",
+                    "next_step": "Add numbers"
+                },
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=MockCoachClient())
+    service = InterviewPreparationService()
+
+    # Создаём сессию интервью
+    session_id = uuid.uuid4()
+    interview_session = InterviewSession(
+        id=session_id,
+        user_id=test_user.id,
+        vacancy_id=None,
+        session_type="general",
+        status="draft",
+        question_set_json=[],
+        answers_json=[],
+        feedback_json={},
+        score_json={},
+    )
+    db_session.add(interview_session)
+
+    # Создаём две попытки ответа
+    prev_attempt = InterviewAnswerAttempt(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        question_id="q1",
+        answer_text="I used Python to build APIs",
+        score=0.25,
+        feedback_json={},
+    )
+    db_session.add(prev_attempt)
+
+    current_attempt = InterviewAnswerAttempt(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        question_id="q1",
+        answer_text="Situation: We needed a backend. Task: Build REST API. Action: I used Python and FastAPI. Result: 500 requests per second.",
+        score=0.75,
+        feedback_json={},
+    )
+    db_session.add(current_attempt)
+    await db_session.flush()
+
+    # Вычисляем diff
+    diff = service.build_attempt_diff(
+        prev_attempt.answer_text or "",
+        current_attempt.answer_text or ""
+    )
+
+    # Генерируем coaching-фидбек
+    coaching = await service.generate_coaching_hint(
+        prev_attempt=prev_attempt,
+        current_attempt=current_attempt,
+        diff=diff,
+        orchestrator=orchestrator,
+        session=db_session,
+        user_id=test_user.id,
+    )
+
+    assert coaching["improvement"] == "More structured"
+    assert coaching["gap"] == "No metrics"
+    assert coaching["next_step"] == "Add numbers"

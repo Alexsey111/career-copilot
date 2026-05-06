@@ -78,3 +78,4 @@ class InterviewAttemptProgressResponse(BaseModel):
     attempts: list[dict]
     progress: dict
     last_diff: dict | None = None
+    coaching: dict | None = None

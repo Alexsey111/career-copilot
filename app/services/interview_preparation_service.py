@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -20,6 +21,7 @@ class InterviewPreparationService:
         vacancy_repository: VacancyRepository | None = None,
         vacancy_analysis_repository: VacancyAnalysisRepository | None = None,
         candidate_profile_repository: CandidateProfileRepository | None = None,
+        ai_orchestrator: Any | None = None,
     ) -> None:
         self.interview_session_repository = (
             interview_session_repository or InterviewSessionRepository()
@@ -31,6 +33,7 @@ class InterviewPreparationService:
         self.candidate_profile_repository = (
             candidate_profile_repository or CandidateProfileRepository()
         )
+        self.ai_orchestrator = ai_orchestrator
 
     async def create_session(
         self,
@@ -575,6 +578,52 @@ class InterviewPreparationService:
             workflow_name="interview_coach",
             target_type="interview_answer",
             language=language,
+        )
+
+        return result["result"]
+
+    async def generate_coaching_hint(
+        self,
+        *,
+        prev_attempt,
+        current_attempt,
+        diff: dict,
+        orchestrator: Any,
+        session: AsyncSession,
+        user_id: UUID,
+    ):
+        """
+        Генерирует coaching-фидбек на основе сравнения двух попыток ответа.
+        
+        Args:
+            prev_attempt: предыдущая попытка (InterviewAnswerAttempt)
+            current_attempt: текущая попытка (InterviewAnswerAttempt)
+            diff: результат build_attempt_diff (added_keywords, removed_keywords)
+            orchestrator: AIOrchestrator
+            session: AsyncSession
+            user_id: UUID пользователя
+        
+        Returns:
+            dict с improvement, gap, next_step
+        """
+        from app.ai.registry.prompts import PromptTemplate
+
+        score_delta = (current_attempt.score or 0) - (prev_attempt.score or 0)
+
+        result = await orchestrator.execute(
+            session=session,
+            user_id=user_id,
+            prompt_template=PromptTemplate.INTERVIEW_COACHING_V1,
+            prompt_vars={
+                "previous_answer": prev_attempt.answer_text or "",
+                "current_answer": current_attempt.answer_text or "",
+                "score_delta": str(score_delta),
+                "added_keywords": diff["added_keywords"],
+                "removed_keywords": diff["removed_keywords"],
+            },
+            workflow_name="interview_coaching",
+            target_type="interview_session",
+            target_id=str(current_attempt.session_id),
         )
 
         return result["result"]

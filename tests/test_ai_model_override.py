@@ -3,11 +3,11 @@
 import pytest
 from uuid import uuid4
 
-from app.api.ai.orchestrator import AIOrchestrator
-from app.api.ai.clients.base import BaseLLMClient
+from app.ai.orchestrator import AIOrchestrator
+from app.ai.clients.base import BaseLLMClient
 
 
-from app.api.ai.registry.prompts import PromptTemplate
+from app.ai.registry.prompts import PromptTemplate
 
 
 class MockClient(BaseLLMClient):
