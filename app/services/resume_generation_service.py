@@ -18,7 +18,7 @@ from app.repositories.document_version_repository import DocumentVersionReposito
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.schemas.json_contracts import DocumentContentSchema
+from app.schemas.json_contracts import ResumeContent
 
 
 
@@ -204,8 +204,8 @@ class ResumeGenerationService:
             },
         }
 
-        # Валидация JSON-контракта перед сохранением
-        validated_content = DocumentContentSchema.model_validate(content_json)
+        # Валидация JSON-контракта перед сохранением (type-specific)
+        validated_content = ResumeContent.model_validate(content_json)
         content_json = validated_content.model_dump()
 
         rendered_text = self._render_resume_text(content_json)

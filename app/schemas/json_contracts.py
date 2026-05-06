@@ -122,6 +122,58 @@ class DocumentContentSchema(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Type-specific document schemas (discriminated by document_kind)
+# ---------------------------------------------------------------------------
+
+class ResumeSections(BaseModel):
+    """Sections для resume."""
+    fit_summary: dict[str, Any] = Field(default_factory=dict)
+    summary_bullets: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    experience: list[ExperienceItem] = Field(default_factory=list)
+    selected_achievements: list[AchievementItem] = Field(default_factory=list)
+    matched_keywords: list[str] = Field(default_factory=list)
+    missing_keywords: list[str] = Field(default_factory=list)
+    matched_requirements: list[dict] = Field(default_factory=list)
+    gap_requirements: list[dict] = Field(default_factory=list)
+    claims_needing_confirmation: list[dict] = Field(default_factory=list)
+    selection_rationale: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CoverLetterSections(BaseModel):
+    """Sections для cover_letter."""
+    opening: str = ""
+    relevance_paragraph: str = ""
+    closing: str = ""
+    matched_keywords: list[str] = Field(default_factory=list)
+    missing_keywords: list[str] = Field(default_factory=list)
+    matched_requirements: list[dict] = Field(default_factory=list)
+    gap_requirements: list[dict] = Field(default_factory=list)
+    selected_achievements: list[AchievementItem] = Field(default_factory=list)
+    claims_needing_confirmation: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ResumeContent(BaseModel):
+    """Строгая схема для resume content_json."""
+    document_kind: str = "resume"
+    draft_mode: str = "deterministic_v1_review_ready"
+    candidate: CandidateInfo = Field(default_factory=CandidateInfo)
+    target_vacancy: TargetVacancy | None = None
+    sections: ResumeSections = Field(default_factory=ResumeSections)
+
+
+class CoverLetterContent(BaseModel):
+    """Строгая схема для cover_letter content_json."""
+    document_kind: str = "cover_letter"
+    draft_mode: str = "deterministic_v1_review_ready"
+    candidate: CandidateInfo = Field(default_factory=CandidateInfo)
+    target_vacancy: TargetVacancy | None = None
+    sections: CoverLetterSections = Field(default_factory=CoverLetterSections)
+
+
+# ---------------------------------------------------------------------------
 # InterviewSession JSON fields
 # ---------------------------------------------------------------------------
 
