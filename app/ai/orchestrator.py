@@ -77,11 +77,13 @@ class AIOrchestrator:
         # 1. Загружаем спецификацию промпта
         spec = get_prompt(prompt_template)
         
-        # 2. Добавляем language в prompt_vars
-        prompt_vars_with_language = {**prompt_vars, "language": language}
-        
+        # 2. Добавляем language только если промпт его ожидает
+        prompt_vars_final = dict(prompt_vars)
+        if "language" in spec.input_schema:
+            prompt_vars_final["language"] = language
+
         # 3. Рендерим шаблон
-        prompt = spec.template.format(**prompt_vars_with_language)
+        prompt = spec.template.format(**prompt_vars_final)
         
         # 3. Параметры запроса
         model = (
