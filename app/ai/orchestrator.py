@@ -236,7 +236,14 @@ class AIOrchestrator:
         - утечку PII через необрезанные строки
         """
         MAX_LEN = 2000
-        return {
-            k: (v[:MAX_LEN] if isinstance(v, str) else v)
-            for k, v in data.items()
-        }
+
+        def sanitize(value: Any) -> Any:
+            if isinstance(value, str):
+                return value[:MAX_LEN]
+            if isinstance(value, list):
+                return [sanitize(v) for v in value]
+            if isinstance(value, dict):
+                return {k: sanitize(v) for k, v in value.items()}
+            return value
+
+        return sanitize(data)
