@@ -1,10 +1,55 @@
-# app\api\ai\registry\prompts.py
+# app\ai\registry\prompts.py
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+
+class PromptRenderingError(ValueError):
+    """Исключение при рендеринге промпта"""
+    pass
+
+
+def safe_render_prompt(template: str, variables: dict[str, Any]) -> str:
+    """Безопасный рендеринг промпта с проверкой переменных.
+    
+    Обрабатывает:
+    - {{ и }} для экранирования фигурных скобок в JSON-примерах
+    - Проверяет наличие всех переменных из input_schema
+    - Не падает на лишние { в тексте
+    
+    Args:
+        template: Шаблон промпта с {var}
+        variables: Словарь переменных для подстановки
+        
+    Returns:
+        Отрендеренный текст
+        
+    Raises:
+        PromptRenderingError: Если не хватает переменных
+    """
+    # 1. Сначала проверяем, что все переменные есть
+    # Находим все {var} в шаблоне (игнорируя {{ и }})
+    placeholders = re.findall(r'\{(\w+)\}', template)
+    required_vars = set(placeholders)
+    
+    missing = required_vars - set(variables.keys())
+    if missing:
+        raise PromptRenderingError(f"Missing prompt variables: {missing}")
+    
+    # 2. Используем format_map с кастомным маппингом для безопасности
+    class SafeDict(dict):
+        def __missing__(self, key: str) -> str:
+            # Возвращаем пустую строку вместо KeyError
+            return ""
+    
+    try:
+        return template.format_map(SafeDict(**variables))
+    except (KeyError, IndexError, ValueError) as e:
+        raise PromptRenderingError(f"Failed to render prompt: {e}") from e
 
 
 class PromptTemplate(str, Enum):

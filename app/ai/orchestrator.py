@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .clients.base import BaseLLMClient, LLMClientError
 from .config import AIOrchestratorConfig, AIModel
-from .registry.prompts import PromptSpec, PromptTemplate, get_prompt
+from .registry.prompts import PromptRenderingError, PromptSpec, PromptTemplate, get_prompt, safe_render_prompt
 from .tracing import trace_ai_run
 from app.repositories.ai_run_repository import AIRunRepository  # создадим ниже
 
@@ -93,8 +93,11 @@ class AIOrchestrator:
             if field not in prompt_vars_final:
                 raise ValueError(f"Missing prompt var: {field}")
 
-        # 3. Рендерим шаблон
-        prompt = spec.template.format(**prompt_vars_final)
+        # 3. Рендерим шаблон безопасно
+        try:
+            prompt = safe_render_prompt(spec.template, prompt_vars_final)
+        except PromptRenderingError as e:
+            raise LLMClientError(str(e)) from e
         
         # 3. Параметры запроса
         model = (
@@ -237,7 +240,7 @@ class AIOrchestrator:
         raise LLMClientError(
             f"Failed after {self.config.max_retries + 1} attempts: {last_error}"
         )
-    
+
     def _calc_cost(self, usage: dict[str, int]) -> float:
         """Расчёт стоимости запроса (если настроено)"""
         if not self.config.cost_per_1k_tokens_input:
