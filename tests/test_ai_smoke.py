@@ -77,7 +77,7 @@ async def test_orchestrator_execute_creates_ai_run(db_session, test_user):
     mock_response.json.return_value = {
         "choices": [
             {
-                "message": {"content": '{"summary": "test"}'},
+                "message": {"content": '{"summary": "test", "skills": ["Python"], "experience_highlights": []}'},
                 "finish_reason": "stop",
             }
         ],

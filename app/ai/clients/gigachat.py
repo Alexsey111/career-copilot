@@ -6,6 +6,8 @@ import httpx
 import json
 from typing import Any
 
+from jsonschema import validate, ValidationError
+
 from app.core.config import get_settings
 
 from .base import BaseLLMClient, LLMClientError
@@ -93,7 +95,10 @@ class GigaChatClient(BaseLLMClient):
         except json.JSONDecodeError as e:
             raise LLMClientError(f"Invalid JSON: {e}")
 
-        # ⚠️ Валидацию jsonschema добавим следующим шагом
+        try:
+            validate(instance=parsed, schema=output_schema)
+        except ValidationError as e:
+            raise LLMClientError(f"Schema validation error: {e.message}")
 
         return {
             "content": parsed,
