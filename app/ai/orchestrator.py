@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from typing import Any
 from uuid import UUID, uuid4
@@ -180,9 +181,9 @@ class AIOrchestrator:
             except LLMClientError as e:
                 last_error = e
                 if attempt < self.config.max_retries:
-                    # Экспоненциальная задержка
+                    # Экспоненциальная задержка с jitter (±20%)
                     await asyncio.sleep(
-                        self.config.retry_backoff_sec * (2 ** attempt)
+                        self.config.retry_backoff_sec * (2 ** attempt) * random.uniform(0.8, 1.2)
                     )
                     continue
                 # Если есть fallback-клиент — пробуем его
