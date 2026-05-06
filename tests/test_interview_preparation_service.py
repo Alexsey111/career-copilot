@@ -172,6 +172,9 @@ async def test_coach_answer_improves_structure(db_session, test_user):
         def provider_name(self):
             return "mock"
 
+        async def aclose(self):
+            pass
+
         async def generate(self, *args, **kwargs):
             raise LLMClientError("Not implemented")
 
@@ -212,6 +215,9 @@ async def test_coach_answer_rejects_unsafe_enhancement(db_session, test_user):
         @property
         def provider_name(self):
             return "mock"
+
+        async def aclose(self):
+            pass
 
         async def generate(self, *args, **kwargs):
             raise LLMClientError("Not implemented")
@@ -459,6 +465,9 @@ async def test_generate_coaching_hint_with_mock(db_session, test_user):
         @property
         def provider_name(self):
             return "mock"
+
+        async def aclose(self):
+            pass
 
         async def generate(self, *args, **kwargs):
             raise LLMClientError("Not implemented")

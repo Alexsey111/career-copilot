@@ -15,6 +15,11 @@ class BaseLLMClient(ABC):
     """Абстрактный интерфейс LLM-клиента"""
     
     @abstractmethod
+    async def aclose(self) -> None:
+        """Закрывает HTTP-клиент и освобождает соединения."""
+        pass
+    
+    @abstractmethod
     async def generate(
         self,
         prompt: str,
@@ -22,7 +27,6 @@ class BaseLLMClient(ABC):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-        response_format: dict[str, Any] | None = None,  # для structured output
     ) -> dict[str, Any]:
         """
         Генерация ответа от LLM.

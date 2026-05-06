@@ -11,6 +11,9 @@ from app.ai.registry.prompts import PromptTemplate
 
 
 class MockClient(BaseLLMClient):
+    async def aclose(self):
+        pass
+
     async def generate(self, prompt: str, **kwargs):
         return {
             "content": "ok",

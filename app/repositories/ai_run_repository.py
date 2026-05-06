@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AIRun
@@ -31,7 +30,7 @@ class AIRunRepository:
         tokens_used: dict | None,
     ) -> AIRun:
         """Сохраняет успешный AI-запрос"""
-        stmt = insert(AIRun).values(
+        ai_run = AIRun(
             id=run_id,
             user_id=user_id,
             workflow_name=workflow_name,
@@ -46,15 +45,10 @@ class AIRunRepository:
             tokens_used_json=tokens_used,
             duration_ms=duration_ms,
         )
-        await session.execute(stmt)
+        session.add(ai_run)
         await session.flush()
+        return ai_run
         
-        # Возвращаем объект для удобного доступа
-        result = await session.execute(
-            AIRun.__table__.select().where(AIRun.id == run_id)
-        )
-        return result.scalar_one()
-    
     async def create_error(
         self,
         session: AsyncSession,
@@ -73,7 +67,7 @@ class AIRunRepository:
         tokens_used: dict | None = None,
     ) -> AIRun:
         """Сохраняет неудачный AI-запрос"""
-        stmt = insert(AIRun).values(
+        ai_run = AIRun(
             id=run_id,
             user_id=user_id,
             workflow_name=workflow_name,
@@ -89,10 +83,6 @@ class AIRunRepository:
             error_text=error_text,
             duration_ms=duration_ms,
         )
-        await session.execute(stmt)
+        session.add(ai_run)
         await session.flush()
-        
-        result = await session.execute(
-            AIRun.__table__.select().where(AIRun.id == run_id)
-        )
-        return result.scalar_one()
+        return ai_run

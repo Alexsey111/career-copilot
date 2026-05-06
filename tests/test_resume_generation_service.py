@@ -14,6 +14,9 @@ class MockResumeClient(BaseLLMClient):
     def __init__(self, enhanced_text: str = "Enhanced: Built robust API with Python"):
         self.enhanced_text = enhanced_text
 
+    async def aclose(self):
+        pass
+
     async def generate(self, prompt: str, **kwargs):
         return {
             "content": "ok",

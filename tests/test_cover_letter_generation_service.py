@@ -14,6 +14,9 @@ class MockCoverLetterClient(BaseLLMClient):
     def __init__(self, enhanced_text: str | None = None):
         self.enhanced_text = enhanced_text
 
+    async def aclose(self):
+        pass
+
     async def generate(self, prompt: str, **kwargs):
         return {
             "content": "ok",

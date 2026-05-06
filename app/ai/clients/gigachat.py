@@ -32,6 +32,9 @@ class GigaChatClient(BaseLLMClient):
             timeout=settings.ai_request_timeout,
         )
 
+    async def aclose(self) -> None:
+        await self.client.aclose()
+
     @property
     def provider_name(self) -> str:
         return "gigachat"
@@ -43,7 +46,6 @@ class GigaChatClient(BaseLLMClient):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-        response_format: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
             payload = {
@@ -83,15 +85,21 @@ class GigaChatClient(BaseLLMClient):
         *,
         model: str | None = None,
         temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         result = await self.generate(
             prompt=prompt,
             model=model,
             temperature=temperature,
+            max_tokens=max_tokens,
         )
 
+        raw_content = result["content"]
+        # Очистка markdown-обёртки (```json ... ```)
+        cleaned = self._extract_json_from_text(raw_content)
+
         try:
-            parsed = json.loads(result["content"])
+            parsed = json.loads(cleaned)
         except json.JSONDecodeError as e:
             raise LLMClientError(f"Invalid JSON: {e}")
 
@@ -105,3 +113,19 @@ class GigaChatClient(BaseLLMClient):
             "usage": result.get("usage", {}),
             "model": result.get("model"),
         }
+
+    @staticmethod
+    def _extract_json_from_text(text: str) -> str:
+        """Извлекает JSON из текста, убирая markdown-обёртку."""
+        text = text.strip()
+        if text.startswith("```"):
+            # Убираем открывающий ```json или ```
+            lines = text.splitlines()
+            # Первая строка — ```json или ```
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            # Последняя строка — ```
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        return text

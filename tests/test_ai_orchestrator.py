@@ -15,6 +15,9 @@ class MockLLMClient(BaseLLMClient):
     def provider_name(self):
         return "mock"
 
+    async def aclose(self):
+        pass
+
     async def generate(self, *args, **kwargs):
         return {
             "content": "test response",
@@ -36,6 +39,9 @@ class FailingLLMClient(BaseLLMClient):
     @property
     def provider_name(self):
         return "failing-mock"
+
+    async def aclose(self):
+        pass
 
     async def generate(self, *args, **kwargs):
         raise LLMClientError("Always fails")

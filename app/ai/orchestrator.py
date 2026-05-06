@@ -48,6 +48,12 @@ class AIOrchestrator:
         client = GigaChatClient()
         return cls(client=client)
     
+    async def aclose(self) -> None:
+        """Закрывает все HTTP-клиенты."""
+        await self.client.aclose()
+        if self.fallback_client:
+            await self.fallback_client.aclose()
+
     async def execute(
         self,
         session: AsyncSession,
@@ -132,8 +138,8 @@ class AIOrchestrator:
                     provider_name=self.client.provider_name,
                     model_name=model,
                     prompt_version=prompt_template.value,
-                    input_snapshot=self._sanitize_input(prompt_vars),
-                    output_snapshot=result,
+                    input_snapshot=self._sanitize_snapshot(prompt_vars),
+                    output_snapshot=self._sanitize_snapshot(result),
                     duration_ms=duration_ms,
                     tokens_used=result.get("usage", {}),
                 )
@@ -159,7 +165,7 @@ class AIOrchestrator:
                     provider_name=self.client.provider_name,
                     model_name=model,
                     prompt_version=prompt_template.value,
-                    input_snapshot=self._sanitize_input(prompt_vars),
+                    input_snapshot=self._sanitize_snapshot(prompt_vars),
                     error_text=str(e),
                     duration_ms=duration_ms,
                 )
@@ -184,12 +190,14 @@ class AIOrchestrator:
                         output_schema=response_format,
                         model=model,
                         temperature=temperature,
+                        max_tokens=self.config.max_tokens,
                     )
                 else:
                     return await self.client.generate(
                         prompt=prompt,
                         model=model,
                         temperature=temperature,
+                        max_tokens=self.config.max_tokens,
                     )
             except LLMClientError as e:
                 last_error = e
@@ -208,12 +216,14 @@ class AIOrchestrator:
                                 output_schema=response_format,
                                 model=model,
                                 temperature=temperature,
+                                max_tokens=self.config.max_tokens,
                             )
                         else:
                             return await self.fallback_client.generate(
                                 prompt=prompt,
                                 model=model,
                                 temperature=temperature,
+                                max_tokens=self.config.max_tokens,
                             )
                     except LLMClientError:
                         pass  # продолжаем к выбросу
@@ -235,9 +245,10 @@ class AIOrchestrator:
         )
 
     @staticmethod
-    def _sanitize_input(data: dict[str, Any]) -> dict[str, Any]:
+    def _sanitize_snapshot(data: dict[str, Any]) -> dict[str, Any]:
         """Ограничивает длину строковых значений в snapshot для трассировки.
 
+        Применяется к input_snapshot и output_snapshot.
         Предотвращает:
         - переполнение БД большими payloads
         - утечку PII через необрезанные строки
