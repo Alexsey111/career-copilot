@@ -510,22 +510,15 @@ class InterviewPreparationService:
                 detail="AI orchestrator not configured",
             )
 
-        from app.ai.orchestrator import AIOrchestrator
-        from app.ai.registry.prompts import PromptTemplate
+        from app.ai.use_cases.interview_coach import coach_answer
 
-        evaluation_text = f"Score: {evaluation.get('score', 0)}/1. Feedback: {', '.join(evaluation.get('feedback', []))}"
-
-        result = await self.ai_orchestrator.execute(
-            session=session,
+        result = await coach_answer(
+            self.ai_orchestrator,
+            session,
             user_id=user_id,
-            prompt_template=PromptTemplate.INTERVIEW_COACH_V1,
-            prompt_vars={
-                "question": question,
-                "answer": answer,
-                "evaluation": evaluation_text,
-            },
-            workflow_name="interview_coach",
-            target_type="interview_answer",
+            question=question,
+            answer=answer,
+            evaluation=evaluation,
             language=language,
         )
 
@@ -561,22 +554,15 @@ class InterviewPreparationService:
                 detail="AI orchestrator not configured",
             )
 
-        from app.ai.orchestrator import AIOrchestrator
-        from app.ai.registry.prompts import PromptTemplate
+        from app.ai.use_cases.interview_coach import coach_answer
 
-        evaluation_text = f"Score: {evaluation.get('score', 0)}/1. Feedback: {', '.join(evaluation.get('feedback', []))}"
-
-        result = await self.ai_orchestrator.execute(
-            session=session,
+        result = await coach_answer(
+            self.ai_orchestrator,
+            session,
             user_id=user_id,
-            prompt_template=PromptTemplate.INTERVIEW_COACH_V1,
-            prompt_vars={
-                "question": question,
-                "answer": answer,
-                "evaluation": evaluation_text,
-            },
-            workflow_name="interview_coach",
-            target_type="interview_answer",
+            question=question,
+            answer=answer,
+            evaluation=evaluation,
             language=language,
         )
 
@@ -606,24 +592,15 @@ class InterviewPreparationService:
         Returns:
             dict с improvement, gap, next_step
         """
-        from app.ai.registry.prompts import PromptTemplate
+        from app.ai.use_cases.interview_coach import coach_attempts
 
-        score_delta = (current_attempt.score or 0) - (prev_attempt.score or 0)
-
-        result = await orchestrator.execute(
-            session=session,
+        result = await coach_attempts(
+            orchestrator,
+            session,
             user_id=user_id,
-            prompt_template=PromptTemplate.INTERVIEW_COACHING_V1,
-            prompt_vars={
-                "previous_answer": prev_attempt.answer_text or "",
-                "current_answer": current_attempt.answer_text or "",
-                "score_delta": str(score_delta),
-                "added_keywords": diff["added_keywords"],
-                "removed_keywords": diff["removed_keywords"],
-            },
-            workflow_name="interview_coaching",
-            target_type="interview_session",
-            target_id=str(current_attempt.session_id),
+            prev_attempt=prev_attempt,
+            current_attempt=current_attempt,
+            diff=diff,
         )
 
         return result["result"]

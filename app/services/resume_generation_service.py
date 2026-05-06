@@ -144,22 +144,15 @@ class ResumeGenerationService:
 
         # Опциональный AI-усиленный шаг
         if self.ai_orchestrator and use_ai_enhancement:
-            from app.ai.orchestrator import AIOrchestrator
-            from app.ai.registry.prompts import PromptTemplate
-            ai_result = await self.ai_orchestrator.execute(
+            from app.ai.use_cases.resume_tailoring import tailor_resume
+            ai_result = await tailor_resume(
+                self.ai_orchestrator,
                 session,
                 user_id=vacancy.user_id,
-                prompt_template=PromptTemplate.RESUME_TAILOR_V1,
-                prompt_vars={
-                    "vacancy_title": vacancy.title,
-                    "company": vacancy.company,
-                    "must_have": [item.get("text") for item in analysis.must_have_json],
-                    "profile_summary": profile.summary or "",
-                    "confirmed_achievements": [ach["title"] for ach in selected_achievements],
-                },
-                workflow_name="resume_tailoring",
-                target_type="vacancy",
-                target_id=str(vacancy.id),
+                vacancy=vacancy,
+                analysis=analysis,
+                profile=profile,
+                achievements=selected_achievements,
             )
             # Если AI вернул улучшенный текст — можно применить к sections
             if ai_result and isinstance(ai_result, dict):
@@ -731,18 +724,13 @@ class ResumeGenerationService:
                 detail="AI orchestrator not configured",
             )
 
-        from app.ai.orchestrator import AIOrchestrator
-        from app.ai.registry.prompts import PromptTemplate
+        from app.ai.use_cases.resume_enhance import enhance_resume
 
-        result = await self.ai_orchestrator.execute(
-            session=session,
+        result = await enhance_resume(
+            self.ai_orchestrator,
+            session,
             user_id=user_id,
-            prompt_template=PromptTemplate.RESUME_ENHANCE_V1,
-            prompt_vars={
-                "resume_text": resume_text,
-            },
-            workflow_name="resume_enhance",
-            target_type="document",
+            resume_text=resume_text,
             language=language,
         )
 

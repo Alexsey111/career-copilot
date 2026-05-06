@@ -130,18 +130,13 @@ class CoverLetterGenerationService:
         )
 
         if use_ai_enhancement and self.ai_orchestrator:
-            from app.ai.orchestrator import AIOrchestrator
-            from app.ai.registry.prompts import PromptTemplate
+            from app.ai.use_cases.cover_letter_enhance import enhance_cover_letter
 
-            enhanced = await self.ai_orchestrator.execute(
-                session=session,
+            enhanced = await enhance_cover_letter(
+                self.ai_orchestrator,
+                session,
                 user_id=user_id,
-                prompt_template=PromptTemplate.COVER_LETTER_ENHANCE_V1,
-                prompt_vars={
-                    "draft": rendered_text,
-                },
-                workflow_name="cover_letter_enhance",
-                target_type="document",
+                draft_text=rendered_text,
                 language="ru",
             )
 
@@ -686,18 +681,13 @@ class CoverLetterGenerationService:
                 detail="AI orchestrator not configured",
             )
 
-        from app.ai.orchestrator import AIOrchestrator
-        from app.ai.registry.prompts import PromptTemplate
+        from app.ai.use_cases.cover_letter_enhance import enhance_cover_letter
 
-        result = await self.ai_orchestrator.execute(
-            session=session,
+        result = await enhance_cover_letter(
+            self.ai_orchestrator,
+            session,
             user_id=user_id,
-            prompt_template=PromptTemplate.COVER_LETTER_ENHANCE_V1,
-            prompt_vars={
-                "draft": draft_text,
-            },
-            workflow_name="cover_letter_enhance",
-            target_type="document",
+            draft_text=draft_text,
             language=language,
         )
 

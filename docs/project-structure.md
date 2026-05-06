@@ -329,6 +329,12 @@ app/ai/
 │   └── gigachat.py      # GigaChatClient
 ├── registry/
 │   └── prompts.py       # PromptTemplate, PromptSpec, PROMPT_REGISTRY
+├── use_cases/
+│   ├── __init__.py
+│   ├── resume_tailoring.py    # tailor_resume()
+│   ├── resume_enhance.py      # enhance_resume()
+│   ├── cover_letter_enhance.py # enhance_cover_letter()
+│   └── interview_coach.py     # coach_answer(), coach_attempts()
 ├── config.py            # AIOrchestratorConfig
 ├── factory.py           # create_ai_orchestrator() — единая точка входа
 ├── orchestrator.py      # AIOrchestrator (retry, fallback, tracing)
@@ -338,6 +344,11 @@ app/ai/
 - `clients/base.py` — абстрактный интерфейс LLM-клиента (`BaseLLMClient`).
 - `clients/gigachat.py` — реализация клиента для GigaChat API.
 - `registry/prompts.py` — реестр промптов с версиями (`PromptTemplate`, `PromptSpec`).
+- `use_cases/` — **тонкий слой use-case функций**. Каждая функция знает, какой промпт и схему использовать, но не содержит бизнес-логики. Сервисы вызывают use case, передавая доменные объекты; use case формирует `prompt_vars` и вызывает `orchestrator.execute()`.
+  - `resume_tailoring.py` — `tailor_resume()` (адаптация резюме под вакансию)
+  - `resume_enhance.py` — `enhance_resume()` (улучшение текста резюме)
+  - `cover_letter_enhance.py` — `enhance_cover_letter()` (улучшение сопроводительного письма)
+  - `interview_coach.py` — `coach_answer()`, `coach_attempts()` (коучинг ответов на интервью)
 - `config.py` — конфигурация AI-оркестратора (`AIOrchestratorConfig`).
 - `factory.py` — единая точка создания `AIOrchestrator` (`create_ai_orchestrator()`). Все сервисы и роуты используют её через FastAPI dependency `get_ai_orchestrator()` из `app/api/dependencies.py`.
 - `orchestrator.py` — retry, fallback, tracing, cost tracking.
@@ -345,23 +356,29 @@ app/ai/
 
 ### Где используется AI
 
-AI вызывается из сервисов (не из роутов напрямую):
+AI вызывается из сервисов через `use_cases/` (не из роутов напрямую):
 
-- `ResumeGenerationService` — AI-улучшение резюме (`RESUME_ENHANCE_V1`)
-- `CoverLetterGenerationService` — AI-улучшение cover letter (`COVER_LETTER_ENHANCE_V1`)
-- `InterviewPreparationService` — AI-коучинг ответов (`INTERVIEW_COACH_V1`, `INTERVIEW_COACHING_V1`)
+- `ResumeGenerationService` → `use_cases/resume_tailoring.py` (`tailor_resume`) + `use_cases/resume_enhance.py` (`enhance_resume`)
+- `CoverLetterGenerationService` → `use_cases/cover_letter_enhance.py` (`enhance_cover_letter`)
+- `InterviewPreparationService` → `use_cases/interview_coach.py` (`coach_answer`, `coach_attempts`)
 - (дальше будет: `VacancyAnalysisService` v2)
 
 ### Поток вызова
 
 ```
-service → AIOrchestrator.execute(
+service → use_case(
+    orchestrator: AIOrchestrator,
+    session,
+    domain_objects...
+) → orchestrator.execute(
     prompt_template: PromptTemplate,
     prompt_vars: dict,
     workflow_name: str,
     target_type: str,
 ) → LLMClient.generate_structured() → provider API
 ```
+
+**Правило:** сервис не знает про `PromptTemplate`, не формирует `prompt_vars` и не вызывает `orchestrator.execute()` напрямую. Вся AI-специфика централизована в `use_cases/`.
 
 ### Dependency rules
 
