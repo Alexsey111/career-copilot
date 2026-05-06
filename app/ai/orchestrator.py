@@ -262,16 +262,23 @@ class AIOrchestrator:
         Предотвращает:
         - переполнение БД большими payloads
         - утечку PII через необрезанные строки
+        
+        PII-поля (email, phone, token, password, api_key, secret) полностью удаляются.
         """
         MAX_LEN = 2000
+        PII_KEYS = {"email", "phone", "token", "password", "api_key", "apikey", "secret", "auth", "bearer"}
 
-        def sanitize(value: Any) -> Any:
+        def sanitize(value: Any, key: str | None = None) -> Any:
+            # PII-фильтрация: если ключ содержит PII-паттерн
+            if key and any(pii in key.lower() for pii in PII_KEYS):
+                return "[REDACTED]"
+            
             if isinstance(value, str):
                 return value[:MAX_LEN]
             if isinstance(value, list):
-                return [sanitize(v) for v in value]
+                return [sanitize(v, key) for v in value]
             if isinstance(value, dict):
-                return {k: sanitize(v) for k, v in value.items()}
+                return {k: sanitize(v, k) for k, v in value.items()}
             return value
 
         return sanitize(data)
