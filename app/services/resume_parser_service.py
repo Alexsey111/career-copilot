@@ -63,7 +63,7 @@ class ResumeParserService:
 
         if not text:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 detail="could not extract text from PDF; the file may be scanned or image-based",
             )
 
@@ -96,7 +96,7 @@ class ResumeParserService:
 
         if not text:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 detail="could not extract text from DOCX",
             )
 
@@ -113,7 +113,7 @@ class ResumeParserService:
 
         if not text:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 detail="could not extract text from TXT",
             )
 

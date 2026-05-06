@@ -47,7 +47,7 @@ class VacancyImportService:
 
         if not final_description:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 detail="could not import vacancy text",
             )
 
@@ -94,7 +94,7 @@ class VacancyImportService:
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 detail=f"could not fetch vacancy url: {exc}",
             ) from exc
 
@@ -121,7 +121,7 @@ class VacancyImportService:
             return
 
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=(
                 "vacancy text looks corrupted; check client encoding and send JSON as UTF-8"
             ),
