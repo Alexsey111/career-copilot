@@ -47,7 +47,7 @@ class VacancyImportService:
 
         if not final_description:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="could not import vacancy text",
             )
 
@@ -121,7 +121,7 @@ class VacancyImportService:
             return
 
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 "vacancy text looks corrupted; check client encoding and send JSON as UTF-8"
             ),

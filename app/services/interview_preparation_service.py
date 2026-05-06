@@ -12,6 +12,7 @@ from app.repositories.candidate_profile_repository import CandidateProfileReposi
 from app.repositories.interview_session_repository import InterviewSessionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
+from app.schemas.json_contracts import InterviewSessionSchema, InterviewQuestion
 
 
 class InterviewPreparationService:
@@ -91,6 +92,10 @@ class InterviewPreparationService:
             ],
         )
 
+        # Валидация JSON-контракта перед сохранением
+        validated = InterviewSessionSchema(question_set=question_set)
+        question_set = [q.model_dump() for q in validated.question_set]
+
         interview_session = await self.interview_session_repository.create(
             session,
             user_id=user_id,
@@ -165,12 +170,19 @@ class InterviewPreparationService:
             total_question_count=len(interview_session.question_set_json),
         )
 
+        # Валидация JSON-контракта перед сохранением
+        validated = InterviewSessionSchema(
+            answers=normalized_answers,
+            feedback=feedback_json,
+            score=score_json,
+        )
+
         interview_session = await self.interview_session_repository.save_answers(
             session,
             interview_session,
-            answers_json=normalized_answers,
-            feedback_json=feedback_json,
-            score_json=score_json,
+            answers_json=[a.model_dump() for a in validated.answers],
+            feedback_json=validated.feedback,
+            score_json=validated.score.model_dump(),
             status="answered",
         )
 

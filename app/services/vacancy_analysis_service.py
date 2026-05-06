@@ -115,6 +115,9 @@ class RequirementKeyword:
     weight: int
 
 
+from app.schemas.json_contracts import VacancyAnalysisSchema
+
+
 class VacancyAnalysisService:
     def __init__(
         self,
@@ -178,15 +181,25 @@ class VacancyAnalysisService:
             nice_to_have=nice_to_have,
         )
 
+        # Валидация JSON-контракта перед сохранением
+        validated = VacancyAnalysisSchema(
+            must_have=[{"text": item} for item in must_have],
+            nice_to_have=[{"text": item} for item in nice_to_have],
+            keywords=keywords,
+            gaps=gaps,
+            strengths=strengths,
+            match_score=match_score,
+        )
+
         analysis = await self.analysis_repo.replace_for_vacancy(
             session,
             vacancy_id=vacancy.id,
-            must_have_json=[{"text": item} for item in must_have],
-            nice_to_have_json=[{"text": item} for item in nice_to_have],
-            keywords_json=keywords,
-            gaps_json=gaps,
-            strengths_json=strengths,
-            match_score=match_score,
+            must_have_json=[item.model_dump() for item in validated.must_have],
+            nice_to_have_json=[item.model_dump() for item in validated.nice_to_have],
+            keywords_json=validated.keywords,
+            gaps_json=[item.model_dump() for item in validated.gaps],
+            strengths_json=[item.model_dump() for item in validated.strengths],
+            match_score=validated.match_score,
             analysis_version="deterministic_v1",
         )
 
@@ -223,15 +236,25 @@ class VacancyAnalysisService:
             profile=profile,
         )
 
+        # Валидация JSON-контракта перед сохранением
+        validated = VacancyAnalysisSchema(
+            must_have=analysis.must_have_json or [],
+            nice_to_have=analysis.nice_to_have_json or [],
+            keywords=analysis.keywords_json or [],
+            gaps=gaps,
+            strengths=strengths,
+            match_score=score,
+        )
+
         return await self.analysis_repo.replace_for_vacancy(
             session,
             vacancy_id=vacancy_id,
-            must_have_json=analysis.must_have_json or [],
-            nice_to_have_json=analysis.nice_to_have_json or [],
-            keywords_json=analysis.keywords_json or [],
-            gaps_json=gaps,
-            strengths_json=strengths,
-            match_score=score,
+            must_have_json=[item.model_dump() for item in validated.must_have],
+            nice_to_have_json=[item.model_dump() for item in validated.nice_to_have],
+            keywords_json=validated.keywords,
+            gaps_json=[item.model_dump() for item in validated.gaps],
+            strengths_json=[item.model_dump() for item in validated.strengths],
+            match_score=validated.match_score,
             analysis_version="deterministic_match_v1",
         )
 

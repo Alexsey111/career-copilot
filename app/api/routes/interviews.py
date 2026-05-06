@@ -24,6 +24,7 @@ from app.schemas.interview import (
     InterviewSessionListItem,
     InterviewSessionRead,
 )
+from app.schemas.json_contracts import AttemptFeedbackSchema
 from app.repositories.interview_session_repository import InterviewSessionRepository
 from app.services.interview_preparation_service import InterviewPreparationService
     
@@ -217,6 +218,9 @@ async def evaluate_interview_answer(
         answer=payload.answer_text,
     )
     
+    # Валидация JSON-контракта перед сохранением
+    validated_feedback = AttemptFeedbackSchema(feedback=evaluation["feedback"])
+
     # Сохраняем попытку ответа
     await repo.create_attempt(
         session=session,
@@ -224,7 +228,7 @@ async def evaluate_interview_answer(
         question_id=payload.question_id or payload.question_text[:50],
         answer_text=payload.answer_text,
         score=evaluation["score"],
-        feedback_json={"feedback": evaluation["feedback"]},
+        feedback_json=validated_feedback.model_dump(),
     )
     
     return InterviewAnswerEvaluateResponse(
