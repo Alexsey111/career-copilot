@@ -125,7 +125,7 @@ class AIOrchestrator:
                     provider_name=self.client.provider_name,
                     model_name=model,
                     prompt_version=prompt_template.value,
-                    input_snapshot=prompt_vars,
+                    input_snapshot=self._sanitize_input(prompt_vars),
                     output_snapshot=result,
                     duration_ms=duration_ms,
                     tokens_used=result.get("usage", {}),
@@ -152,7 +152,7 @@ class AIOrchestrator:
                     provider_name=self.client.provider_name,
                     model_name=model,
                     prompt_version=prompt_template.value,
-                    input_snapshot=prompt_vars,
+                    input_snapshot=self._sanitize_input(prompt_vars),
                     error_text=str(e),
                     duration_ms=duration_ms,
                 )
@@ -226,3 +226,17 @@ class AIOrchestrator:
             input_tokens * self.config.cost_per_1k_tokens_input / 1000 +
             output_tokens * self.config.cost_per_1k_tokens_output / 1000
         )
+
+    @staticmethod
+    def _sanitize_input(data: dict[str, Any]) -> dict[str, Any]:
+        """Ограничивает длину строковых значений в snapshot для трассировки.
+
+        Предотвращает:
+        - переполнение БД большими payloads
+        - утечку PII через необрезанные строки
+        """
+        MAX_LEN = 2000
+        return {
+            k: (v[:MAX_LEN] if isinstance(v, str) else v)
+            for k, v in data.items()
+        }
