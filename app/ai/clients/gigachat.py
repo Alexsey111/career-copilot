@@ -95,11 +95,9 @@ class GigaChatClient(BaseLLMClient):
         )
 
         raw_content = result["content"]
-        # Очистка markdown-обёртки (```json ... ```)
-        cleaned = self._extract_json_from_text(raw_content)
 
         try:
-            parsed = json.loads(cleaned)
+            parsed = self._safe_parse_json(raw_content)
         except json.JSONDecodeError as e:
             raise LLMClientError(f"Invalid JSON: {e}")
 
@@ -115,16 +113,33 @@ class GigaChatClient(BaseLLMClient):
         }
 
     @staticmethod
+    def _safe_parse_json(text: str) -> dict[str, Any]:
+        """Безопасно парсит JSON, убирая markdown-обёртку и лишние префиксы."""
+        text = text.strip()
+
+        # Убираем markdown-обёртку ```json ... ```
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+
+        # Убираем префикс "json" после открывающих тройных кавычек
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+
+        return json.loads(text)
+
+    @staticmethod
     def _extract_json_from_text(text: str) -> str:
         """Извлекает JSON из текста, убирая markdown-обёртку."""
         text = text.strip()
         if text.startswith("```"):
-            # Убираем открывающий ```json или ```
             lines = text.splitlines()
-            # Первая строка — ```json или ```
             if lines[0].startswith("```"):
                 lines = lines[1:]
-            # Последняя строка — ```
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
