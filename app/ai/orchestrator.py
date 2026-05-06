@@ -82,6 +82,11 @@ class AIOrchestrator:
         if "language" in spec.input_schema:
             prompt_vars_final["language"] = language
 
+        # 2a. Валидация: все поля из input_schema должны быть заполнены
+        for field in spec.input_schema.keys():
+            if field not in prompt_vars_final:
+                raise ValueError(f"Missing prompt var: {field}")
+
         # 3. Рендерим шаблон
         prompt = spec.template.format(**prompt_vars_final)
         
