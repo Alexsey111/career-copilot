@@ -10,26 +10,20 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.application_statuses import (
+    ALLOWED_STATUS_TRANSITIONS,
+    APPLICATION_STATUSES,
+    APPLICATION_STATUS_DRAFT,
+    APPLICATION_STATUS_OFFER,
+    APPLICATION_STATUS_REJECTED,
+    APPLICATION_STATUS_SUBMITTED,
+)
 from app.repositories.application_record_repository import ApplicationRecordRepository
+from app.repositories.application_status_history_repository import (
+    ApplicationStatusHistoryRepository,
+)
 from app.repositories.document_version_repository import DocumentVersionRepository
 from app.repositories.vacancy_repository import VacancyRepository
-
-
-ALLOWED_APPLICATION_STATUSES = {
-    "draft",
-    "submitted",
-    "interview",
-    "rejected",
-    "offer",
-}
-
-ALLOWED_STATUS_TRANSITIONS = {
-    "draft": {"submitted"},
-    "submitted": {"interview", "rejected", "offer"},
-    "interview": {"rejected", "offer"},
-    "rejected": set(),
-    "offer": set(),
-}
 
 APPLICATION_USER_VACANCY_UNIQUE_CONSTRAINT = "uq_application_records_user_vacancy"
 
@@ -55,11 +49,18 @@ class ApplicationTrackingService:
     def __init__(
         self,
         application_record_repository: ApplicationRecordRepository | None = None,
+        application_status_history_repository: (
+            ApplicationStatusHistoryRepository | None
+        ) = None,
         vacancy_repository: VacancyRepository | None = None,
         document_version_repository: DocumentVersionRepository | None = None,
     ) -> None:
         self.application_record_repository = (
             application_record_repository or ApplicationRecordRepository()
+        )
+        self.application_status_history_repository = (
+            application_status_history_repository
+            or ApplicationStatusHistoryRepository()
         )
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.document_version_repository = (
@@ -148,10 +149,17 @@ class ApplicationTrackingService:
                 vacancy_id=vacancy.id,
                 resume_document_id=selected_resume_id,
                 cover_letter_document_id=selected_cover_letter_id,
-                status="draft",
+                status=APPLICATION_STATUS_DRAFT,
                 channel="manual",
                 applied_at=None,
                 outcome=None,
+                notes=notes,
+            )
+            await self.application_status_history_repository.create(
+                session,
+                application_id=application.id,
+                previous_status=None,
+                new_status=APPLICATION_STATUS_DRAFT,
                 notes=notes,
             )
             await session.commit()
@@ -235,10 +243,10 @@ class ApplicationTrackingService:
             )
 
         normalized_status = status_value.strip().lower()
-        if normalized_status not in ALLOWED_APPLICATION_STATUSES:
+        if normalized_status not in APPLICATION_STATUSES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"status must be one of: {sorted(ALLOWED_APPLICATION_STATUSES)}",
+                detail=f"status must be one of: {sorted(APPLICATION_STATUSES)}",
             )
 
         self._validate_status_transition(
@@ -246,19 +254,31 @@ class ApplicationTrackingService:
             next_status=normalized_status,
         )
 
+        previous_status = application.status
         application.status = normalized_status
 
         if notes:
             application.notes = notes
 
-        if normalized_status == "submitted" and application.applied_at is None:
+        if (
+            normalized_status == APPLICATION_STATUS_SUBMITTED
+            and application.applied_at is None
+        ):
             application.applied_at = datetime.now(timezone.utc)
 
-        if normalized_status == "rejected":
+        if normalized_status == APPLICATION_STATUS_REJECTED:
             application.outcome = "rejected"
 
-        if normalized_status == "offer":
+        if normalized_status == APPLICATION_STATUS_OFFER:
             application.outcome = "offer"
+
+        await self.application_status_history_repository.create(
+            session,
+            application_id=application.id,
+            previous_status=previous_status,
+            new_status=normalized_status,
+            notes=notes,
+        )
 
         await session.commit()
         await session.refresh(application)
@@ -303,6 +323,23 @@ class ApplicationTrackingService:
                 detail="application not found",
             )
         return application
+
+    async def get_application_timeline(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        user_id: UUID,
+    ):
+        await self.get_application(
+            session,
+            application_id=application_id,
+            user_id=user_id,
+        )
+        return await self.application_status_history_repository.list_by_application_id(
+            session,
+            application_id=application_id,
+        )
 
     async def list_applications(
         self,

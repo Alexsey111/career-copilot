@@ -14,6 +14,7 @@ from app.schemas.application import (
     ApplicationCreateRequest,
     ApplicationListItem,
     ApplicationRead,
+    ApplicationStatusHistoryItem,
     ApplicationStatusUpdateRequest,
 )
 from app.services.application_tracking_service import ApplicationTrackingService
@@ -53,6 +54,24 @@ async def get_application(
         user_id=current_user.id,
     )
     return ApplicationRead.model_validate(application)
+
+
+@router.get(
+    "/{application_id}/timeline",
+    response_model=list[ApplicationStatusHistoryItem],
+)
+async def get_application_timeline(
+    application_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[ApplicationStatusHistoryItem]:
+    service = ApplicationTrackingService()
+    timeline = await service.get_application_timeline(
+        session,
+        application_id=application_id,
+        user_id=current_user.id,
+    )
+    return [ApplicationStatusHistoryItem.model_validate(item) for item in timeline]
 
 
 @router.patch("/{application_id}/status", response_model=ApplicationRead)

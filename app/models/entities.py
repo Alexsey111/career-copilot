@@ -365,6 +365,48 @@ class ApplicationRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="applications_as_cover_letter",
         foreign_keys=[cover_letter_document_id],
     )
+    status_history: Mapped[list["ApplicationStatusHistory"]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="ApplicationStatusHistory.changed_at",
+    )
+
+
+class ApplicationStatusHistory(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "application_status_history"
+
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("application_records.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    previous_status: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    new_status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+
+    application: Mapped["ApplicationRecord"] = relationship(
+        back_populates="status_history",
+    )
 
 
 class InterviewSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):

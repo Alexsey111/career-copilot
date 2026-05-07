@@ -20,6 +20,16 @@ class ApplicationStatusUpdateRequest(BaseModel):
     notes: str | None = None
 
 
+class ApplicationStatusHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    previous_status: str | None
+    new_status: str
+    notes: str | None
+    changed_at: datetime
+
+
 class ApplicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
