@@ -105,3 +105,26 @@ class DocumentVersionRepository:
 
         stmt = stmt.values(is_active=False)
         await session.execute(stmt)
+
+    async def list_for_scope(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        vacancy_id: UUID | None,
+        document_kind: str,
+    ) -> list[DocumentVersion]:
+        stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.user_id == user_id)
+            .where(DocumentVersion.document_kind == document_kind)
+        )
+
+        if vacancy_id is None:
+            stmt = stmt.where(DocumentVersion.vacancy_id.is_(None))
+        else:
+            stmt = stmt.where(DocumentVersion.vacancy_id == vacancy_id)
+
+        stmt = stmt.order_by(DocumentVersion.created_at.desc())
+        result = await session.execute(stmt)
+        return list(result.scalars().all())

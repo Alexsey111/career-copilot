@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 from uuid import UUID
 
@@ -15,18 +16,31 @@ from app.db.session import get_db_session
 from app.models import User
 from app.repositories.document_version_repository import DocumentVersionRepository
 from app.schemas.document import (
+    ActiveDocumentResponse,
     CoverLetterEnhanceRequest,
     CoverLetterEnhanceResponse,
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
+    DocumentActivateResponse,
+    DocumentDiffResponse,
+    DocumentHistoryItem,
+    DocumentHistoryResponse,
     DocumentReviewRequest,
     DocumentReviewResponse,
+    DocumentRollbackResponse,
     DocumentVersionRead,
     ResumeEnhanceRequest,
     ResumeEnhanceResponse,
     ResumeGenerateRequest,
     ResumeGenerateResponse,
 )
+from app.services.document_activation_service import (
+    DocumentActivationService,
+)
+from app.services.document_rollback_service import (
+    DocumentRollbackService,
+)
+from app.services.document_diff_service import DocumentDiffService
 from app.services.cover_letter_generation_service import CoverLetterGenerationService
 from app.services.document_review_service import DocumentReviewService
 from app.services.resume_generation_service import ResumeGenerationService
@@ -116,12 +130,43 @@ async def enhance_resume(
         resume_text=payload.resume_text,
     )
 
-    return ResumeEnhanceResponse(
-        document_id=document.id,
+    # --- NEW: diff ---
+    diff = service._compute_diff(
+        document.rendered_text or "",
+        enhanced_text,
+    )
+
+    # --- NEW: content_json clone ---
+    new_content = dict(document.content_json or {})
+    meta = dict(new_content.get("meta", {}))
+    meta["enhanced_from"] = str(document.id)
+    meta["diff_from_previous"] = diff
+    new_content["meta"] = meta
+
+    # --- NEW: create version ---
+    new_document = await repo.create(
+        session,
+        user_id=current_user.id,
         vacancy_id=document.vacancy_id,
-        review_status=document.review_status,
-        version_label=document.version_label,
-        created_at=document.created_at,
+        derived_from_id=document.id,
+        analysis_id=document.analysis_id,
+        document_kind=document.document_kind,
+        version_label="resume_enhanced_v1",
+        review_status="draft",
+        is_active=False,
+        content_json=new_content,
+        rendered_text=enhanced_text,
+    )
+
+    await session.commit()
+    await session.refresh(new_document)
+
+    return ResumeEnhanceResponse(
+        document_id=new_document.id,
+        vacancy_id=new_document.vacancy_id,
+        review_status=new_document.review_status,
+        version_label=new_document.version_label,
+        created_at=new_document.created_at,
         enhanced_text=enhanced_text,
     )
 
@@ -186,6 +231,44 @@ async def enhance_cover_letter(
         version_label=document.version_label,
         created_at=document.created_at,
         enhanced_text=enhanced_text,
+    )
+
+
+@router.get(
+    "/active",
+    response_model=ActiveDocumentResponse,
+)
+async def get_active_document(
+    document_kind: str,
+    vacancy_id: UUID | None = None,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ActiveDocumentResponse:
+    repo = DocumentVersionRepository()
+
+    document = await repo.get_active_for_scope(
+        session,
+        user_id=current_user.id,
+        vacancy_id=vacancy_id,
+        document_kind=document_kind,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="active document not found",
+        )
+
+    return ActiveDocumentResponse(
+        id=document.id,
+        vacancy_id=document.vacancy_id,
+        document_kind=document.document_kind,
+        version_label=document.version_label,
+        review_status=document.review_status,
+        is_active=document.is_active,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
+        rendered_text=document.rendered_text,
     )
 
 
@@ -316,4 +399,125 @@ async def review_document(
         is_active=document.is_active,
         review_comment=latest_comment,
         updated_at=document.updated_at,
+    )
+
+
+@router.get("/{document_id}/history", response_model=DocumentHistoryResponse)
+async def get_document_history(
+    document_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentHistoryResponse:
+    repo = DocumentVersionRepository()
+
+    # 1. Берём текущий документ
+    document = await repo.get_by_id(
+        session,
+        document_id,
+        user_id=current_user.id,
+    )
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="document not found",
+        )
+
+    # 2. Загружаем весь scope
+    documents = await repo.list_for_scope(
+        session,
+        user_id=current_user.id,
+        vacancy_id=document.vacancy_id,
+        document_kind=document.document_kind,
+    )
+
+    items = [
+        DocumentHistoryItem(
+            id=doc.id,
+            derived_from_id=doc.derived_from_id,
+            version_label=doc.version_label,
+            review_status=doc.review_status,
+            is_active=doc.is_active,
+            created_at=doc.created_at,
+        )
+        for doc in documents
+    ]
+
+    return DocumentHistoryResponse(items=items)
+
+
+@router.post("/{document_id}/activate", response_model=DocumentActivateResponse)
+async def activate_document(
+    document_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentActivateResponse:
+    service = DocumentActivationService()
+
+    document = await service.activate_document(
+        session,
+        document_id=document_id,
+        user_id=current_user.id,
+    )
+
+    activated_at = (
+        (document.content_json or {})
+        .get("activation", {})
+        .get("last_activated_at")
+    )
+
+    return DocumentActivateResponse(
+        document_id=document.id,
+        document_kind=document.document_kind,
+        is_active=document.is_active,
+        activated_at=datetime.fromisoformat(activated_at),
+    )
+
+
+@router.post(
+    "/{document_id}/rollback",
+    response_model=DocumentRollbackResponse,
+)
+async def rollback_document(
+    document_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentRollbackResponse:
+    service = DocumentRollbackService()
+
+    document = await service.rollback_document(
+        session,
+        source_document_id=document_id,
+        user_id=current_user.id,
+    )
+
+    return DocumentRollbackResponse(
+        document_id=document.id,
+        source_document_id=document_id,
+        document_kind=document.document_kind,
+        is_active=document.is_active,
+        created_at=document.created_at,
+    )
+
+
+@router.get("/{document_id}/diff/{other_document_id}", response_model=DocumentDiffResponse)
+async def diff_documents(
+    document_id: UUID,
+    other_document_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentDiffResponse:
+    service = DocumentDiffService()
+
+    result = await service.build_diff(
+        session,
+        user_id=current_user.id,
+        document_id=document_id,
+        other_document_id=other_document_id,
+    )
+
+    return DocumentDiffResponse(
+        document_id=result["document_id"],
+        other_document_id=result["other_document_id"],
+        document_kind=result["document_kind"],
+        diff=result["diff"],
     )

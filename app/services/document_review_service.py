@@ -9,6 +9,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.document_version_repository import DocumentVersionRepository
+from app.services.document_activation_service import (
+    DocumentActivationService,
+)
 
 
 ALLOWED_REVIEW_STATUSES = {"draft", "approved", "rejected", "needs_edit"}
@@ -18,9 +21,18 @@ class DocumentReviewService:
     def __init__(
         self,
         document_version_repository: DocumentVersionRepository | None = None,
+        document_activation_service: DocumentActivationService | None = None,
     ) -> None:
         self.document_version_repository = (
-            document_version_repository or DocumentVersionRepository()
+            document_version_repository
+            or DocumentVersionRepository()
+        )
+
+        self.document_activation_service = (
+            document_activation_service
+            or DocumentActivationService(
+                document_version_repository=self.document_version_repository,
+            )
         )
 
     async def review_document(
@@ -71,14 +83,14 @@ class DocumentReviewService:
         document.content_json = content_json
 
         if normalized_status == "approved" and set_active_when_approved:
-            await self.document_version_repository.deactivate_same_scope(
+            await session.commit()
+
+            document = await self.document_activation_service.activate_document(
                 session,
-                user_id=document.user_id,
-                vacancy_id=document.vacancy_id,
-                document_kind=document.document_kind,
-                exclude_document_id=document.id,
+                document_id=document.id,
+                user_id=user_id,
             )
-            document.is_active = True
+
         elif normalized_status in {"rejected", "needs_edit"}:
             document.is_active = False
 

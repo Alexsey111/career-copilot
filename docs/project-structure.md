@@ -124,7 +124,7 @@ app/api/
 - `routes/files.py` принимает upload файлов.
 - `routes/profile.py` запускает импорт резюме, структурирование профиля, извлечение достижений и review достижений.
 - `routes/vacancies.py` импортирует вакансии и запускает анализ.
-- `routes/documents.py` генерирует резюме, cover letter, выполняет review документов и экспортирует approved-документы в TXT/MD/DOCX.
+- `routes/documents.py` генерирует резюме, cover letter, выполняет review документов, экспортирует approved-документы в TXT/MD/DOCX, активирует документы и предоставляет активный документ по типу.
 - `routes/applications.py` создает, читает, обновляет статусы и возвращает список application records для dashboard.
 - `routes/interviews.py` создает interview session, возвращает список sessions, читает session, принимает ответы на вопросы, оценивает ответы и предоставляет AI-коучинг.
 - `dependencies.py` содержит shared dependencies: `get_current_dev_user()`, `get_ai_orchestrator()`.
@@ -253,7 +253,7 @@ app/schemas/
 - `profile_structured.py` - результат структурирования профиля.
 - `achievement_extract.py` - результат извлечения достижений и read-модель review-полей.
 - `vacancy.py` - импорт и чтение вакансий, а также анализ.
-- `document.py` - генерация, review, чтение и экспорт документов.
+- `document.py` - генерация, review, чтение, экспорт, активация и rollback документов.
 - `application.py` - создание, чтение, список и обновление статусов заявок.
 - `interview.py` - создание interview session, сохранение ответов, оценка, улучшение и прогресс попыток.
 - `auth.py` - схемы для аутентификации, сессий и сброса пароля.
@@ -276,6 +276,8 @@ app/services/
 ├── resume_generation_service.py
 ├── cover_letter_generation_service.py
 ├── document_review_service.py
+├── document_activation_service.py
+├── document_rollback_service.py
 ├── application_tracking_service.py
 ├── interview_preparation_service.py
 ├── auth_service.py
@@ -295,7 +297,9 @@ app/services/
 - `vacancy_analysis_service.py` - анализ вакансии и сопоставление с профилем.
 - `resume_generation_service.py` - генерация резюме под вакансию.
 - `cover_letter_generation_service.py` - генерация cover letter.
-- `document_review_service.py` - изменение review-статуса документа.
+- `document_review_service.py` - изменение review-статуса документа и активация при approval.
+- `document_activation_service.py` - активация документов с деактивацией предыдущих версий.
+- `document_rollback_service.py` - rollback документов к предыдущим версиям.
 - `application_tracking_service.py` - создание заявок, проверка approved-пакета документов, список заявок и статусные переходы.
 - `interview_preparation_service.py` - построение interview session, feedback, readiness score, AI-улучшение ответов и AI-коучинг между попытками.
 - `auth_service.py` - управление сессиями аутентификации, refresh tokens и events.
@@ -559,6 +563,8 @@ tests/
 ├── test_vacancy_analysis_api_flow.py
 ├── test_resume_generation_service.py
 ├── test_cover_letter_generation_service.py
+├── test_document_activate.py
+├── test_document_active_resolution.py
 ├── test_document_export_api.py
 ├── test_document_docx_export_api.py
 ├── test_document_content_json_audit.py
@@ -640,11 +646,15 @@ data/
 4. `needs_confirmation` achievements не попадают в `selected_achievements` и `rendered_text`.
 5. Создается `DocumentVersion` в статусе `draft`.
 6. Далее документ должен пройти review через `PATCH /documents/{document_id}/review`.
-7. После approval и активации документ можно экспортировать через `GET /documents/{document_id}/export/{format}`.
-8. Поддерживаются форматы:
-   - `txt`
-   - `md`
-   - `docx`
+7. После approval документ можно активировать через `POST /documents/{document_id}/activate`.
+8. Активация деактивирует предыдущие активные версии того же типа документа.
+9. Активный документ можно получить через `GET /documents/active`.
+10. Документ можно откатить к предыдущей версии через `POST /documents/{document_id}/rollback`.
+11. После approval и активации документ можно экспортировать через `GET /documents/{document_id}/export/{format}`.
+12. Поддерживаются форматы:
+    - `txt`
+    - `md`
+    - `docx`
 
 ### 6. Заявки
 
@@ -679,7 +689,48 @@ data/
 3. Клиент вызывает `POST /auth/password-reset/confirm` с токеном и новым паролем.
 4. Токен валидируется и пароль обновляется.
 
-## Ключевые таблицы и связи
+## Document Lifecycle и Single Active Version Invariant
+
+### Document Lifecycle
+
+Документы проходят через следующие стадии:
+
+1. **Generation** (`draft`): Создание черновика документа через AI
+2. **Review** (`draft` → `approved`/`rejected`/`needs_edit`): Проверка и утверждение пользователем
+3. **Activation** (`is_active = true`): Активация документа для использования (только approved документы)
+4. **Deactivation**: Автоматическая деактивация при активации новой версии
+5. **Rollback**: Возврат к предыдущей версии документа
+
+### Single Active Version Invariant
+
+**Ключевое правило архитектуры:** В рамках одного scope (user + vacancy + document_kind) может быть активна только одна версия документа.
+
+- При активации новой версии автоматически деактивируются все предыдущие версии того же типа
+- Это гарантирует консистентность данных и предотвращает конфликты
+- Активный документ можно получить через `GET /documents/active`
+
+### Document Activation Service
+
+Отдельный сервис `DocumentActivationService` отвечает за:
+
+- Активацию документов с проверкой статуса `approved`
+- Деактивацию предыдущих версий в том же scope
+- Запись истории активаций в `content_json["activation"]`
+- Обновление `last_activated_at` timestamp
+
+### Document Rollback Service
+
+Сервис `DocumentRollbackService` позволяет:
+
+- Откатить документ к предыдущей версии
+- Создать новую версию на основе исходного документа
+- Сохранить историю изменений для аудита
+
+### API Endpoints
+
+- `POST /documents/{document_id}/activate` - активировать документ
+- `GET /documents/active` - получить активный документ по типу
+- `POST /documents/{document_id}/rollback` - откатить к предыдущей версии
 
 - `users`
   - базовая сущность пользователя
@@ -720,6 +771,9 @@ data/
 - frontend gate, который блокирует импорт вакансии до подтверждения достижений
 - backend safety filter, который использует в документах только `confirmed` achievements
 - export API для approved+active документов в TXT/MD/DOCX
+- активация документов с автоматической деактивацией предыдущих версий
+- получение активного документа по типу и vacancy
+- rollback документов к предыдущим версиям
 - auth-слой с сессиями, refresh tokens и событиями аудита
 - password reset flow с токенами
 - отдельный `auth` route и слой security helpers
@@ -737,7 +791,7 @@ data/
 - PostgreSQL-схема через SQLAlchemy и Alembic
 - healthcheck на `GET /health`
 - корневой `GET /`, возвращающий `{"service": "...", "status": "ok"}`
-- набор тестов для auth, password reset, application status transitions и integrity checks
+- набор тестов для auth, password reset, application status transitions, document activation и integrity checks
 
 Заготовлено:
 

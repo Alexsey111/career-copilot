@@ -86,3 +86,49 @@ class CoverLetterEnhanceResponse(BaseModel):
     version_label: str | None
     created_at: datetime
     enhanced_text: str
+
+
+class DocumentHistoryItem(BaseModel):
+    id: UUID
+    derived_from_id: UUID | None
+    version_label: str | None
+    review_status: str
+    is_active: bool
+    created_at: datetime
+
+
+class DocumentHistoryResponse(BaseModel):
+    items: list[DocumentHistoryItem]
+
+
+class DocumentDiffResponse(BaseModel):
+    document_id: UUID
+    other_document_id: UUID
+    document_kind: str
+    diff: str
+
+
+class DocumentActivateResponse(BaseModel):
+    document_id: UUID
+    document_kind: str
+    is_active: bool
+    activated_at: datetime
+
+
+class DocumentRollbackResponse(BaseModel):
+    document_id: UUID
+    source_document_id: UUID
+    document_kind: str
+    is_active: bool
+    created_at: datetime
+
+class ActiveDocumentResponse(BaseModel):
+    id: UUID
+    vacancy_id: UUID | None
+    document_kind: str
+    version_label: str | None
+    review_status: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    rendered_text: str | None
