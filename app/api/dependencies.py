@@ -50,7 +50,7 @@ async def get_current_dev_user(
             auth_provider="dev",
         )
         session.add(user)
-        await session.commit()
+        await session.flush()
         await session.refresh(user)
 
     return user

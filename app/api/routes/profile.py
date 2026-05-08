@@ -67,11 +67,16 @@ async def import_resume(
     session: AsyncSession = Depends(get_db_session),
 ) -> ResumeImportResponse:
     service = ProfileImportService()
-    profile, extraction, detected_format = await service.import_resume(
-        session,
-        source_file_id=payload.source_file_id,
-        user_id=current_user.id,
-    )
+    try:
+        profile, extraction, detected_format = await service.import_resume(
+            session,
+            source_file_id=payload.source_file_id,
+            user_id=current_user.id,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
 
     preview = extraction.extracted_text[:1000]
 
@@ -94,11 +99,16 @@ async def extract_structured_profile(
     session: AsyncSession = Depends(get_db_session),
 ) -> StructuredProfileExtractResponse:
     service = ProfileStructuringService()
-    profile, draft = await service.extract_into_profile(
-        session,
-        extraction_id=payload.extraction_id,
-        user_id=current_user.id,
-    )
+    try:
+        profile, draft = await service.extract_into_profile(
+            session,
+            extraction_id=payload.extraction_id,
+            user_id=current_user.id,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
 
     return StructuredProfileExtractResponse(
         profile_id=profile.id,
@@ -119,11 +129,16 @@ async def extract_achievements(
     session: AsyncSession = Depends(get_db_session),
 ) -> AchievementExtractResponse:
     service = AchievementExtractionService()
-    result = await service.extract_achievements(
-        session,
-        extraction_id=payload.extraction_id,
-        user_id=current_user.id,
-    )
+    try:
+        result = await service.extract_achievements(
+            session,
+            extraction_id=payload.extraction_id,
+            user_id=current_user.id,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
 
     return AchievementExtractResponse(
         profile_id=result.profile.id,

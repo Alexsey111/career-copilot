@@ -146,7 +146,7 @@ class AIOrchestrator:
                     duration_ms=duration_ms,
                     tokens_used=result.get("usage", {}),
                 )
-                await session.commit()
+                await session.flush()
 
             return {
                 "result": result.get("content"),
@@ -173,7 +173,7 @@ class AIOrchestrator:
                     error_text=str(e),
                     duration_ms=duration_ms,
                 )
-                await session.commit()
+                await session.flush()
             raise
     
     async def _execute_with_retry(

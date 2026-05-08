@@ -109,8 +109,6 @@ class AchievementExtractionService:
             ],
         )
 
-        await session.commit()
-
         return AchievementExtractionResult(
             profile=profile,
             achievements=[

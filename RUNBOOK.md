@@ -21,6 +21,14 @@ resume upload
 → interview answer feedback
 ```
 
+## Transaction Rules
+
+- Route layer owns transaction boundary.
+- Services must not call session.commit().
+- Services may call session.flush().
+- Repositories never commit.
+- Infrastructure layers (AI, storage, tracing) never commit.
+
 ---
 
 ## 1. Быстрая проверка тестами

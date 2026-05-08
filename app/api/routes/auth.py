@@ -83,7 +83,11 @@ async def login(
         email=body.email,
     )
     user = await repo.get_by_email(session, body.email.lower())
-    if user is None or not verify_password(body.password, user.password_hash):
+    if (
+        user is None
+        or not user.password_hash
+        or not verify_password(body.password, user.password_hash)
+    ):
         await log_auth_event(
             session,
             event_type="login_failed",

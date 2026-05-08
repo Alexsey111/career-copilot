@@ -84,7 +84,7 @@ class ProfileImportService:
             extracted_metadata_json=parsed.metadata,
         )
 
-        await session.commit()
+        await session.flush()
         await session.refresh(profile)
         await session.refresh(extraction)
 

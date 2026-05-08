@@ -93,7 +93,7 @@ class ProfileStructuringService:
         self._apply_profile_fields(profile, draft)
         await self._replace_experiences(session, profile.id, draft.experiences)
 
-        await session.commit()
+        await session.flush()
         await session.refresh(profile)
         return profile, draft
 
