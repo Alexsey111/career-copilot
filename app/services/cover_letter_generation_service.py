@@ -231,8 +231,9 @@ class CoverLetterGenerationService:
             rendered_text=rendered_text,
         )
 
-        await session.commit()
+        await session.flush()
         await session.refresh(document)
+
         return document
 
     def _extract_match_keywords_from_analysis(

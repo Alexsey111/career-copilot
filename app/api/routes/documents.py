@@ -91,6 +91,8 @@ async def generate_resume(
         user_id=current_user.id,
     )
 
+    await session.commit()
+
     preview = (document.rendered_text or "")[:1200]
 
     return ResumeGenerateResponse(
@@ -184,6 +186,8 @@ async def generate_cover_letter(
         vacancy_id=payload.vacancy_id,
         user_id=current_user.id,
     )
+
+    await session.commit()
 
     preview = (document.rendered_text or "")[:1200]
 
@@ -428,6 +432,33 @@ async def get_document_history(
         user_id=current_user.id,
         vacancy_id=document.vacancy_id,
         document_kind=document.document_kind,
+    )
+
+    docs_by_id = {doc.id: doc for doc in documents}
+    depth_cache: dict[UUID, int] = {}
+
+    def _version_depth(version_id: UUID) -> int:
+        cached = depth_cache.get(version_id)
+        if cached is not None:
+            return cached
+
+        current = docs_by_id.get(version_id)
+        if current is None or current.derived_from_id is None:
+            depth_cache[version_id] = 0
+            return 0
+
+        depth = 1 + _version_depth(current.derived_from_id)
+        depth_cache[version_id] = depth
+        return depth
+
+    documents = sorted(
+        documents,
+        key=lambda doc: (
+            _version_depth(doc.id),
+            doc.created_at,
+            doc.updated_at,
+        ),
+        reverse=True,
     )
 
     items = [

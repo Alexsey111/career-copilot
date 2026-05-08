@@ -162,9 +162,8 @@ class ApplicationTrackingService:
                 new_status=APPLICATION_STATUS_DRAFT,
                 notes=notes,
             )
-            await session.commit()
+            await session.flush()
         except IntegrityError as exc:
-            await session.rollback()
             if _is_duplicate_application_error(exc):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -280,7 +279,7 @@ class ApplicationTrackingService:
             notes=notes,
         )
 
-        await session.commit()
+        await session.flush()
         await session.refresh(application)
         return application
 

@@ -243,8 +243,9 @@ class ResumeGenerationService:
             rendered_text=rendered_text,
         )
 
-        await session.commit()
+        await session.flush()
         await session.refresh(document)
+
         return document
 
     def _extract_skills_from_profile_or_raw_text(

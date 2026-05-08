@@ -38,6 +38,7 @@ async def create_application(
         cover_letter_document_id=payload.cover_letter_document_id,
         notes=payload.notes,
     )
+    await session.commit()
     return ApplicationRead.model_validate(application)
 
 
@@ -89,6 +90,7 @@ async def update_application_status(
         status_value=payload.status,
         notes=payload.notes,
     )
+    await session.commit()
     return ApplicationRead.model_validate(application)
 
 
