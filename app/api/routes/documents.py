@@ -91,18 +91,22 @@ async def generate_resume(
         user_id=current_user.id,
     )
 
-    await session.commit()
+    try:
+        await session.commit()
 
-    preview = (document.rendered_text or "")[:1200]
+        preview = (document.rendered_text or "")[:1200]
 
-    return ResumeGenerateResponse(
-        document_id=document.id,
-        vacancy_id=document.vacancy_id,
-        review_status=document.review_status,
-        version_label=document.version_label,
-        created_at=document.created_at,
-        rendered_text_preview=preview,
-    )
+        return ResumeGenerateResponse(
+            document_id=document.id,
+            vacancy_id=document.vacancy_id,
+            review_status=document.review_status,
+            version_label=document.version_label,
+            created_at=document.created_at,
+            rendered_text_preview=preview,
+        )
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.post("/resumes/{document_id}/enhance", response_model=ResumeEnhanceResponse)
@@ -160,17 +164,21 @@ async def enhance_resume(
         rendered_text=enhanced_text,
     )
 
-    await session.commit()
-    await session.refresh(new_document)
+    try:
+        await session.commit()
+        await session.refresh(new_document)
 
-    return ResumeEnhanceResponse(
-        document_id=new_document.id,
-        vacancy_id=new_document.vacancy_id,
-        review_status=new_document.review_status,
-        version_label=new_document.version_label,
-        created_at=new_document.created_at,
-        enhanced_text=enhanced_text,
-    )
+        return ResumeEnhanceResponse(
+            document_id=new_document.id,
+            vacancy_id=new_document.vacancy_id,
+            review_status=new_document.review_status,
+            version_label=new_document.version_label,
+            created_at=new_document.created_at,
+            enhanced_text=enhanced_text,
+        )
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.post("/letters/generate", response_model=CoverLetterGenerateResponse)
@@ -187,18 +195,22 @@ async def generate_cover_letter(
         user_id=current_user.id,
     )
 
-    await session.commit()
+    try:
+        await session.commit()
 
-    preview = (document.rendered_text or "")[:1200]
+        preview = (document.rendered_text or "")[:1200]
 
-    return CoverLetterGenerateResponse(
-        document_id=document.id,
-        vacancy_id=document.vacancy_id,
-        review_status=document.review_status,
-        version_label=document.version_label,
-        created_at=document.created_at,
-        rendered_text_preview=preview,
-    )
+        return CoverLetterGenerateResponse(
+            document_id=document.id,
+            vacancy_id=document.vacancy_id,
+            review_status=document.review_status,
+            version_label=document.version_label,
+            created_at=document.created_at,
+            rendered_text_preview=preview,
+        )
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.post("/letters/{document_id}/enhance", response_model=CoverLetterEnhanceResponse)

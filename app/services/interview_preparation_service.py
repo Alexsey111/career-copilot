@@ -12,7 +12,17 @@ from app.repositories.candidate_profile_repository import CandidateProfileReposi
 from app.repositories.interview_session_repository import InterviewSessionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.schemas.json_contracts import InterviewSessionSchema, InterviewQuestion
+from app.schemas.json_contracts import InterviewSessionSchema
+from app.domain.interview_models import (
+    InterviewQuestionDraft,
+    InterviewFeedbackDraft,
+    InterviewScoreDraft,
+)
+from app.services.interview_serialization import (
+    serialize_question,
+    serialize_feedback,
+    serialize_score,
+)
 
 
 class InterviewPreparationService:
@@ -286,10 +296,13 @@ class InterviewPreparationService:
                 }
             )
 
-        return {
-            "feedback_version": "deterministic_v1",
-            "items": items,
-        }
+        validated = InterviewSessionSchema(
+            feedback={
+                "feedback_version": "deterministic_v1",
+                "items": items,
+            }
+        )
+        return validated.feedback
 
     def _build_score(
         self,
@@ -314,14 +327,26 @@ class InterviewPreparationService:
             raw_score -= unanswered_count * 8
             readiness_score = max(0, min(100, raw_score))
 
-        return {
-            "score_version": "deterministic_v2",
-            "question_count": question_count,
-            "answered_count": answered_count,
-            "unanswered_count": unanswered_count,
-            "warning_count": warning_count,
-            "readiness_score": readiness_score,
-        }
+        score_draft = InterviewScoreDraft(
+            overall=None,
+            by_category={},
+            readiness_score=readiness_score,
+        )
+
+        # Serialize and wrap in schema
+        serialized = serialize_score(score_draft)
+        
+        validated = InterviewSessionSchema(
+            score={
+                "score_version": "deterministic_v2",
+                "question_count": question_count,
+                "answered_count": answered_count,
+                "unanswered_count": unanswered_count,
+                "warning_count": warning_count,
+                **serialized,
+            }
+        )
+        return validated.score.model_dump()
 
     def _count_star_markers(self, answer_lower: str) -> int:
         markers = [
@@ -629,48 +654,51 @@ class InterviewPreparationService:
         achievements: list[dict],
     ) -> list[dict]:
         company_part = company or "компании"
-        questions: list[dict] = []
+        questions: list[InterviewQuestionDraft] = []
 
+        # 1. Role overview
         questions.append(
-            {
-                "type": "role_overview",
-                "source": "vacancy",
-                "prompt": (
+            InterviewQuestionDraft(
+                type="role_overview",
+                source="vacancy",
+                prompt=(
                     f"Кратко объясните, почему вам интересна позиция {vacancy_title} "
                     f"в {company_part} и чем ваш опыт может быть релевантен этой роли."
                 ),
-                "answer_format": "short_structured",
-                "rubric": [
+                answer_format="short_structured",
+                rubric=[
                     "Показывает понимание роли",
                     "Связывает мотивацию с релевантным опытом",
                     "Не содержит неподтверждённых утверждений",
                 ],
-            }
+            )
         )
 
+        # 2. Must-have requirements
         for item in must_have[:6]:
             requirement_text = item.get("text")
             if not requirement_text:
                 continue
 
             questions.append(
-                {
-                    "type": "must_have_requirement",
-                    "source": "vacancy_analysis.must_have",
-                    "requirement_text": requirement_text,
-                    "prompt": (
+                InterviewQuestionDraft(
+                    type="must_have_requirement",
+                    source="vacancy_analysis.must_have",
+                    requirement_text=requirement_text,
+                    prompt=(
                         f"Опишите ваш практический опыт по этому требованию: "
                         f"{requirement_text}."
                     ),
-                    "answer_format": "STAR_or_example",
-                    "rubric": [
+                    answer_format="STAR_or_example",
+                    rubric=[
                         "Есть конкретный пример",
                         "Личный вклад отделён от командного контекста",
                         "Инструменты, масштаб и результат указаны только там, где это фактологично",
                     ],
-                }
+                )
             )
 
+        # 3. Gap preparation
         for item in gaps[:5]:
             keyword = item.get("keyword")
             scope = item.get("scope")
@@ -679,26 +707,26 @@ class InterviewPreparationService:
                 continue
 
             questions.append(
-                {
-                    "type": "gap_preparation",
-                    "source": "vacancy_analysis.gaps",
-                    "keyword": keyword,
-                    "scope": scope,
-                    "requirement_text": requirement_text,
-                    "prompt": (
+                InterviewQuestionDraft(
+                    type="gap_preparation",
+                    source="vacancy_analysis.gaps",
+                    keyword=keyword,
+                    requirement_text=requirement_text,
+                    prompt=(
                         f"В вакансии ожидается {requirement_text}, но текущий профиль пока "
                         f"не даёт сильного подтверждения. Как честно ответить на вопрос "
                         f"о вашем уровне в {keyword}?"
                     ),
-                    "answer_format": "honest_gap_response",
-                    "rubric": [
+                    answer_format="honest_gap_response",
+                    rubric=[
                         "Не выдумывает опыт",
                         "Чётко называет реальный уровень знакомства с темой",
                         "Показывает реалистичный план дообучения или переноса смежного опыта",
                     ],
-                }
+                )
             )
 
+        # 4. Strength deep dive
         for item in strengths[:5]:
             keyword = item.get("keyword")
             scope = item.get("scope")
@@ -707,25 +735,25 @@ class InterviewPreparationService:
                 continue
 
             questions.append(
-                {
-                    "type": "strength_deep_dive",
-                    "source": "vacancy_analysis.strengths",
-                    "keyword": keyword,
-                    "scope": scope,
-                    "requirement_text": requirement_text,
-                    "prompt": (
+                InterviewQuestionDraft(
+                    type="strength_deep_dive",
+                    source="vacancy_analysis.strengths",
+                    keyword=keyword,
+                    requirement_text=requirement_text,
+                    prompt=(
                         f"Подготовьте более глубокий пример, который подтверждает ваш опыт "
                         f"с {keyword} в контексте требования: {requirement_text}."
                     ),
-                    "answer_format": "STAR",
-                    "rubric": [
+                    answer_format="STAR",
+                    rubric=[
                         "Ситуация и задача понятны",
                         "Действия описаны конкретно",
                         "Результат фактологичен и не завышен",
                     ],
-                }
+                )
             )
 
+        # 5. Achievement STAR story
         for item in achievements[:3]:
             title = item.get("title")
             fact_status = item.get("fact_status")
@@ -733,24 +761,29 @@ class InterviewPreparationService:
                 continue
 
             questions.append(
-                {
-                    "type": "achievement_star_story",
-                    "source": "candidate_achievements",
-                    "achievement_title": title,
-                    "fact_status": fact_status,
-                    "prompt": (
+                InterviewQuestionDraft(
+                    type="achievement_star_story",
+                    source="candidate_achievements",
+                    achievement_title=title,
+                    fact_status=fact_status,
+                    prompt=(
                         f"Превратите это достижение в STAR-историю для собеседования: {title}."
                     ),
-                    "answer_format": "STAR",
-                    "rubric": [
+                    answer_format="STAR",
+                    rubric=[
                         "Факт достижения подтверждён перед сильным использованием",
                         "Личный вклад кандидата понятен",
                         "Не добавлены неподтверждённые метрики",
                     ],
-                }
+                )
             )
 
-        return questions[:15]
+        # Serialize to JSON
+        serialized = [serialize_question(q) for q in questions[:15]]
+        
+        # Валидация JSON-контракта перед сохранением
+        validated = InterviewSessionSchema(question_set=serialized)
+        return [q.model_dump() for q in validated.question_set]
 
     def _build_questions(
         self,

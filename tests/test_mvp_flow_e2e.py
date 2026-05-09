@@ -166,6 +166,8 @@ async def test_mvp_flow_e2e(client):
         f"{API_PREFIX}/applications",
         json={
             "vacancy_id": vacancy_id,
+            "resume_document_id": resume_document_id,
+            "cover_letter_document_id": cover_letter_document_id,
             "notes": "Prepared for manual submission",
         },
     )
@@ -186,16 +188,25 @@ async def test_mvp_flow_e2e(client):
     assert duplicate_response.status_code == 409, duplicate_response.text
     assert duplicate_response.json()["detail"] == "application already exists for this vacancy"
 
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "Ready for submission",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+
     update_status_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
+            "status": "applied",
             "notes": "Submitted manually on HH",
         },
     )
     assert update_status_response.status_code == 200, update_status_response.text
     updated_application = update_status_response.json()
-    assert updated_application["status"] == "submitted"
+    assert updated_application["status"] == "applied"
     assert updated_application["applied_at"] is not None
     assert updated_application["notes"] == "Submitted manually on HH"
 
@@ -204,4 +215,4 @@ async def test_mvp_flow_e2e(client):
     items = list_response.json()
     assert len(items) == 1
     assert items[0]["id"] == application_id
-    assert items[0]["status"] == "submitted"
+    assert items[0]["status"] == "applied"

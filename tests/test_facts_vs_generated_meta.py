@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 
 from app.schemas.json_contracts import ContentMeta, ResumeContent, CoverLetterContent
@@ -23,14 +25,20 @@ def test_content_meta_custom_values():
     """Проверяем кастомные значения ContentMeta."""
     meta = ContentMeta(
         source="hybrid",
-        based_on_achievements=["ach-1", "ach-2"],
-        based_on_analysis_id="analysis-123",
+        based_on_achievements=[
+            UUID("11111111-1111-1111-1111-111111111111"),
+            UUID("22222222-2222-2222-2222-222222222222"),
+        ],
+        based_on_analysis_id=UUID("33333333-3333-3333-3333-333333333333"),
         confidence=0.95,
         generation_prompt_version="resume_tailor_v1",
     )
     assert meta.source == "hybrid"
-    assert meta.based_on_achievements == ["ach-1", "ach-2"]
-    assert meta.based_on_analysis_id == "analysis-123"
+    assert meta.based_on_achievements == [
+        UUID("11111111-1111-1111-1111-111111111111"),
+        UUID("22222222-2222-2222-2222-222222222222"),
+    ]
+    assert meta.based_on_analysis_id == UUID("33333333-3333-3333-3333-333333333333")
     assert meta.confidence == 0.95
     assert meta.generation_prompt_version == "resume_tailor_v1"
 
@@ -55,14 +63,16 @@ def test_resume_content_includes_meta():
     content = ResumeContent(
         meta=ContentMeta(
             source="hybrid",
-            based_on_achievements=["ach-1"],
-            based_on_analysis_id="analysis-123",
+            based_on_achievements=[UUID("44444444-4444-4444-4444-444444444444")],
+            based_on_analysis_id=UUID("55555555-5555-5555-5555-555555555555"),
             confidence=0.85,
         )
     )
     assert content.meta.source == "hybrid"
-    assert content.meta.based_on_achievements == ["ach-1"]
-    assert content.meta.based_on_analysis_id == "analysis-123"
+    assert content.meta.based_on_achievements == [
+        UUID("44444444-4444-4444-4444-444444444444")
+    ]
+    assert content.meta.based_on_analysis_id == UUID("55555555-5555-5555-5555-555555555555")
     assert content.meta.confidence == 0.85
 
 
@@ -83,8 +93,11 @@ def test_resume_content_serialization():
     content = ResumeContent(
         meta=ContentMeta(
             source="hybrid",
-            based_on_achievements=["ach-1", "ach-2"],
-            based_on_analysis_id="analysis-123",
+            based_on_achievements=[
+                UUID("66666666-6666-6666-6666-666666666666"),
+                UUID("77777777-7777-7777-7777-777777777777"),
+            ],
+            based_on_analysis_id=UUID("88888888-8888-8888-8888-888888888888"),
             confidence=0.9,
             generation_prompt_version="resume_tailor_v1",
             generated_at="2024-01-01T00:00:00+00:00",
@@ -92,8 +105,11 @@ def test_resume_content_serialization():
     )
     data = content.model_dump()
     assert data["meta"]["source"] == "hybrid"
-    assert data["meta"]["based_on_achievements"] == ["ach-1", "ach-2"]
-    assert data["meta"]["based_on_analysis_id"] == "analysis-123"
+    assert data["meta"]["based_on_achievements"] == [
+        UUID("66666666-6666-6666-6666-666666666666"),
+        UUID("77777777-7777-7777-7777-777777777777"),
+    ]
+    assert data["meta"]["based_on_analysis_id"] == UUID("88888888-8888-8888-8888-888888888888")
     assert data["meta"]["confidence"] == 0.9
     assert data["meta"]["generation_prompt_version"] == "resume_tailor_v1"
     assert data["meta"]["generated_at"] == "2024-01-01T00:00:00+00:00"

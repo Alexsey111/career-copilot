@@ -19,7 +19,15 @@ from app.repositories.document_version_repository import DocumentVersionReposito
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.schemas.json_contracts import CoverLetterContent
+from app.domain.document_models import GapMitigation, SelectedAchievement
+from app.services.document_compat import (
+    achievement_to_dict,
+    ensure_keyword_set,
+    ensure_selected_achievement,
+)
+from app.services.document_feedback import build_claim, build_warning
+from app.services.document_builders import build_cover_letter_content
+from app.services.resume_renderer import render_cover_letter
 
 
 class CoverLetterGenerationService:
@@ -85,10 +93,12 @@ class CoverLetterGenerationService:
                 detail="candidate profile not found for vacancy user",
             )
 
-        matched_keywords, missing_keywords = self._extract_match_keywords_from_analysis(
+        keyword_set = ensure_keyword_set(self._extract_match_keywords_from_analysis(
             strengths_json=analysis.strengths_json,
             gaps_json=analysis.gaps_json,
-        )
+        ))
+        matched_keywords = keyword_set.matched
+        missing_keywords = keyword_set.missing
 
         confirmed_achievements = self._get_confirmed_achievements(profile.achievements)
 
@@ -127,7 +137,7 @@ class CoverLetterGenerationService:
         )
 
         # Опциональный AI-усиленный шаг для всего письма
-        rendered_text = self._render_cover_letter(
+        rendered_text = render_cover_letter(
             {
                 "sections": {
                     "opening": opening,
@@ -156,66 +166,45 @@ class CoverLetterGenerationService:
             else:
                 rendered_text = enhanced_text
 
-        content_json = {
-            "document_kind": "cover_letter",
-            "draft_mode": "deterministic_v1_review_ready" if not use_ai_enhancement else "ai_enhanced_v1",
-            "candidate": {
+        content_json = build_cover_letter_content(
+            candidate={
                 "full_name": profile.full_name,
                 "headline": profile.headline,
                 "location": profile.location,
             },
-            "target_vacancy": {
+            target_vacancy={
                 "vacancy_id": str(vacancy.id),
                 "title": vacancy.title,
                 "company": vacancy.company,
                 "location": vacancy.location,
             },
-            "sections": {
-                "opening": opening,
-                "relevance_paragraph": relevance_paragraph,
-                "closing": closing,
-                "matched_keywords": matched_keywords,
-                "missing_keywords": missing_keywords,
-                "matched_requirements": analysis.strengths_json,
-                "gap_requirements": analysis.gaps_json,
-                "selected_achievements": [
-                    {
-                        "id": item.get("id"),
-                        "title": item["title"],
-                        "situation": item.get("situation"),
-                        "task": item.get("task"),
-                        "action": item.get("action"),
-                        "result": item.get("result"),
-                        "metric_text": item.get("metric_text"),
-                        "fact_status": item["fact_status"],
-                        "reason": item["reason"],
-                    }
-                    for item in selected_achievements
-                ],
-                "claims_needing_confirmation": claims_needing_confirmation,
-                "warnings": warnings,
-            },
-            "meta": {
-                "source": "hybrid" if use_ai_enhancement else "extracted",
-                "based_on_achievements": [
-                    item.get("id") for item in selected_achievements if item.get("id")
-                ],
-                "based_on_analysis_id": str(analysis.id),
-                "confidence": self._compute_confidence(
-                    selected_achievements=selected_achievements,
-                    missing_keywords=missing_keywords,
-                ),
-                "generation_prompt_version": (
-                    "cover_letter_v1" if use_ai_enhancement else None
-                ),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "warnings": [],
-            },
-        }
-
-        # Валидация JSON-контракта перед сохранением (type-specific)
-        validated_content = CoverLetterContent.model_validate(content_json)
-        content_json = validated_content.model_dump()
+            draft_mode=(
+                "ai_enhanced_v1" if use_ai_enhancement else "deterministic_v1_review_ready"
+            ),
+            opening=opening,
+            relevance_paragraph=relevance_paragraph,
+            closing=closing,
+            matched_keywords=matched_keywords,
+            missing_keywords=missing_keywords,
+            matched_requirements=analysis.strengths_json,
+            gap_requirements=analysis.gaps_json,
+            selected_achievements=selected_achievements,
+            claims_needing_confirmation=claims_needing_confirmation,
+            warnings=warnings,
+            source="hybrid" if use_ai_enhancement else "extracted",
+            based_on_achievements=[
+                item.get("id") for item in selected_achievements if item.get("id")
+            ],
+            based_on_analysis_id=str(analysis.id),
+            confidence=self._compute_confidence(
+                selected_achievements=selected_achievements,
+                missing_keywords=missing_keywords,
+            ),
+            generation_prompt_version=(
+                "cover_letter_v1" if use_ai_enhancement else None
+            ),
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
 
         document = await self.document_version_repository.create(
             session,
@@ -384,7 +373,7 @@ class CoverLetterGenerationService:
                 for title in (achievement_titles or [])
             ]
 
-        selected: list[dict] = []
+        selected: list[SelectedAchievement] = []
 
         for achievement in achievements:
             title = str(achievement.get("title") or "").strip()
@@ -401,35 +390,33 @@ class CoverLetterGenerationService:
             elif "анализ" in title_lower or "data" in title_lower:
                 reason = "analysis_relevance"
 
-            selected_item = {
-                "title": title,
-                "fact_status": "confirmed",
-                "reason": reason,
-            }
-
-            if not legacy_title_only_mode:
-                selected_item.update(
-                    {
-                        "situation": achievement.get("situation"),
-                        "task": achievement.get("task"),
-                        "action": achievement.get("action"),
-                        "result": achievement.get("result"),
-                        "metric_text": achievement.get("metric_text"),
-                    }
+            selected.append(
+                SelectedAchievement(
+                    id=achievement.get("id"),
+                    title=title,
+                    situation=None if legacy_title_only_mode else achievement.get("situation"),
+                    task=None if legacy_title_only_mode else achievement.get("task"),
+                    action=None if legacy_title_only_mode else achievement.get("action"),
+                    result=None if legacy_title_only_mode else achievement.get("result"),
+                    metric_text=None if legacy_title_only_mode else achievement.get("metric_text"),
+                    fact_status="confirmed",
+                    reason=reason,
                 )
-
-            selected.append(selected_item)
+            )
 
         selected = sorted(
             selected,
             key=lambda item: (
-                0 if item["reason"] == "keyword_overlap" else
-                1 if item["reason"] == "ai_relevance" else
-                2 if item["reason"] == "analysis_relevance" else
+                0 if item.reason == "keyword_overlap" else
+                1 if item.reason == "ai_relevance" else
+                2 if item.reason == "analysis_relevance" else
                 3
             ),
         )
-        return selected[:2]
+        return [
+            achievement_to_dict(item)
+            for item in selected[:2]
+        ]
 
     def _build_opening(
         self,
@@ -477,10 +464,13 @@ class CoverLetterGenerationService:
         if selected_achievements:
             achievement_titles = []
             for item in selected_achievements[:2]:
-                if item.get("metric_text"):
-                    achievement_titles.append(f"{item['title']} ({item['metric_text']})")
+                achievement = ensure_selected_achievement(item)
+                title = achievement.title
+                metric_text = achievement.metric_text
+                if metric_text:
+                    achievement_titles.append(f"{title} ({metric_text})")
                 else:
-                    achievement_titles.append(item["title"])
+                    achievement_titles.append(title)
             parts.append(
                 "Также могу обсудить релевантный проектный опыт: "
                 f"{'; '.join(achievement_titles)}."
@@ -535,7 +525,27 @@ class CoverLetterGenerationService:
         if not critical_gaps:
             return None
 
-        # Карта "мягких" формулировок для частых технологий
+        mitigations = self._build_gap_mitigations(
+            critical_gaps=critical_gaps,
+            vacancy_title=vacancy_title,
+        )
+
+        if not mitigations:
+            return None
+
+        return (
+            "Отмечу, что "
+            + "; ".join(item.mitigation_text for item in mitigations)
+            + ". "
+            "Готов оперативно закрыть оставшиеся зоны в процессе онбординга."
+        )
+
+    def _build_gap_mitigations(
+        self,
+        *,
+        critical_gaps: list[str],
+        vacancy_title: str,
+    ) -> list[GapMitigation]:
         bridge_phrases = {
             "FastAPI": "имею опыт работы с async-фреймворками (Starlette, aiohttp) и готов быстро адаптироваться под FastAPI",
             "PostgreSQL": "работаю с реляционными СУБД и знаком с принципами оптимизации запросов",
@@ -546,23 +556,27 @@ class CoverLetterGenerationService:
             "AWS": "имею опыт работы с облачными сервисами и готов освоить специфичные для роли инструменты",
         }
 
-        mitigations: list[str] = []
+        mitigations: list[GapMitigation] = []
         for gap in critical_gaps:
-            # Пробуем найти готовую формулировку
             phrase = bridge_phrases.get(gap)
             if phrase:
-                mitigations.append(phrase)
+                mitigations.append(
+                    GapMitigation(
+                        keyword=gap,
+                        mitigation_text=phrase,
+                    )
+                )
             else:
-                # Fallback: нейтральная, но проактивная формулировка
-                mitigations.append(f"активно изучаю {gap} в рамках подготовки к роли {vacancy_title}")
+                mitigations.append(
+                    GapMitigation(
+                        keyword=gap,
+                        mitigation_text=(
+                            f"активно изучаю {gap} в рамках подготовки к роли {vacancy_title}"
+                        ),
+                    )
+                )
 
-        if not mitigations:
-            return None
-
-        return (
-            "Отмечу, что " + "; ".join(mitigations) + ". "
-            "Готов оперативно закрыть оставшиеся зоны в процессе онбординга."
-        )
+        return mitigations
 
     def _build_claims_needing_confirmation(
         self,
@@ -570,13 +584,14 @@ class CoverLetterGenerationService:
         selected_achievements: list[dict],
     ) -> list[dict]:
         return [
-            {
-                "type": "achievement",
-                "text": item["title"],
-                "fact_status": item["fact_status"],
-            }
+            build_claim(
+                claim_type="achievement",
+                text=ensure_selected_achievement(item).title,
+                fact_status=ensure_selected_achievement(item).fact_status,
+                source="candidate_achievements",
+            )
             for item in selected_achievements
-            if item.get("fact_status") != "confirmed"
+            if ensure_selected_achievement(item).fact_status != "confirmed"
         ]
 
     def _build_warnings(
@@ -585,26 +600,52 @@ class CoverLetterGenerationService:
         matched_keywords: list[str],
         missing_keywords: list[str],
         selected_achievements: list[dict],
-    ) -> list[str]:
-        warnings: list[str] = []
+    ) -> list[dict]:
+        warnings: list[dict] = []
 
-        if any(item.get("fact_status") != "confirmed" for item in selected_achievements):
+        if any(ensure_selected_achievement(item).fact_status != "confirmed" for item in selected_achievements):
             warnings.append(
-                "selected achievements remain in needs_confirmation status and require user review"
+                build_warning(
+                    code="unconfirmed_achievements",
+                    message=(
+                        "selected achievements remain in needs_confirmation status "
+                        "and require user review"
+                    ),
+                    severity="warning",
+                )
             )
 
         if missing_keywords:
             warnings.append(
-                f"profile does not strongly support these vacancy keywords yet: "
-                f"{', '.join(missing_keywords[:6])}"
+                build_warning(
+                    code="missing_vacancy_keywords",
+                    message=(
+                        "profile does not strongly support these vacancy keywords yet: "
+                        f"{', '.join(missing_keywords[:6])}"
+                    ),
+                    severity="warning",
+                )
             )
 
         if not matched_keywords:
             warnings.append(
-                "current letter has weak profile-to-vacancy overlap and needs stronger factual grounding"
+                build_warning(
+                    code="weak_profile_overlap",
+                    message=(
+                        "current letter has weak profile-to-vacancy overlap and "
+                        "needs stronger factual grounding"
+                    ),
+                    severity="warning",
+                )
             )
 
-        warnings.append("cover letter draft should be reviewed before sending")
+        warnings.append(
+            build_warning(
+                code="draft_review_required",
+                message="cover letter draft should be reviewed before sending",
+                severity="info",
+            )
+        )
         return warnings
 
     def _compute_confidence(
@@ -619,7 +660,7 @@ class CoverLetterGenerationService:
 
         confirmed_count = sum(
             1 for item in selected_achievements
-            if item.get("fact_status") == "confirmed"
+            if ensure_selected_achievement(item).fact_status == "confirmed"
         )
         confirmed_ratio = confirmed_count / len(selected_achievements)
 
@@ -630,15 +671,6 @@ class CoverLetterGenerationService:
             base_score -= penalty
 
         return round(max(0.1, min(1.0, base_score)), 2)
-
-    def _render_cover_letter(self, content_json: dict) -> str:
-        sections = content_json["sections"]
-
-        return (
-            f"{sections['opening']}\n\n"
-            f"{sections['relevance_paragraph']}\n\n"
-            f"{sections['closing']}"
-        ).strip()
 
     def _dedupe_preserve_order(self, values: list[str]) -> list[str]:
         seen: set[str] = set()

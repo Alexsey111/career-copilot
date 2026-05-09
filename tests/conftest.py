@@ -4,8 +4,11 @@ import asyncio
 import os
 import re
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
+from alembic import command
+from alembic.config import Config
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -17,6 +20,7 @@ from sqlalchemy.pool import NullPool
 from app import models  # noqa: F401
 from app.api.dependencies import get_current_dev_user
 from app.api.dependencies import get_current_active_user
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
@@ -88,32 +92,42 @@ TestSessionLocal = async_sessionmaker(
 
 async def reset_database() -> None:
     async with test_engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+
+
+async def truncate_database() -> None:
+    async with test_engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(table.delete())
 
 
-@pytest_asyncio.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session")
 async def prepare_test_db():
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    await reset_database()
+
+    os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+    os.environ["SYNC_DATABASE_URL"] = TEST_DATABASE_URL
+    get_settings.cache_clear()
+
+    alembic_cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(alembic_cfg, "head")
 
     yield
 
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    await reset_database()
 
     await test_engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def db_session(prepare_test_db):
-    await reset_database()
+    await truncate_database()
 
     async with TestSessionLocal() as session:
         yield session
 
-    await reset_database()
+    await truncate_database()
 
 
 @pytest_asyncio.fixture
@@ -186,9 +200,11 @@ async def client(db_session: AsyncSession, test_user: User):
     async def override_get_db_session():
         yield db_session
 
+    test_user_id = test_user.id
+
     def override_current_user():
         return SimpleNamespace(
-            id=test_user.id,
+            id=test_user_id,
             is_active=True,
             is_verified=True,
         )

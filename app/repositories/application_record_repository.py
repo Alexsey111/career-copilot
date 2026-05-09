@@ -19,13 +19,14 @@ class ApplicationRecordRepository:
         *,
         user_id: UUID,
         vacancy_id: UUID,
-        resume_document_id: UUID | None,
-        cover_letter_document_id: UUID | None,
-        status: str,
-        channel: str | None,
-        applied_at: datetime | None,
-        outcome: str | None,
-        notes: str | None,
+        resume_document_id: UUID | None = None,
+        cover_letter_document_id: UUID | None = None,
+        status: str = "draft",
+        source: str | None = None,
+        external_link: str | None = None,
+        notes: str | None = None,
+        applied_at: datetime | None = None,
+        outcome: str | None = None,
     ) -> ApplicationRecord:
         application = ApplicationRecord(
             user_id=user_id,
@@ -33,10 +34,11 @@ class ApplicationRecordRepository:
             resume_document_id=resume_document_id,
             cover_letter_document_id=cover_letter_document_id,
             status=status,
-            channel=channel,
+            source=source,
+            external_link=external_link,
+            notes=notes,
             applied_at=applied_at,
             outcome=outcome,
-            notes=notes,
         )
         session.add(application)
         await session.flush()

@@ -7,42 +7,86 @@ Pydantic-контракты для JSON-полей в БД.
 
 from __future__ import annotations
 
-from typing import Any
+from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Any, Literal
 
+from pydantic import Field, field_validator
+
+from app.schemas.base import StrictBaseModel
+from app.schemas.common_types import (
+    ContentSource,
+    DocumentKind,
+    FactStatus,
+    RequirementScope,
+)
+
+ReviewStatus = Literal[
+    "draft",
+    "review_required",
+    "reviewed",
+    "approved",
+    "archived",
+]
+
+ReviewerAction = Literal[
+    "accept_all",
+    "reject_all",
+    "accept_selected",
+    "reject_selected",
+    "edit_and_accept",
+]
+
+ReviewSeverity = Literal[
+    "info",
+    "warning",
+    "critical",
+]
+
+InterviewQuestionSource = Literal[
+    "vacancy",
+    "vacancy_analysis.must_have",
+    "vacancy_analysis.gaps",
+    "vacancy_analysis.strengths",
+    "candidate_achievements",
+]
+
+DraftMode = Literal[
+    "deterministic_v1_review_ready",
+    "ai_enhanced_v1",
+]
 
 # ---------------------------------------------------------------------------
 # VacancyAnalysis JSON fields
 # ---------------------------------------------------------------------------
 
-class RequirementItem(BaseModel):
+class RequirementItem(StrictBaseModel):
     """Один требование из must_have / nice_to_have."""
     text: str
-    scope: str = "must_have"  # must_have | nice_to_have
+    scope: RequirementScope = "must_have"
     keyword: str | None = None
     weight: int | None = None
 
 
-class GapItem(BaseModel):
+class GapItem(StrictBaseModel):
     """Один gap из gaps_json."""
     keyword: str
-    scope: str = "must_have"
+    scope: RequirementScope = "must_have"
     reason: str | None = None
     requirement_text: str | None = None
     weight: int | None = None
 
 
-class StrengthItem(BaseModel):
+class StrengthItem(StrictBaseModel):
     """Один strength из strengths_json."""
     keyword: str
-    scope: str = "must_have"
+    scope: RequirementScope = "must_have"
     evidence: str | None = None
     requirement_text: str | None = None
     weight: int | None = None
 
 
-class VacancyAnalysisSchema(BaseModel):
+class VacancyAnalysisSchema(StrictBaseModel):
     """Контракт для VacancyAnalysis.*_json полей."""
     must_have: list[RequirementItem] = Field(default_factory=list)
     nice_to_have: list[RequirementItem] = Field(default_factory=list)
@@ -65,7 +109,7 @@ class VacancyAnalysisSchema(BaseModel):
 # DocumentVersion content_json
 # ---------------------------------------------------------------------------
 
-class ContentMeta(BaseModel):
+class ContentMeta(StrictBaseModel):
     """Мета-информация о происхождении контента.
     
     source: откуда пришёл контент
@@ -87,49 +131,98 @@ class ContentMeta(BaseModel):
         - 0.1-0.4 = предположение / gap mitigation
     
     generation_prompt_version: какая версия промпта использовалась
+    
+    generation_trace: трассировка генерации для debugging и evaluation
+        selected_achievement_ids, matched_keywords, missing_keywords,
+        builder_version, renderer_version, prompt_version
+    
+    ai_metadata: аудит-трейл для AI enhancement
+        model, prompt_version, temperature, safety_checks_passed
     """
-    source: str = "ai_generated"  # extracted | ai_generated | user_edited | hybrid
-    based_on_achievements: list[str] = Field(default_factory=list)
-    based_on_analysis_id: str | None = None
+    source: ContentSource = "ai_generated"
+    based_on_achievements: list[UUID] = Field(default_factory=list)
+    based_on_analysis_id: UUID | None = None
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     generation_prompt_version: str | None = None
     generated_at: str | None = None  # ISO timestamp
-    warnings: list[str] = Field(default_factory=list)
+    warnings: list["WarningItem"] = Field(default_factory=list)
+
+    # Generation trace for explainability
+    generation_trace: dict[str, Any] = Field(default_factory=dict)
+
+    # AI audit trail for enhancement operations
+    ai_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class CandidateInfo(BaseModel):
+class CandidateInfo(StrictBaseModel):
     full_name: str | None = None
     headline: str | None = None
     location: str | None = None
     target_roles: list[str] = Field(default_factory=list)
 
 
-class TargetVacancy(BaseModel):
-    vacancy_id: str
+class TargetVacancy(StrictBaseModel):
+    vacancy_id: UUID
     title: str
     company: str | None = None
     location: str | None = None
 
 
-class AchievementItem(BaseModel):
+class AchievementItem(StrictBaseModel):
+    id: UUID | None = None
     title: str
     situation: str | None = None
     task: str | None = None
     action: str | None = None
     result: str | None = None
     metric_text: str | None = None
-    fact_status: str = "confirmed"
+    fact_status: FactStatus = "confirmed"
     reason: str = "profile_core"
 
 
-class ExperienceItem(BaseModel):
+class WarningItem(StrictBaseModel):
+    code: str
+    message: str
+    severity: str = "warning"
+
+
+class ClaimItem(StrictBaseModel):
+    type: str
+    text: str
+    fact_status: FactStatus
+    source: str | None = None
+    resolved_at: str | None = None  # ISO timestamp when resolved
+    resolution_note: str | None = None  # Why accepted/rejected
+
+
+class ResolvedClaimItem(StrictBaseModel):
+    """Claim after review resolution."""
+    claim_text: str
+    original_status: FactStatus
+    final_status: FactStatus  # "confirmed" or "rejected"
+    resolved_at: str
+    resolved_by: str | None = None
+    resolution_reason: str | None = None
+    edited_text: str | None = None
+
+
+class WarningItem(StrictBaseModel):
+    code: str
+    message: str
+    severity: ReviewSeverity = "warning"
+    section: str | None = None
+    claim_text: str | None = None
+
+
+class ExperienceItem(StrictBaseModel):
     company: str
     role: str
     period: str
     description_raw: str | None = None
 
 
-class DocumentSections(BaseModel):
+class BaseResumeSections(StrictBaseModel):
+    """Общий набор секций для resume-подобных документов."""
     fit_summary: dict[str, Any] = Field(default_factory=dict)
     summary_bullets: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
@@ -139,15 +232,20 @@ class DocumentSections(BaseModel):
     missing_keywords: list[str] = Field(default_factory=list)
     matched_requirements: list[dict] = Field(default_factory=list)
     gap_requirements: list[dict] = Field(default_factory=list)
-    claims_needing_confirmation: list[dict] = Field(default_factory=list)
+    claims_needing_confirmation: list[ClaimItem] = Field(default_factory=list)
+    resolved_claims: list[ResolvedClaimItem] = Field(default_factory=list)
     selection_rationale: list[dict] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    warnings: list[WarningItem] = Field(default_factory=list)
 
 
-class DocumentContentSchema(BaseModel):
+class DocumentSections(BaseResumeSections):
+    pass
+
+
+class DocumentContentSchema(StrictBaseModel):
     """Контракт для DocumentVersion.content_json."""
-    document_kind: str = "resume"
-    draft_mode: str = "deterministic_v1_review_ready"
+    document_kind: DocumentKind = "resume"
+    draft_mode: DraftMode = "deterministic_v1_review_ready"
     candidate: CandidateInfo = Field(default_factory=CandidateInfo)
     target_vacancy: TargetVacancy | None = None
     sections: DocumentSections = Field(default_factory=DocumentSections)
@@ -158,23 +256,12 @@ class DocumentContentSchema(BaseModel):
 # Type-specific document schemas (discriminated by document_kind)
 # ---------------------------------------------------------------------------
 
-class ResumeSections(BaseModel):
+class ResumeSections(BaseResumeSections):
     """Sections для resume."""
-    fit_summary: dict[str, Any] = Field(default_factory=dict)
-    summary_bullets: list[str] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
-    experience: list[ExperienceItem] = Field(default_factory=list)
-    selected_achievements: list[AchievementItem] = Field(default_factory=list)
-    matched_keywords: list[str] = Field(default_factory=list)
-    missing_keywords: list[str] = Field(default_factory=list)
-    matched_requirements: list[dict] = Field(default_factory=list)
-    gap_requirements: list[dict] = Field(default_factory=list)
-    claims_needing_confirmation: list[dict] = Field(default_factory=list)
-    selection_rationale: list[dict] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    pass
 
 
-class CoverLetterSections(BaseModel):
+class CoverLetterSections(StrictBaseModel):
     """Sections для cover_letter."""
     opening: str = ""
     relevance_paragraph: str = ""
@@ -184,24 +271,25 @@ class CoverLetterSections(BaseModel):
     matched_requirements: list[dict] = Field(default_factory=list)
     gap_requirements: list[dict] = Field(default_factory=list)
     selected_achievements: list[AchievementItem] = Field(default_factory=list)
-    claims_needing_confirmation: list[dict] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    claims_needing_confirmation: list[ClaimItem] = Field(default_factory=list)
+    resolved_claims: list[ResolvedClaimItem] = Field(default_factory=list)
+    warnings: list[WarningItem] = Field(default_factory=list)
 
 
-class ResumeContent(BaseModel):
+class ResumeContent(StrictBaseModel):
     """Строгая схема для resume content_json."""
-    document_kind: str = "resume"
-    draft_mode: str = "deterministic_v1_review_ready"
+    document_kind: DocumentKind = "resume"
+    draft_mode: DraftMode = "deterministic_v1_review_ready"
     candidate: CandidateInfo = Field(default_factory=CandidateInfo)
     target_vacancy: TargetVacancy | None = None
     sections: ResumeSections = Field(default_factory=ResumeSections)
     meta: ContentMeta = Field(default_factory=ContentMeta)
 
 
-class CoverLetterContent(BaseModel):
+class CoverLetterContent(StrictBaseModel):
     """Строгая схема для cover_letter content_json."""
-    document_kind: str = "cover_letter"
-    draft_mode: str = "deterministic_v1_review_ready"
+    document_kind: DocumentKind = "cover_letter"
+    draft_mode: DraftMode = "deterministic_v1_review_ready"
     candidate: CandidateInfo = Field(default_factory=CandidateInfo)
     target_vacancy: TargetVacancy | None = None
     sections: CoverLetterSections = Field(default_factory=CoverLetterSections)
@@ -212,7 +300,7 @@ class CoverLetterContent(BaseModel):
 # InterviewSession JSON fields
 # ---------------------------------------------------------------------------
 
-class InterviewQuestion(BaseModel):
+class InterviewQuestion(StrictBaseModel):
     """Один вопрос из question_set_json."""
     # Legacy поля (опциональные для обратной совместимости)
     question_id: str | None = None
@@ -222,18 +310,18 @@ class InterviewQuestion(BaseModel):
 
     # Основные поля текущей реализации
     type: str | None = None
-    source: str | None = None
+    source: InterviewQuestionSource | None = None
     prompt: str | None = None
     answer_format: str | None = None
     rubric: list[str] = Field(default_factory=list)
     requirement_text: str | None = None
     keyword: str | None = None
-    scope: str | None = None
+    scope: RequirementScope | None = None
     achievement_title: str | None = None
-    fact_status: str | None = None
+    fact_status: FactStatus | None = None
 
 
-class InterviewAnswer(BaseModel):
+class InterviewAnswer(StrictBaseModel):
     """Один ответ из answers_json."""
     # Legacy поля (опциональные)
     question_id: str | None = None
@@ -247,7 +335,7 @@ class InterviewAnswer(BaseModel):
     answer_format: str | None = None
 
 
-class InterviewScore(BaseModel):
+class InterviewScore(StrictBaseModel):
     """Score из score_json."""
     overall: float | None = Field(default=None, ge=0, le=1)
     by_category: dict[str, float] = Field(default_factory=dict)
@@ -261,7 +349,7 @@ class InterviewScore(BaseModel):
     readiness_score: int | None = None
 
 
-class InterviewSessionSchema(BaseModel):
+class InterviewSessionSchema(StrictBaseModel):
     """Контракт для InterviewSession.*_json полей."""
     question_set: list[InterviewQuestion] = Field(default_factory=list)
     answers: list[InterviewAnswer] = Field(default_factory=list)
@@ -282,7 +370,7 @@ class InterviewSessionSchema(BaseModel):
 # InterviewAnswerAttempt feedback_json
 # ---------------------------------------------------------------------------
 
-class AttemptFeedbackSchema(BaseModel):
+class AttemptFeedbackSchema(StrictBaseModel):
     """Контракт для InterviewAnswerAttempt.feedback_json."""
     feedback: list[str] = Field(default_factory=list)
     coaching: dict[str, str] | None = None

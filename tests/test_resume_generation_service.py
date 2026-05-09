@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.orchestrator import AIOrchestrator
 from app.ai.clients.base import BaseLLMClient
 from app.services.resume_generation_service import ResumeGenerationService
+from app.services.resume_renderer import render_resume
 
 
 class MockResumeClient(BaseLLMClient):
@@ -131,6 +132,133 @@ Integrated with PostgreSQL database for efficient data persistence."""
 
 
 @pytest.mark.asyncio
+async def test_resume_enhancement_rejects_loss_of_protected_terms(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Тест что protected tech terms должны сохраниться в enhanced text."""
+
+    class ProtectedTermLosingClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {
+                    "enhanced_text": (
+                        "Built secure backend services with observability, testing, "
+                        "and access controls for user flows."
+                    ),
+                },
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=ProtectedTermLosingClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    original = """Built secure backend services with Python, FastAPI, PostgreSQL, Redis,
+Docker, Kubernetes, AWS, LLM, and SQLAlchemy for user authentication and authorization."""
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    assert result == original
+    assert "Python" in result
+    assert "FastAPI" in result
+    assert "SQLAlchemy" in result
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_accepts_semantic_retention(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Тест что семантические замены auth/access control проходят safety check."""
+
+    class SemanticRetentionClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {
+                    "enhanced_text": (
+                        "Built secure user auth and access control flows for backend "
+                        "services with observability and testing."
+                    ),
+                },
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=SemanticRetentionClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    original = """Built secure user authentication and authorization flows for backend
+services with observability and testing."""
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    assert result != original
+    assert "auth" in result.lower()
+    assert "access control" in result.lower()
+    assert "backend" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_rejects_excessive_expansion(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Тест что чрезмерное раздувание текста отклоняется."""
+
+    class ExpandingClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {
+                    "enhanced_text": (
+                        "Built secure backend services with Python and FastAPI. "
+                        "This solution was designed, architected, implemented, "
+                        "documented, monitored, validated, optimized, and reviewed "
+                        "for every possible operational scenario. "
+                        "It includes extensive narrative about workflows, metrics, "
+                        "stakeholders, delivery, collaboration, and future roadmap. "
+                        "Built secure backend services with Python and FastAPI. "
+                        "This solution was designed, architected, implemented, "
+                        "documented, monitored, validated, optimized, and reviewed "
+                        "for every possible operational scenario. "
+                        "It includes extensive narrative about workflows, metrics, "
+                        "stakeholders, delivery, collaboration, and future roadmap. "
+                        "Built secure backend services with Python and FastAPI. "
+                        "This solution was designed, architected, implemented, "
+                        "documented, monitored, validated, optimized, and reviewed "
+                        "for every possible operational scenario. "
+                        "It includes extensive narrative about workflows, metrics, "
+                        "stakeholders, delivery, collaboration, and future roadmap."
+                    ),
+                },
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=ExpandingClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    original = "Built secure backend services with Python and FastAPI."
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    assert result == original
+    assert result.count("Python") == 1
+
+
+@pytest.mark.asyncio
 async def test_resume_enhancement_in_russian(db_session: AsyncSession, test_user):
     """Тест что AI enhancement работает с русским языком."""
 
@@ -206,7 +334,7 @@ def test_resume_generation_selects_matched_skills_first_without_claiming_gaps() 
 def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
     service = ResumeGenerationService()
 
-    rendered = service._render_resume_text(
+    rendered = render_resume(
         {
             "candidate": {
                 "full_name": "Test User",
@@ -345,15 +473,30 @@ def test_resume_selected_achievements_are_confirmed_and_do_not_create_claims() -
     service = ResumeGenerationService()
 
     selected = service._select_relevant_achievements(
-        achievement_titles=["?????????????? AI-??????"],
+        achievements=[
+            {
+                "title": "Создание AI-платформы",
+                "fact_status": "confirmed",
+                "situation": "Нужно было ускорить запуск продукта",
+                "task": "Спроектировать и внедрить backend для AI workflow",
+                "action": "Собрал сервисы, API и pipeline интеграции",
+                "result": "Сократил time-to-market на 20%",
+                "metric_text": "time-to-market -20%",
+            }
+        ],
         keywords=["Python"],
     )
 
     assert selected == [
         {
-            "title": "?????????????? AI-??????",
+            "title": "Создание AI-платформы",
             "fact_status": "confirmed",
             "reason": "ai_relevance",
+            "situation": "Нужно было ускорить запуск продукта",
+            "task": "Спроектировать и внедрить backend для AI workflow",
+            "action": "Собрал сервисы, API и pipeline интеграции",
+            "result": "Сократил time-to-market на 20%",
+            "metric_text": "time-to-market -20%",
         }
     ]
 

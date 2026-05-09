@@ -1,7 +1,7 @@
 """make_password_hash_nullable
 
 Revision ID: e1f2a3b4c5d6
-Revises: b8e0b417ae85
+Revises: 90ce6c62745c
 Create Date: 2026-05-07 00:00:00.000000
 
 """

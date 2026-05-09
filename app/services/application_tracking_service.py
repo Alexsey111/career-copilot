@@ -10,14 +10,12 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.application_statuses import (
-    ALLOWED_STATUS_TRANSITIONS,
-    APPLICATION_STATUSES,
-    APPLICATION_STATUS_DRAFT,
-    APPLICATION_STATUS_OFFER,
-    APPLICATION_STATUS_REJECTED,
-    APPLICATION_STATUS_SUBMITTED,
+from app.domain.application_models import (
+    ApplicationStatus,
+    is_valid_transition,
+    get_allowed_transitions,
 )
+from app.repositories.application_event_repository import ApplicationEventRepository
 from app.repositories.application_record_repository import ApplicationRecordRepository
 from app.repositories.application_status_history_repository import (
     ApplicationStatusHistoryRepository,
@@ -52,6 +50,7 @@ class ApplicationTrackingService:
         application_status_history_repository: (
             ApplicationStatusHistoryRepository | None
         ) = None,
+        application_event_repository: ApplicationEventRepository | None = None,
         vacancy_repository: VacancyRepository | None = None,
         document_version_repository: DocumentVersionRepository | None = None,
     ) -> None:
@@ -61,6 +60,9 @@ class ApplicationTrackingService:
         self.application_status_history_repository = (
             application_status_history_repository
             or ApplicationStatusHistoryRepository()
+        )
+        self.application_event_repository = (
+            application_event_repository or ApplicationEventRepository()
         )
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.document_version_repository = (
@@ -73,9 +75,10 @@ class ApplicationTrackingService:
         *,
         user_id: UUID,
         vacancy_id: UUID,
-        resume_document_id: UUID | None,
-        cover_letter_document_id: UUID | None,
-        notes: str | None,
+        resume_document_id: UUID | None = None,
+        cover_letter_document_id: UUID | None = None,
+        source: str | None = None,
+        notes: str | None = None,
     ):
         vacancy = await self.vacancy_repository.get_by_id(
             session,
@@ -88,79 +91,53 @@ class ApplicationTrackingService:
                 detail="vacancy not found",
             )
 
-        existing = await self.application_record_repository.get_by_user_id_and_vacancy_id(
-            session,
-            user_id=user_id,
-            vacancy_id=vacancy_id,
-        )
-        if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="application already exists for this vacancy",
-            )
-
-        if resume_document_id is None:
-            active_resume = await self.document_version_repository.get_active_for_scope(
-                session,
-                user_id=vacancy.user_id,
-                vacancy_id=vacancy.id,
-                document_kind="resume",
-            )
-            if active_resume is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="no active resume found for this vacancy",
-                )
-            selected_resume_id = active_resume.id
-        else:
-            selected_resume = await self._validate_application_document(
+        # Проверяем, что документы существуют и approved (snapshot versions)
+        if resume_document_id is not None:
+            resume_doc = await self._validate_application_document(
                 session,
                 document_id=resume_document_id,
-                user_id=vacancy.user_id,
-                vacancy_id=vacancy.id,
+                user_id=user_id,
+                vacancy_id=vacancy_id,
                 expected_kind="resume",
                 required=True,
             )
-            selected_resume_id = selected_resume.id
 
-        if cover_letter_document_id is None:
-            active_cover_letter = await self.document_version_repository.get_active_for_scope(
-                session,
-                user_id=vacancy.user_id,
-                vacancy_id=vacancy.id,
-                document_kind="cover_letter",
-            )
-            selected_cover_letter_id = active_cover_letter.id if active_cover_letter else None
-        else:
-            selected_cover_letter = await self._validate_application_document(
+        if cover_letter_document_id is not None:
+            cover_letter_doc = await self._validate_application_document(
                 session,
                 document_id=cover_letter_document_id,
-                user_id=vacancy.user_id,
-                vacancy_id=vacancy.id,
+                user_id=user_id,
+                vacancy_id=vacancy_id,
                 expected_kind="cover_letter",
                 required=False,
             )
-            selected_cover_letter_id = selected_cover_letter.id
+
+        source = source or vacancy.source
 
         try:
             application = await self.application_record_repository.create(
                 session,
-                user_id=vacancy.user_id,
-                vacancy_id=vacancy.id,
-                resume_document_id=selected_resume_id,
-                cover_letter_document_id=selected_cover_letter_id,
-                status=APPLICATION_STATUS_DRAFT,
-                channel="manual",
-                applied_at=None,
-                outcome=None,
+                user_id=user_id,
+                vacancy_id=vacancy_id,
+                resume_document_id=resume_document_id,
+                cover_letter_document_id=cover_letter_document_id,
+                status="draft",
+                source=source,
                 notes=notes,
             )
             await self.application_status_history_repository.create(
                 session,
                 application_id=application.id,
                 previous_status=None,
-                new_status=APPLICATION_STATUS_DRAFT,
+                new_status="draft",
                 notes=notes,
+            )
+            await self._add_event(
+                session,
+                application=application,
+                event_type="status_changed",
+                title="Application created",
+                description="Application record created in draft status",
             )
             await session.flush()
         except IntegrityError as exc:
@@ -221,6 +198,197 @@ class ApplicationTrackingService:
 
         return document
 
+    async def attach_documents(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        user_id: UUID,
+        resume_document_id: UUID | None = None,
+        cover_letter_document_id: UUID | None = None,
+    ):
+        """Прикрепляет versioned документы к application."""
+        application = await self.get_application(
+            session,
+            application_id=application_id,
+            user_id=user_id,
+        )
+
+        # Проверяем документы
+        if resume_document_id is not None:
+            resume_doc = await self._validate_application_document(
+                session,
+                document_id=resume_document_id,
+                user_id=user_id,
+                vacancy_id=application.vacancy_id,
+                expected_kind="resume",
+                required=True,
+            )
+
+        if cover_letter_document_id is not None:
+            cover_letter_doc = await self._validate_application_document(
+                session,
+                document_id=cover_letter_document_id,
+                user_id=user_id,
+                vacancy_id=application.vacancy_id,
+                expected_kind="cover_letter",
+                required=False,
+            )
+
+        application.resume_document_id = resume_document_id
+        application.cover_letter_document_id = cover_letter_document_id
+
+        await self._add_event(
+            session,
+            application=application,
+            event_type="document_attached",
+            title="Documents attached",
+            description=(
+                f"Resume: {resume_document_id}, "
+                f"Cover Letter: {cover_letter_document_id}"
+            ),
+        )
+
+        await session.flush()
+        await session.refresh(application)
+        return application
+
+    async def schedule_interview(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        user_id: UUID,
+        interview_date: datetime,
+        notes: str | None = None,
+    ):
+        """Запланировать интервью."""
+        application = await self.get_application(
+            session,
+            application_id=application_id,
+            user_id=user_id,
+        )
+
+        await self._add_event(
+            session,
+            application=application,
+            event_type="interview_scheduled",
+            title="Interview scheduled",
+            description=notes,
+            meta_json={"interview_date": interview_date.isoformat()},
+        )
+
+        await session.flush()
+        return application
+
+    async def add_note(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        user_id: UUID,
+        note: str,
+    ):
+        """Добавить заметку."""
+        application = await self.get_application(
+            session,
+            application_id=application_id,
+            user_id=user_id,
+        )
+
+        await self._add_event(
+            session,
+            application=application,
+            event_type="note_added",
+            title="Note added",
+            description=note,
+        )
+
+        await session.flush()
+        return application
+
+    async def add_external_link(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        user_id: UUID,
+        external_link: str,
+    ):
+        """Добавить внешнюю ссылку."""
+        application = await self.get_application(
+            session,
+            application_id=application_id,
+            user_id=user_id,
+        )
+
+        application.external_link = external_link
+
+        await self._add_event(
+            session,
+            application=application,
+            event_type="external_link_added",
+            title="External link added",
+            description=f"Link: {external_link}",
+        )
+
+        await session.flush()
+        await session.refresh(application)
+        return application
+
+    async def submit_application(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        user_id: UUID,
+        source: str | None = None,
+        external_link: str | None = None,
+    ):
+        """Подаёт application (ready → applied)."""
+        application = await self.get_application(
+            session,
+            application_id=application_id,
+            user_id=user_id,
+        )
+
+        if application.status != "ready":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"can only submit application with status 'ready', current: {application.status}",
+            )
+
+        if application.resume_document_id is None and application.cover_letter_document_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="at least one document must be attached before submission",
+            )
+
+        application.status = "applied"
+        application.source = source
+        application.external_link = external_link
+        application.applied_at = datetime.now(timezone.utc)
+
+        await self.application_status_history_repository.create(
+            session,
+            application_id=application.id,
+            previous_status="ready",
+            new_status="applied",
+            notes=None,
+        )
+
+        await self._add_event(
+            session,
+            application=application,
+            event_type="applied",
+            title="Application submitted",
+            description=f"Submitted via {source or 'manual'}",
+        )
+
+        await session.flush()
+        await session.refresh(application)
+        return application
+
     async def update_status(
         self,
         session: AsyncSession,
@@ -228,30 +396,23 @@ class ApplicationTrackingService:
         application_id: UUID,
         user_id: UUID,
         status_value: str,
-        notes: str | None,
+        notes: str | None = None,
     ):
-        application = await self.application_record_repository.get_by_id(
+        application = await self.get_application(
             session,
-            application_id,
+            application_id=application_id,
             user_id=user_id,
         )
-        if application is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="application not found",
-            )
 
         normalized_status = status_value.strip().lower()
-        if normalized_status not in APPLICATION_STATUSES:
+
+        if not is_valid_transition(application.status, normalized_status):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"status must be one of: {sorted(APPLICATION_STATUSES)}",
+                detail=(
+                    f"invalid application status transition: {application.status} -> {normalized_status}"
+                ),
             )
-
-        self._validate_status_transition(
-            current_status=application.status,
-            next_status=normalized_status,
-        )
 
         previous_status = application.status
         application.status = normalized_status
@@ -259,17 +420,11 @@ class ApplicationTrackingService:
         if notes:
             application.notes = notes
 
-        if (
-            normalized_status == APPLICATION_STATUS_SUBMITTED
-            and application.applied_at is None
-        ):
+        if normalized_status == "applied" and application.applied_at is None:
             application.applied_at = datetime.now(timezone.utc)
 
-        if normalized_status == APPLICATION_STATUS_REJECTED:
-            application.outcome = "rejected"
-
-        if normalized_status == APPLICATION_STATUS_OFFER:
-            application.outcome = "offer"
+        if normalized_status in {"rejected", "offer", "withdrawn"}:
+            application.outcome = normalized_status
 
         await self.application_status_history_repository.create(
             session,
@@ -277,6 +432,14 @@ class ApplicationTrackingService:
             previous_status=previous_status,
             new_status=normalized_status,
             notes=notes,
+        )
+
+        await self._add_event(
+            session,
+            application=application,
+            event_type="status_changed",
+            title=f"Status changed to {normalized_status}",
+            description=notes,
         )
 
         await session.flush()
@@ -289,19 +452,35 @@ class ApplicationTrackingService:
         current_status: str,
         next_status: str,
     ) -> None:
-        current = current_status.strip().lower()
-        next_value = next_status.strip().lower()
+        """Deprecated: Use is_valid_transition from app.domain.application_models."""
+        from app.domain.application_models import is_valid_transition, get_allowed_transitions
 
-        if current == next_value:
-            return
-
-        allowed_next = ALLOWED_STATUS_TRANSITIONS.get(current, set())
-        if next_value in allowed_next:
+        if is_valid_transition(current_status, next_status):  # type: ignore
             return
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"invalid application status transition: {current} -> {next_value}",
+            detail=f"invalid application status transition: {current_status} -> {next_status}",
+        )
+
+    async def _add_event(
+        self,
+        session: AsyncSession,
+        *,
+        application: Any,
+        event_type: str,
+        title: str | None = None,
+        description: str | None = None,
+        meta_json: dict | None = None,
+    ) -> None:
+        """Добавляет событие в timeline."""
+        await self.application_event_repository.create(
+            session,
+            application_id=application.id,
+            event_type=event_type,
+            title=title,
+            description=description,
+            meta_json=meta_json,
         )
 
     async def get_application(
@@ -324,6 +503,23 @@ class ApplicationTrackingService:
         return application
 
     async def get_application_timeline(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        user_id: UUID,
+    ):
+        await self.get_application(
+            session,
+            application_id=application_id,
+            user_id=user_id,
+        )
+        return await self.application_event_repository.list_by_application_id(
+            session,
+            application_id=application_id,
+        )
+
+    async def get_application_status_history(
         self,
         session: AsyncSession,
         *,
@@ -374,7 +570,8 @@ class ApplicationTrackingService:
                     "resume_document_id": application.resume_document_id,
                     "cover_letter_document_id": application.cover_letter_document_id,
                     "status": application.status,
-                    "channel": application.channel,
+                    "source": application.source,
+                    "external_link": application.external_link,
                     "applied_at": application.applied_at,
                     "outcome": application.outcome,
                     "notes": application.notes,

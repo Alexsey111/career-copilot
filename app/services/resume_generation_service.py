@@ -19,8 +19,31 @@ from app.repositories.document_version_repository import DocumentVersionReposito
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.schemas.json_contracts import ResumeContent
+from app.domain.document_models import SelectedAchievement
+from app.services.document_compat import (
+    achievement_to_dict,
+    ensure_keyword_set,
+    ensure_selected_achievement,
+)
+from app.services.document_feedback import build_claim, build_warning
+from app.services.document_builders import build_resume_content
+from app.services.resume_renderer import render_resume
 
+
+MAX_RESUME_WORDS = 1200
+MAX_KEYWORD_LOSS_RATIO = 0.3
+
+PROTECTED_TECH_TERMS = {
+    "python",
+    "fastapi",
+    "postgresql",
+    "redis",
+    "docker",
+    "kubernetes",
+    "aws",
+    "llm",
+    "sqlalchemy",
+}
 
 
 class ResumeGenerationService:
@@ -96,10 +119,12 @@ class ResumeGenerationService:
             raw_text=latest_extraction.extracted_text if latest_extraction else "",
         )
 
-        matched_keywords, missing_keywords = self._extract_match_keywords_from_analysis(
+        keyword_set = ensure_keyword_set(self._extract_match_keywords_from_analysis(
             strengths_json=analysis.strengths_json,
             gaps_json=analysis.gaps_json,
-        )
+        ))
+        matched_keywords = keyword_set.matched
+        missing_keywords = keyword_set.missing
 
         selected_skills = self._select_resume_skills(
             raw_skills=raw_skills,
@@ -163,71 +188,50 @@ class ResumeGenerationService:
                 if ai_summary:
                     fit_summary = ai_summary
 
-        content_json = {
-            "document_kind": "resume",
-            "draft_mode": "deterministic_v1_review_ready",
-            "candidate": {
+        content_json = build_resume_content(
+            candidate={
                 "full_name": profile.full_name,
                 "headline": profile.headline,
                 "location": profile.location,
                 "target_roles": profile.target_roles_json,
             },
-            "target_vacancy": {
+            target_vacancy={
                 "vacancy_id": str(vacancy.id),
                 "title": vacancy.title,
                 "company": vacancy.company,
                 "location": vacancy.location,
             },
-            "sections": {
-                "fit_summary": fit_summary,
-                "summary_bullets": summary_bullets,
-                "skills": selected_skills,
-                "experience": experience_items,
-                "selected_achievements": [
-                    {
-                        "id": item.get("id"),
-                        "title": item["title"],
-                        "situation": item.get("situation"),
-                        "task": item.get("task"),
-                        "action": item.get("action"),
-                        "result": item.get("result"),
-                        "metric_text": item.get("metric_text"),
-                        "fact_status": item["fact_status"],
-                        "reason": item["reason"],
-                    }
-                    for item in selected_achievements
-                ],
-                "matched_keywords": matched_keywords,
-                "missing_keywords": missing_keywords,
-                "matched_requirements": analysis.strengths_json,
-                "gap_requirements": analysis.gaps_json,
-                "claims_needing_confirmation": claims_needing_confirmation,
-                "selection_rationale": selection_rationale,
-                "warnings": warnings,
-            },
-            "meta": {
-                "source": "hybrid" if use_ai_enhancement else "extracted",
-                "based_on_achievements": [
-                    item.get("id") for item in selected_achievements if item.get("id")
-                ],
-                "based_on_analysis_id": str(analysis.id),
-                "confidence": self._compute_confidence(
-                    selected_achievements=selected_achievements,
-                    missing_keywords=missing_keywords,
-                ),
-                "generation_prompt_version": (
-                    "resume_tailor_v1" if use_ai_enhancement else None
-                ),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "warnings": [],
-            },
-        }
+            draft_mode=(
+                "ai_enhanced_v1" if use_ai_enhancement else "deterministic_v1_review_ready"
+            ),
+            fit_summary=fit_summary,
+            summary_bullets=summary_bullets,
+            skills=selected_skills,
+            experience=experience_items,
+            selected_achievements=selected_achievements,
+            matched_keywords=matched_keywords,
+            missing_keywords=missing_keywords,
+            matched_requirements=analysis.strengths_json,
+            gap_requirements=analysis.gaps_json,
+            claims_needing_confirmation=claims_needing_confirmation,
+            selection_rationale=selection_rationale,
+            warnings=warnings,
+            source="hybrid" if use_ai_enhancement else "extracted",
+            based_on_achievements=[
+                item["id"] for item in selected_achievements if item.get("id")
+            ],
+            based_on_analysis_id=str(analysis.id),
+            confidence=self._compute_confidence(
+                selected_achievements=selected_achievements,
+                missing_keywords=missing_keywords,
+            ),
+            generation_prompt_version=(
+                "resume_tailor_v1" if use_ai_enhancement else None
+            ),
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
 
-        # Валидация JSON-контракта перед сохранением (type-specific)
-        validated_content = ResumeContent.model_validate(content_json)
-        content_json = validated_content.model_dump()
-
-        rendered_text = self._render_resume_text(content_json)
+        rendered_text = render_resume(content_json)
 
         document = await self.document_version_repository.create(
             session,
@@ -439,23 +443,10 @@ class ResumeGenerationService:
 
     def _select_relevant_achievements(
         self,
-        achievements: list[dict] | None = None,
-        keywords: list[str] | None = None,
-        achievement_titles: list[str] | None = None,
+        achievements: list[dict],
+        keywords: list[str],
     ) -> list[dict]:
-        keywords = keywords or []
-        legacy_title_only_mode = achievements is None
-
-        if achievements is None:
-            achievements = [
-                {
-                    "title": title,
-                    "fact_status": "confirmed",
-                }
-                for title in (achievement_titles or [])
-            ]
-
-        selected: list[dict] = []
+        selected: list[SelectedAchievement] = []
 
         for achievement in achievements:
             title = str(achievement.get("title") or "").strip()
@@ -472,35 +463,33 @@ class ResumeGenerationService:
             elif "анализ" in title_lower or "data" in title_lower:
                 reason = "analysis_relevance"
 
-            selected_item = {
-                "title": title,
-                "fact_status": "confirmed",
-                "reason": reason,
-            }
-
-            if not legacy_title_only_mode:
-                selected_item.update(
-                    {
-                        "situation": achievement.get("situation"),
-                        "task": achievement.get("task"),
-                        "action": achievement.get("action"),
-                        "result": achievement.get("result"),
-                        "metric_text": achievement.get("metric_text"),
-                    }
+            selected.append(
+                SelectedAchievement(
+                    id=achievement.get("id"),
+                    title=title,
+                    situation=achievement.get("situation"),
+                    task=achievement.get("task"),
+                    action=achievement.get("action"),
+                    result=achievement.get("result"),
+                    metric_text=achievement.get("metric_text"),
+                    fact_status="confirmed",
+                    reason=reason,
                 )
-
-            selected.append(selected_item)
+            )
 
         selected = sorted(
             selected,
             key=lambda item: (
-                0 if item["reason"] == "keyword_overlap" else
-                1 if item["reason"] == "ai_relevance" else
-                2 if item["reason"] == "analysis_relevance" else
+                0 if item.reason == "keyword_overlap" else
+                1 if item.reason == "ai_relevance" else
+                2 if item.reason == "analysis_relevance" else
                 3
             ),
         )
-        return selected[:3]
+        return [
+            achievement_to_dict(item)
+            for item in selected[:3]
+        ]
 
     def _build_fit_summary(
         self,
@@ -545,7 +534,7 @@ class ResumeGenerationService:
         if selected_achievements:
             bullets.append(
                 "Проектный опыт для проверки и возможного использования в отклике: "
-                f"{selected_achievements[0]['title']}."
+                f"{ensure_selected_achievement(selected_achievements[0]).title}."
             )
 
         return bullets[:4]
@@ -593,24 +582,27 @@ class ResumeGenerationService:
         claims: list[dict] = []
 
         for item in selected_achievements:
-            if item.get("fact_status") == "confirmed":
+            achievement = ensure_selected_achievement(item)
+            if achievement.fact_status == "confirmed":
                 continue
 
             claims.append(
-                {
-                    "type": "achievement",
-                    "text": item["title"],
-                    "fact_status": item["fact_status"],
-                }
+                build_claim(
+                    claim_type="achievement",
+                    text=achievement.title,
+                    fact_status=achievement.fact_status,
+                    source="candidate_achievements",
+                )
             )
 
         if not profile.full_name:
             claims.append(
-                {
-                    "type": "profile_field",
-                    "text": "full_name missing",
-                    "fact_status": "needs_confirmation",
-                }
+                build_claim(
+                    claim_type="profile_field",
+                    text="full_name missing",
+                    fact_status="needs_confirmation",
+                    source="candidate_profile",
+                )
             )
 
         return claims
@@ -631,11 +623,12 @@ class ResumeGenerationService:
             rationale.append({"item": skill, "type": "skill", "reason": reason})
 
         for ach in selected_achievements:
+            achievement = ensure_selected_achievement(ach)
             rationale.append(
                 {
-                    "item": ach["title"],
+                    "item": achievement.title,
                     "type": "achievement",
-                    "reason": ach["reason"],
+                    "reason": achievement.reason,
                 }
             )
 
@@ -648,25 +641,55 @@ class ResumeGenerationService:
         selected_achievements: list[dict],
         analysis_match_score: int | None,
         missing_keywords: list[str],
-    ) -> list[str]:
-        warnings: list[str] = []
+    ) -> list[dict]:
+        warnings: list[dict] = []
 
-        if any(item.get("fact_status") != "confirmed" for item in selected_achievements):
+        if any(ensure_selected_achievement(item).fact_status != "confirmed" for item in selected_achievements):
             warnings.append(
-                "selected achievements remain in needs_confirmation status and require user review"
+                build_warning(
+                    code="unconfirmed_achievements",
+                    message=(
+                        "selected achievements remain in needs_confirmation status "
+                        "and require user review"
+                    ),
+                    severity="warning",
+                )
             )
 
         if analysis_match_score is not None and analysis_match_score < 40:
             warnings.append(
-                "vacancy match score is currently low because structured profile coverage is still limited"
+                build_warning(
+                    code="low_match_score",
+                    message=(
+                        "vacancy match score is currently low because structured "
+                        "profile coverage is still limited"
+                    ),
+                    severity="warning",
+                )
             )
 
         if missing_keywords:
             warnings.append(
-                f"missing or weakly represented vacancy keywords: {', '.join(missing_keywords[:6])}"
+                build_warning(
+                    code="missing_vacancy_keywords",
+                    message=(
+                        "missing or weakly represented vacancy keywords: "
+                        f"{', '.join(missing_keywords[:6])}"
+                    ),
+                    severity="warning",
+                )
             )
 
-        warnings.append("resume draft is ATS-safe plaintext-oriented and not final formatted output")
+        warnings.append(
+            build_warning(
+                code="ats_plaintext_draft",
+                message=(
+                    "resume draft is ATS-safe plaintext-oriented and not final "
+                    "formatted output"
+                ),
+                severity="info",
+            )
+        )
         return warnings
 
     def _compute_confidence(
@@ -686,7 +709,7 @@ class ResumeGenerationService:
 
         confirmed_count = sum(
             1 for item in selected_achievements
-            if item.get("fact_status") == "confirmed"
+            if ensure_selected_achievement(item).fact_status == "confirmed"
         )
         confirmed_ratio = confirmed_count / len(selected_achievements)
 
@@ -699,56 +722,6 @@ class ResumeGenerationService:
             base_score -= penalty
 
         return round(max(0.1, min(1.0, base_score)), 2)
-
-    def _render_resume_text(self, content_json: dict) -> str:
-        candidate = content_json["candidate"]
-        vacancy = content_json["target_vacancy"]
-        sections = content_json["sections"]
-
-        lines: list[str] = []
-
-        if candidate.get("full_name"):
-            lines.append(candidate["full_name"])
-        if candidate.get("headline"):
-            lines.append(candidate["headline"])
-        if candidate.get("location"):
-            lines.append(candidate["location"])
-
-        lines.append("")
-        lines.append("ЦЕЛЕВАЯ ПОЗИЦИЯ")
-        lines.append(vacancy["title"])
-
-        lines.append("")
-        lines.append("КРАТКОЕ РЕЗЮМЕ")
-        for bullet in sections["summary_bullets"]:
-            lines.append(f"- {bullet}")
-
-        lines.append("")
-        lines.append("КЛЮЧЕВЫЕ НАВЫКИ")
-        for skill in sections["skills"]:
-            lines.append(f"- {skill}")
-
-        experience_items = sections["experience"]
-        if experience_items:
-            lines.append("")
-            lines.append("ОПЫТ РАБОТЫ")
-            for item in experience_items:
-                lines.append(f"{item['role']} — {item['company']} ({item['period']})")
-                if item.get("description_raw"):
-                    lines.append(f"- {item['description_raw']}")
-
-        selected_achievements = sections["selected_achievements"]
-        if selected_achievements:
-            lines.append("")
-            lines.append("РЕЛЕВАНТНЫЕ ПРОЕКТЫ")
-            for item in selected_achievements:
-                metric_text = item.get("metric_text")
-                if metric_text:
-                    lines.append(f"- {item['title']} — {metric_text}")
-                else:
-                    lines.append(f"- {item['title']}")
-
-        return "\n".join(lines).strip()
 
     def _format_period(self, start_date, end_date) -> str:
         start = start_date.strftime("%m.%Y") if start_date else "не указано"
@@ -811,27 +784,68 @@ class ResumeGenerationService:
     def _word_count(self, text: str) -> int:
         return len(text.split())
 
+    def _normalize_text_tokens(self, text: str) -> set[str]:
+        normalized = re.sub(r"[^\w\s]", " ", text.lower())
+
+        tokens = {
+            token.strip()
+            for token in normalized.split()
+            if len(token.strip()) >= 4
+        }
+
+        stopwords = {
+            "with",
+            "from",
+            "that",
+            "this",
+            "using",
+            "implemented",
+            "system",
+            "built",
+        }
+
+        return {
+            token
+            for token in tokens
+            if token not in stopwords
+        }
+
     def _is_safe_enhancement(self, original: str, enhanced: str) -> bool:
         orig_words = self._word_count(original)
         enh_words = self._word_count(enhanced)
 
-        # 1. защита от пустого / деградации
         if enh_words == 0:
             return False
 
-        # 2. слишком сильное сжатие
         if enh_words < orig_words * 0.5:
             return False
 
-        # 3. слишком сильное раздувание (более мягкое)
-        if enh_words > orig_words * 2.5:
+        if enh_words > min(orig_words * 2.5, MAX_RESUME_WORDS):
             return False
 
-        # 4. ключевые слова не должны исчезнуть
-        for word in original.split():
-            # Убираем пунктуацию для сравнения
-            clean_word = re.sub(r'[^\w]', '', word).lower()
-            if len(clean_word) > 4 and clean_word not in enhanced.lower():
+        original_tokens = self._normalize_text_tokens(original)
+        enhanced_tokens = self._normalize_text_tokens(enhanced)
+
+        if not original_tokens:
+            return True
+
+        retained = original_tokens.intersection(enhanced_tokens)
+        retention_ratio = len(retained) / len(original_tokens)
+
+        if retention_ratio < (1 - MAX_KEYWORD_LOSS_RATIO):
+            return False
+
+        original_lower = original.lower()
+        enhanced_lower = enhanced.lower()
+
+        protected_terms = {
+            term
+            for term in PROTECTED_TECH_TERMS
+            if term in original_lower
+        }
+
+        for term in protected_terms:
+            if term not in enhanced_lower:
                 return False
 
         return True

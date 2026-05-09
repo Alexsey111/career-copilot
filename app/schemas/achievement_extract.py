@@ -6,14 +6,16 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from app.schemas.json_contracts import FactStatus, StrictBaseModel
 
 
-class AchievementExtractRequest(BaseModel):
+class AchievementExtractRequest(StrictBaseModel):
     extraction_id: UUID
 
 
-class AchievementItemRead(BaseModel):
+class AchievementItemRead(StrictBaseModel):
     id: UUID
     title: str
     situation: str | None = None
@@ -21,11 +23,11 @@ class AchievementItemRead(BaseModel):
     action: str | None = None
     result: str | None = None
     metric_text: str | None = None
-    fact_status: str
+    fact_status: FactStatus
     evidence_note: str | None = None
 
 
-class AchievementExtractResponse(BaseModel):
+class AchievementExtractResponse(StrictBaseModel):
     profile_id: UUID
     extraction_id: UUID
     achievement_count: int
@@ -33,7 +35,7 @@ class AchievementExtractResponse(BaseModel):
     warnings: list[str]
 
 
-class AchievementReviewRequest(BaseModel):
+class AchievementReviewRequest(StrictBaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     situation: str | None = None
     task: str | None = None
@@ -44,7 +46,7 @@ class AchievementReviewRequest(BaseModel):
     evidence_note: str | None = None
 
 
-class AchievementReviewResponse(BaseModel):
+class AchievementReviewResponse(StrictBaseModel):
     id: UUID
     title: str
     situation: str | None = None
@@ -52,6 +54,6 @@ class AchievementReviewResponse(BaseModel):
     action: str | None = None
     result: str | None = None
     metric_text: str | None = None
-    fact_status: str
+    fact_status: FactStatus
     evidence_note: str | None = None
     updated_at: datetime

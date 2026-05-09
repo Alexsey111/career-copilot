@@ -140,10 +140,19 @@ async def test_application_creates_initial_status_history(client) -> None:
 async def test_application_status_history_tracks_transitions(client) -> None:
     application_id = await _create_application(client)
 
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "ready for submission",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+
     submitted_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
+            "status": "applied",
             "notes": "submitted on hh",
         },
     )
@@ -168,27 +177,40 @@ async def test_application_status_history_tracks_transitions(client) -> None:
 
     timeline = timeline_response.json()
 
-    assert len(timeline) == 3
+    assert len(timeline) == 4
 
     assert timeline[0]["previous_status"] is None
     assert timeline[0]["new_status"] == "draft"
 
     assert timeline[1]["previous_status"] == "draft"
-    assert timeline[1]["new_status"] == "submitted"
-    assert timeline[1]["notes"] == "submitted on hh"
+    assert timeline[1]["new_status"] == "ready"
+    assert timeline[1]["notes"] == "ready for submission"
 
-    assert timeline[2]["previous_status"] == "submitted"
-    assert timeline[2]["new_status"] == "interview"
-    assert timeline[2]["notes"] == "interview scheduled"
+    assert timeline[2]["previous_status"] == "ready"
+    assert timeline[2]["new_status"] == "applied"
+    assert timeline[2]["notes"] == "submitted on hh"
+
+    assert timeline[3]["previous_status"] == "applied"
+    assert timeline[3]["new_status"] == "interview"
+    assert timeline[3]["notes"] == "interview scheduled"
 
 
 async def test_application_applied_at_set_only_once(client) -> None:
     application_id = await _create_application(client)
 
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "ready for submission",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+
     submitted_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
+            "status": "applied",
             "notes": "submitted first time",
         },
     )
@@ -213,10 +235,19 @@ async def test_application_applied_at_set_only_once(client) -> None:
 async def test_application_same_status_update_creates_history_entry(client) -> None:
     application_id = await _create_application(client)
 
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "ready for submission",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+
     submitted_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
+            "status": "applied",
             "notes": "initial submit",
         },
     )
@@ -226,7 +257,7 @@ async def test_application_same_status_update_creates_history_entry(client) -> N
     repeated_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
+            "status": "applied",
             "notes": "updated notes only",
         },
     )
@@ -241,8 +272,16 @@ async def test_application_same_status_update_creates_history_entry(client) -> N
 
     timeline = timeline_response.json()
 
-    assert len(timeline) == 3
+    assert len(timeline) == 4
 
-    assert timeline[2]["previous_status"] == "submitted"
-    assert timeline[2]["new_status"] == "submitted"
-    assert timeline[2]["notes"] == "updated notes only"
+    assert timeline[1]["previous_status"] == "draft"
+    assert timeline[1]["new_status"] == "ready"
+    assert timeline[1]["notes"] == "ready for submission"
+
+    assert timeline[2]["previous_status"] == "ready"
+    assert timeline[2]["new_status"] == "applied"
+    assert timeline[2]["notes"] == "initial submit"
+
+    assert timeline[3]["previous_status"] == "applied"
+    assert timeline[3]["new_status"] == "applied"
+    assert timeline[3]["notes"] == "updated notes only"

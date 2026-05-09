@@ -108,15 +108,25 @@ async def _create_application(client) -> str:
 async def test_application_status_api_accepts_valid_flow(client) -> None:
     application_id = await _create_application(client)
 
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "Documents attached",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+    assert ready_response.json()["status"] == "ready"
+
     submitted_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
+            "status": "applied",
             "notes": "Submitted manually on HH",
         },
     )
     assert submitted_response.status_code == 200, submitted_response.text
-    assert submitted_response.json()["status"] == "submitted"
+    assert submitted_response.json()["status"] == "applied"
     assert submitted_response.json()["applied_at"] is not None
 
     interview_response = await client.patch(
@@ -159,10 +169,19 @@ async def test_application_status_api_rejects_invalid_draft_to_offer(client) -> 
 async def test_application_status_api_rejects_final_to_submitted(client) -> None:
     application_id = await _create_application(client)
 
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "Ready for submission",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+
     submitted_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
+            "status": "applied",
             "notes": "Submitted manually",
         },
     )
@@ -182,12 +201,12 @@ async def test_application_status_api_rejects_final_to_submitted(client) -> None
     invalid_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "submitted",
-            "notes": "Try to reopen as submitted",
+            "status": "applied",
+            "notes": "Try to reopen as applied",
         },
     )
 
     assert invalid_response.status_code == 400, invalid_response.text
     assert invalid_response.json()["detail"] == (
-        "invalid application status transition: rejected -> submitted"
+        "invalid application status transition: rejected -> applied"
     )

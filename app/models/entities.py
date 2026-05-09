@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Index,
     func,
 )
 from sqlalchemy import Uuid
@@ -74,6 +75,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     interview_sessions: Mapped[list["InterviewSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     ai_runs: Mapped[list["AIRun"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     refresh_sessions: Mapped[list["RefreshSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    document_reviews: Mapped[list["DocumentReview"]] = relationship(back_populates="reviewer", cascade="all, delete-orphan")
 
 
 class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -307,6 +309,12 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     vacancy: Mapped["Vacancy | None"] = relationship(back_populates="document_versions")
     parent: Mapped["DocumentVersion | None"] = relationship(remote_side="DocumentVersion.id")
 
+    review_decisions: Mapped[list["DocumentReview"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentReview.created_at.desc()",
+    )
+
     applications_as_resume: Mapped[list["ApplicationRecord"]] = relationship(
         back_populates="resume_document",
         foreign_keys="ApplicationRecord.resume_document_id",
@@ -353,10 +361,11 @@ class ApplicationRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
-    channel: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    external_link: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outcome: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="application_records")
     vacancy: Mapped["Vacancy"] = relationship(back_populates="application_records")
@@ -367,6 +376,11 @@ class ApplicationRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     cover_letter_document: Mapped["DocumentVersion | None"] = relationship(
         back_populates="applications_as_cover_letter",
         foreign_keys=[cover_letter_document_id],
+    )
+    events: Mapped[list["ApplicationEvent"]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="ApplicationEvent.created_at.asc()",
     )
     status_history: Mapped[list["ApplicationStatusHistory"]] = relationship(
         back_populates="application",
@@ -409,6 +423,29 @@ class ApplicationStatusHistory(UUIDPrimaryKeyMixin, Base):
 
     application: Mapped["ApplicationRecord"] = relationship(
         back_populates="status_history",
+    )
+
+
+class ApplicationEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Timeline / activity log для application."""
+    __tablename__ = "application_events"
+
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("application_records.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    meta_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    application: Mapped["ApplicationRecord"] = relationship(back_populates="events")
+
+    __table_args__ = (
+        Index("idx_application_events_application_type", "application_id", "event_type"),
     )
 
 
@@ -547,4 +584,84 @@ class PasswordResetToken(UUIDPrimaryKeyMixin, Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class DocumentReview(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Минимальная таблица для хранения решений ревьюера."""
+    __tablename__ = "document_reviews"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("document_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    reviewer_action: Mapped[str] = mapped_column(String(50), nullable=False)
+    final_status: Mapped[str] = mapped_column(String(50), nullable=False, default="reviewed")
+
+    # JSON-поля для хранения деталей
+    accepted_claims_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    rejected_claims_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    edited_sections_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Eval results для mandatory review
+    eval_report_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=True)
+    has_critical_failures: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    document: Mapped["DocumentVersion"] = relationship(
+        back_populates="review_decisions",
+        foreign_keys=[document_id],
+    )
+    reviewer: Mapped["User"] = relationship(
+        back_populates="document_reviews",
+        foreign_keys=[user_id],
+    )
+
+    __table_args__ = (
+        Index("idx_document_reviews_document_user", "document_id", "user_id"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    reviewer_action: Mapped[str] = mapped_column(String(50), nullable=False)
+    final_status: Mapped[str] = mapped_column(String(50), nullable=False, default="reviewed")
+
+    # JSON-поля для хранения деталей
+    accepted_claims_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    rejected_claims_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    edited_sections_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Eval results для mandatory review
+    eval_report_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=True)
+    has_critical_failures: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    document: Mapped["DocumentVersion"] = relationship(back_populates="review_decisions")
+    reviewer: Mapped["User"] = relationship(back_populates="")
+
+    __table_args__ = (
+        Index("idx_document_reviews_document_user", "document_id", "user_id"),
     )

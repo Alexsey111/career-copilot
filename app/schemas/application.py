@@ -12,6 +12,7 @@ class ApplicationCreateRequest(BaseModel):
     vacancy_id: UUID
     resume_document_id: UUID | None = None
     cover_letter_document_id: UUID | None = None
+    source: str | None = None
     notes: str | None = None
 
 
@@ -30,6 +31,18 @@ class ApplicationStatusHistoryItem(BaseModel):
     changed_at: datetime
 
 
+class ApplicationEventItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    event_type: str
+    title: str | None
+    description: str | None
+    meta_json: dict
+    created_at: datetime
+    updated_at: datetime
+
+
 class ApplicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,7 +51,8 @@ class ApplicationRead(BaseModel):
     resume_document_id: UUID | None
     cover_letter_document_id: UUID | None
     status: str
-    channel: str | None
+    source: str | None
+    external_link: str | None
     applied_at: datetime | None
     outcome: str | None
     notes: str | None
@@ -55,7 +69,8 @@ class ApplicationListItem(BaseModel):
     resume_document_id: UUID | None
     cover_letter_document_id: UUID | None
     status: str
-    channel: str | None
+    source: str | None
+    external_link: str | None
     applied_at: datetime | None
     outcome: str | None
     notes: str | None

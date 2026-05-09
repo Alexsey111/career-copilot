@@ -5,18 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from app.schemas.json_contracts import DocumentKind, StrictBaseModel
 
-
-class ResumeGenerateRequest(BaseModel):
+class ResumeGenerateRequest(StrictBaseModel):
     vacancy_id: UUID
 
 
-class DocumentVersionRead(BaseModel):
+class DocumentVersionRead(StrictBaseModel):
     id: UUID
     vacancy_id: UUID | None
     analysis_id: UUID | None
-    document_kind: str
+    document_kind: DocumentKind
     version_label: str | None
     review_status: str
     is_active: bool
@@ -25,7 +24,7 @@ class DocumentVersionRead(BaseModel):
     updated_at: datetime
 
 
-class ResumeGenerateResponse(BaseModel):
+class ResumeGenerateResponse(StrictBaseModel):
     document_id: UUID
     vacancy_id: UUID
     review_status: str
@@ -34,11 +33,11 @@ class ResumeGenerateResponse(BaseModel):
     rendered_text_preview: str
 
 
-class CoverLetterGenerateRequest(BaseModel):
+class CoverLetterGenerateRequest(StrictBaseModel):
     vacancy_id: UUID
 
 
-class CoverLetterGenerateResponse(BaseModel):
+class CoverLetterGenerateResponse(StrictBaseModel):
     document_id: UUID
     vacancy_id: UUID
     review_status: str
@@ -47,26 +46,26 @@ class CoverLetterGenerateResponse(BaseModel):
     rendered_text_preview: str
 
 
-class DocumentReviewRequest(BaseModel):
+class DocumentReviewRequest(StrictBaseModel):
     review_status: str
     review_comment: str | None = None
     set_active_when_approved: bool = True
 
 
-class DocumentReviewResponse(BaseModel):
+class DocumentReviewResponse(StrictBaseModel):
     document_id: UUID
-    document_kind: str
+    document_kind: DocumentKind
     review_status: str
     is_active: bool
     review_comment: str | None
     updated_at: datetime
 
 
-class ResumeEnhanceRequest(BaseModel):
+class ResumeEnhanceRequest(StrictBaseModel):
     resume_text: str
 
 
-class ResumeEnhanceResponse(BaseModel):
+class ResumeEnhanceResponse(StrictBaseModel):
     document_id: UUID
     vacancy_id: UUID
     review_status: str
@@ -75,11 +74,11 @@ class ResumeEnhanceResponse(BaseModel):
     enhanced_text: str
 
 
-class CoverLetterEnhanceRequest(BaseModel):
+class CoverLetterEnhanceRequest(StrictBaseModel):
     cover_letter_text: str
 
 
-class CoverLetterEnhanceResponse(BaseModel):
+class CoverLetterEnhanceResponse(StrictBaseModel):
     document_id: UUID
     vacancy_id: UUID
     review_status: str
@@ -88,7 +87,7 @@ class CoverLetterEnhanceResponse(BaseModel):
     enhanced_text: str
 
 
-class DocumentHistoryItem(BaseModel):
+class DocumentHistoryItem(StrictBaseModel):
     id: UUID
     derived_from_id: UUID | None
     version_label: str | None
@@ -97,35 +96,35 @@ class DocumentHistoryItem(BaseModel):
     created_at: datetime
 
 
-class DocumentHistoryResponse(BaseModel):
+class DocumentHistoryResponse(StrictBaseModel):
     items: list[DocumentHistoryItem]
 
 
-class DocumentDiffResponse(BaseModel):
+class DocumentDiffResponse(StrictBaseModel):
     document_id: UUID
     other_document_id: UUID
-    document_kind: str
+    document_kind: DocumentKind
     diff: str
 
 
-class DocumentActivateResponse(BaseModel):
+class DocumentActivateResponse(StrictBaseModel):
     document_id: UUID
-    document_kind: str
+    document_kind: DocumentKind
     is_active: bool
     activated_at: datetime
 
 
-class DocumentRollbackResponse(BaseModel):
+class DocumentRollbackResponse(StrictBaseModel):
     document_id: UUID
     source_document_id: UUID
-    document_kind: str
+    document_kind: DocumentKind
     is_active: bool
     created_at: datetime
 
-class ActiveDocumentResponse(BaseModel):
+class ActiveDocumentResponse(StrictBaseModel):
     id: UUID
     vacancy_id: UUID | None
-    document_kind: str
+    document_kind: DocumentKind
     version_label: str | None
     review_status: str
     is_active: bool

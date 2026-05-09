@@ -134,7 +134,7 @@ async def test_application_list_returns_dashboard_fields(client) -> None:
     assert item["resume_document_id"] == resume_id
     assert item["cover_letter_document_id"] == cover_letter_id
     assert item["status"] == "draft"
-    assert item["channel"] == "manual"
+    assert item["source"] == "manual"
     assert item["notes"] == "dashboard list test"
     assert item["created_at"] is not None
     assert item["updated_at"] is not None

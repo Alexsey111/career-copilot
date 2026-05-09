@@ -3,6 +3,7 @@
 
 from app.models.entities import (
     AIRun,
+    ApplicationEvent,
     ApplicationRecord,
     ApplicationStatusHistory,
     AuthEvent,
@@ -22,8 +23,7 @@ from app.models.entities import (
 )
 
 __all__ = [
-    "AIRun",
-    "ApplicationRecord",
+    "AIRun",    "ApplicationEvent",    "ApplicationRecord",
     "ApplicationStatusHistory",
     "AuthEvent",
     "CandidateAchievement",

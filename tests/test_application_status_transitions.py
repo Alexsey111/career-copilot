@@ -11,15 +11,15 @@ def test_application_status_transition_allows_valid_flow() -> None:
 
     service._validate_status_transition(
         current_status="draft",
-        next_status="submitted",
+        next_status="ready",
     )
     service._validate_status_transition(
-        current_status="submitted",
+        current_status="ready",
+        next_status="applied",
+    )
+    service._validate_status_transition(
+        current_status="applied",
         next_status="interview",
-    )
-    service._validate_status_transition(
-        current_status="interview",
-        next_status="offer",
     )
 
 
@@ -27,16 +27,16 @@ def test_application_status_transition_allows_same_status_for_notes_update() -> 
     service = ApplicationTrackingService()
 
     service._validate_status_transition(
-        current_status="submitted",
-        next_status="submitted",
+        current_status="applied",
+        next_status="applied",
     )
     service._validate_status_transition(
-        current_status="rejected",
-        next_status="rejected",
+        current_status="draft",
+        next_status="draft",
     )
     service._validate_status_transition(
-        current_status="offer",
-        next_status="offer",
+        current_status="ready",
+        next_status="ready",
     )
 
 
@@ -45,9 +45,9 @@ def test_application_status_transition_allows_same_status_for_notes_update() -> 
     [
         ("draft", "offer"),
         ("draft", "interview"),
-        ("submitted", "draft"),
-        ("interview", "submitted"),
-        ("rejected", "submitted"),
+        ("applied", "draft"),
+        ("interview", "applied"),
+        ("rejected", "applied"),
         ("offer", "draft"),
     ],
 )

@@ -12,6 +12,7 @@ from app.db.session import get_db_session
 from app.models import User
 from app.schemas.application import (
     ApplicationCreateRequest,
+    ApplicationEventItem,
     ApplicationListItem,
     ApplicationRead,
     ApplicationStatusHistoryItem,
@@ -30,16 +31,21 @@ async def create_application(
     session: AsyncSession = Depends(get_db_session),
 ) -> ApplicationRead:
     service = ApplicationTrackingService()
-    application = await service.create_application(
-        session,
-        user_id=current_user.id,
-        vacancy_id=payload.vacancy_id,
-        resume_document_id=payload.resume_document_id,
-        cover_letter_document_id=payload.cover_letter_document_id,
-        notes=payload.notes,
-    )
-    await session.commit()
-    return ApplicationRead.model_validate(application)
+    try:
+        application = await service.create_application(
+            session,
+            user_id=current_user.id,
+            vacancy_id=payload.vacancy_id,
+            resume_document_id=payload.resume_document_id,
+            cover_letter_document_id=payload.cover_letter_document_id,
+            source=payload.source,
+            notes=payload.notes,
+        )
+        await session.commit()
+        return ApplicationRead.model_validate(application)
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.get("/{application_id}", response_model=ApplicationRead)
@@ -67,12 +73,30 @@ async def get_application_timeline(
     session: AsyncSession = Depends(get_db_session),
 ) -> list[ApplicationStatusHistoryItem]:
     service = ApplicationTrackingService()
-    timeline = await service.get_application_timeline(
+    timeline = await service.get_application_status_history(
         session,
         application_id=application_id,
         user_id=current_user.id,
     )
     return [ApplicationStatusHistoryItem.model_validate(item) for item in timeline]
+
+
+@router.get(
+    "/{application_id}/activity-log",
+    response_model=list[ApplicationEventItem],
+)
+async def get_application_activity_log(
+    application_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[ApplicationEventItem]:
+    service = ApplicationTrackingService()
+    log = await service.get_application_timeline(
+        session,
+        application_id=application_id,
+        user_id=current_user.id,
+    )
+    return [ApplicationEventItem.model_validate(item) for item in log]
 
 
 @router.patch("/{application_id}/status", response_model=ApplicationRead)
@@ -83,15 +107,19 @@ async def update_application_status(
     session: AsyncSession = Depends(get_db_session),
 ) -> ApplicationRead:
     service = ApplicationTrackingService()
-    application = await service.update_status(
-        session,
-        application_id=application_id,
-        user_id=current_user.id,
-        status_value=payload.status,
-        notes=payload.notes,
-    )
-    await session.commit()
-    return ApplicationRead.model_validate(application)
+    try:
+        application = await service.update_status(
+            session,
+            application_id=application_id,
+            user_id=current_user.id,
+            status_value=payload.status,
+            notes=payload.notes,
+        )
+        await session.commit()
+        return ApplicationRead.model_validate(application)
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.get("", response_model=list[ApplicationListItem])

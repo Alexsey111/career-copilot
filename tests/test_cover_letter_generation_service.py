@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.orchestrator import AIOrchestrator
 from app.ai.clients.base import BaseLLMClient
 from app.services.cover_letter_generation_service import CoverLetterGenerationService
+from app.services.resume_renderer import render_cover_letter
 
 
 class MockCoverLetterClient(BaseLLMClient):
@@ -200,7 +201,7 @@ def test_cover_letter_warnings_keep_missing_keywords_out_of_rendered_letter() ->
         }
     }
 
-    rendered = service._render_cover_letter(content_json)
+    rendered = render_cover_letter(content_json)
 
     assert "Python" in rendered
     assert "Здравствуйте" in rendered
@@ -237,7 +238,7 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
         company="Test Company",
     )
 
-    rendered = service._render_cover_letter(
+    rendered = render_cover_letter(
         {
             "sections": {
                 "opening": opening,
@@ -287,7 +288,17 @@ def test_cover_letter_selected_achievements_are_confirmed_and_do_not_create_clai
     service = CoverLetterGenerationService()
 
     selected = service._select_relevant_achievements(
-        achievement_titles=["Подтверждённый AI-проект"],
+        achievements=[
+            {
+                "title": "Подтверждённый AI-проект",
+                "fact_status": "confirmed",
+                "situation": "Нужно было сократить время подготовки отчётов",
+                "task": "Автоматизировать генерацию аналитики",
+                "action": "Собрал pipeline и внедрил AI-assisted workflow",
+                "result": "Сократил ручную работу на 70%",
+                "metric_text": "ручная работа -70%",
+            }
+        ],
         keywords=["Python"],
     )
 
@@ -296,6 +307,11 @@ def test_cover_letter_selected_achievements_are_confirmed_and_do_not_create_clai
             "title": "Подтверждённый AI-проект",
             "fact_status": "confirmed",
             "reason": "ai_relevance",
+            "situation": "Нужно было сократить время подготовки отчётов",
+            "task": "Автоматизировать генерацию аналитики",
+            "action": "Собрал pipeline и внедрил AI-assisted workflow",
+            "result": "Сократил ручную работу на 70%",
+            "metric_text": "ручная работа -70%",
         }
     ]
 

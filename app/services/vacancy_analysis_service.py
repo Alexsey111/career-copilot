@@ -9,46 +9,15 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.skills.utils import (
+    extract_keywords,
+    get_related_skills,
+    keyword_present,
+)
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.models.entities import VacancyAnalysis
-
-
-SKILL_PATTERNS: dict[str, list[str]] = {
-    "Python": [r"\bpython\b", r"\bпитон\b"],
-    "SQL": [r"\bsql\b", r"\bсубд\b", r"баз[аы]\s+данных"],
-    "Git": [r"\bgit\b", r"\bgithub\b", r"\bgitlab\b"],
-    "API": [r"\bapi\b", r"\brest\b", r"rest\s*api", r"интеграц\w*\s+с\s+api"],
-    "FastAPI": [r"\bfastapi\b", r"fast\s*api"],
-    "PostgreSQL": [r"\bpostgres(?:ql)?\b", r"\bpostgresql\b"],
-    "Redis": [r"\bredis\b"],
-    "Docker": [r"\bdocker\b", r"\bконтейнеризац"],
-    "SQLAlchemy": [r"\bsqlalchemy\b", r"sql\s*alchemy"],
-    "Alembic": [r"\balembic\b"],
-    "Pydantic": [r"\bpydantic\b"],
-    "Pytest": [r"\bpytest\b", r"\bunit\s+tests?\b", r"\bтестировани[ея]\b"],
-    "Celery": [r"\bcelery\b"],
-    "AsyncIO": [r"\basyncio\b", r"\basync\b", r"асинхрон"],
-    "LLM": [r"\bllm\b", r"large language model", r"языков(?:ая|ые)\s+модел"],
-    "Prompt Engineering": [r"prompt engineering", r"prompting", r"промптинг", r"промпт-инж"],
-    "Data Science": [r"data science", r"data scientist", r"анализ\s+данных"],
-    "Machine Learning": [r"machine learning", r"\bml\b", r"машинн(?:ое|ого)\s+обуч"],
-    "TensorFlow": [r"\btensorflow\b"],
-    "PyTorch": [r"\bpytorch\b"],
-    "Pandas": [r"\bpandas\b"],
-    "NumPy": [r"\bnumpy\b"],
-    "Scikit-learn": [r"scikit-learn", r"sklearn"],
-    "NLP": [r"\bnlp\b", r"обработк[аи]\s+текста"],
-    "RAG": [r"\brag\b", r"retrieval[-\s]?augmented"],
-}
-
-
-PROFILE_SKILL_SATISFIERS: dict[str, list[str]] = {
-    # If a candidate has these more specific skills, they can satisfy generic requirements.
-    "SQL": ["PostgreSQL"],
-    "API": ["FastAPI"],
-}
 
 
 REQUIREMENT_START_HEADINGS = {
@@ -270,7 +239,7 @@ class VacancyAnalysisService:
                 [
                     {
                         "keyword": kw,
-                        "scope": "keyword",
+                        "scope": "must_have",
                         "requirement_text": None,
                         "weight": 1,
                         "reason": "profile_not_found"
@@ -294,7 +263,7 @@ class VacancyAnalysisService:
                 strengths.append(
                     {
                         "keyword": keyword,
-                        "scope": "keyword",
+                        "scope": "must_have",
                         "requirement_text": None,
                         "weight": 1,
                         "evidence": "profile_keyword_or_alias_overlap",
@@ -304,7 +273,7 @@ class VacancyAnalysisService:
                 gaps.append(
                     {
                         "keyword": keyword,
-                        "scope": "keyword",
+                        "scope": "must_have",
                         "requirement_text": None,
                         "weight": 1,
                         "reason": "not_found_in_profile_text",
@@ -474,35 +443,18 @@ class VacancyAnalysisService:
         return "\n".join(corpus_parts)
 
     def _profile_satisfies_keyword(self, keyword: str, profile_corpus: str) -> bool:
-        if self._keyword_present_in_text(keyword, profile_corpus):
+        if keyword_present(keyword, profile_corpus):
             return True
 
-        for satisfier in PROFILE_SKILL_SATISFIERS.get(keyword, []):
-            if self._keyword_present_in_text(satisfier, profile_corpus):
+        for satisfier in get_related_skills(keyword):
+            if keyword_present(satisfier, profile_corpus):
                 return True
 
         return False
 
     def _extract_keywords(self, title: str, description: str) -> list[str]:
         haystack = f"{title}\n{description}"
-        found: list[str] = []
-
-        for label in SKILL_PATTERNS:
-            if self._keyword_present_in_text(label, haystack):
-                found.append(label)
-
-        return found
-
-    def _keyword_present_in_text(self, keyword: str, text: str) -> bool:
-        if not text:
-            return False
-
-        patterns = SKILL_PATTERNS.get(keyword)
-        if not patterns:
-            escaped = re.escape(keyword)
-            patterns = [rf"(?<!\w){escaped}(?!\w)"]
-
-        return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+        return extract_keywords(haystack)
 
     def _extract_section_items(
         self,

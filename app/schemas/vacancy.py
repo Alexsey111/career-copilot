@@ -6,10 +6,12 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
+
+from app.schemas.json_contracts import StrictBaseModel
 
 
-class VacancyImportRequest(BaseModel):
+class VacancyImportRequest(StrictBaseModel):
     source: str = "manual"
     source_url: str | None = None
     external_id: str | None = None
@@ -25,7 +27,7 @@ class VacancyImportRequest(BaseModel):
         return self
 
 
-class VacancyImportResponse(BaseModel):
+class VacancyImportResponse(StrictBaseModel):
     # Keep both for now:
     # - id is the consistent public API name
     # - vacancy_id preserves backward compatibility with the current smoke flow
@@ -40,7 +42,7 @@ class VacancyImportResponse(BaseModel):
     created_at: datetime
 
 
-class VacancyRead(BaseModel):
+class VacancyRead(StrictBaseModel):
     id: UUID
     source: str
     source_url: str | None
@@ -54,7 +56,7 @@ class VacancyRead(BaseModel):
     updated_at: datetime
 
 
-class VacancyAnalysisResponse(BaseModel):
+class VacancyAnalysisResponse(StrictBaseModel):
     analysis_id: UUID
     vacancy_id: UUID
     must_have: list[dict[str, Any]]
@@ -67,9 +69,9 @@ class VacancyAnalysisResponse(BaseModel):
     created_at: datetime
 
 
-class VacancyMatchResponse(BaseModel):
-    vacancy_id: str
-    user_id: str
+class VacancyMatchResponse(StrictBaseModel):
+    vacancy_id: UUID
+    user_id: UUID
     match_score: int | None
     strengths: list[dict[str, Any]]
     gaps: list[dict[str, Any]]
