@@ -17,6 +17,8 @@ class GenerationTrace:
     prompt_version: str | None = None
     vacancy_analysis_id: str | None = None
     profile_extraction_id: str | None = None
+    retrieval_trace: list[dict[str, Any]] = field(default_factory=list)
+    calibration_version: str = "v1.0"  # Version of calibration used in evaluation
 
 
 @dataclass(slots=True)

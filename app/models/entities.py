@@ -76,6 +76,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     ai_runs: Mapped[list["AIRun"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     refresh_sessions: Mapped[list["RefreshSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     document_reviews: Mapped[list["DocumentReview"]] = relationship(back_populates="reviewer", cascade="all, delete-orphan")
+    pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -113,6 +117,10 @@ class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="profile",
         cascade="all, delete-orphan",
         order_by="CandidateAchievement.order_index",
+    )
+    pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
     )
 
 
@@ -247,6 +255,10 @@ class Vacancy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     document_versions: Mapped[list["DocumentVersion"]] = relationship(back_populates="vacancy")
     application_records: Mapped[list["ApplicationRecord"]] = relationship(back_populates="vacancy")
     interview_sessions: Mapped[list["InterviewSession"]] = relationship(back_populates="vacancy")
+    pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
+        back_populates="vacancy",
+        cascade="all, delete-orphan",
+    )
 
 
 class VacancyAnalysis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -267,6 +279,10 @@ class VacancyAnalysis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     analysis_version: Mapped[str] = mapped_column(String(50), nullable=False, default="v1")
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="analyses")
+    pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
+        back_populates="evaluation_snapshot",
+        cascade="all, delete-orphan",
+    )
 
 
 class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -322,6 +338,10 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     applications_as_cover_letter: Mapped[list["ApplicationRecord"]] = relationship(
         back_populates="cover_letter_document",
         foreign_keys="ApplicationRecord.cover_letter_document_id",
+    )
+    pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
+        back_populates="resume_document",
+        cascade="all, delete-orphan",
     )
 
 
@@ -630,38 +650,157 @@ class DocumentReview(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="document_reviews",
         foreign_keys=[user_id],
     )
+    pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
+        back_populates="review",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         Index("idx_document_reviews_document_user", "document_id", "user_id"),
     )
+
+
+class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Основная таблица для отслеживания выполнения pipeline."""
+    __tablename__ = "pipeline_executions"
+
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-
-    reviewer_action: Mapped[str] = mapped_column(String(50), nullable=False)
-    final_status: Mapped[str] = mapped_column(String(50), nullable=False, default="reviewed")
-
-    # JSON-поля для хранения деталей
-    accepted_claims_json: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON, nullable=False, default=list
+    vacancy_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("vacancies.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
-    rejected_claims_json: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON, nullable=False, default=list
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("candidate_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
-    edited_sections_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
-    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending", index=True)
+    pipeline_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    calibration_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    # Eval results для mandatory review
-    eval_report_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=True)
-    has_critical_failures: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    document: Mapped["DocumentVersion"] = relationship(back_populates="review_decisions")
-    reviewer: Mapped["User"] = relationship(back_populates="")
+    resume_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("document_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    evaluation_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("vacancy_analyses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    review_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("document_reviews.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    artifacts_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    user: Mapped["User"] = relationship(back_populates="pipeline_executions")
+    vacancy: Mapped["Vacancy | None"] = relationship(back_populates="pipeline_executions")
+    profile: Mapped["CandidateProfile | None"] = relationship(back_populates="pipeline_executions")
+    resume_document: Mapped["DocumentVersion | None"] = relationship(back_populates="pipeline_executions")
+    evaluation_snapshot: Mapped["VacancyAnalysis | None"] = relationship(back_populates="pipeline_executions")
+    review: Mapped["DocumentReview | None"] = relationship(back_populates="pipeline_executions")
+
+    steps: Mapped[list["PipelineExecutionStep"]] = relationship(
+        back_populates="execution",
+        cascade="all, delete-orphan",
+        order_by="PipelineExecutionStep.started_at.asc()",
+    )
+    events: Mapped[list["PipelineEvent"]] = relationship(
+        back_populates="execution",
+        cascade="all, delete-orphan",
+        order_by="PipelineEvent.created_at.asc()",
+    )
 
     __table_args__ = (
-        Index("idx_document_reviews_document_user", "document_id", "user_id"),
+        Index("idx_pipeline_executions_user_status", "user_id", "status"),
+        Index("idx_pipeline_executions_vacancy_status", "vacancy_id", "status"),
+        Index("idx_pipeline_executions_profile_status", "profile_id", "status"),
+    )
+
+
+class PipelineExecutionStep(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Шаги выполнения pipeline для детального отслеживания."""
+    __tablename__ = "pipeline_execution_steps"
+
+    execution_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("pipeline_executions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    step_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending", index=True)
+
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    input_artifact_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    output_artifact_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    execution: Mapped["PipelineExecution"] = relationship(back_populates="steps")
+    events: Mapped[list["PipelineEvent"]] = relationship(
+        back_populates="step",
+        cascade="all, delete-orphan",
+        order_by="PipelineEvent.created_at.asc()",
+    )
+
+    __table_args__ = (
+        Index("idx_pipeline_execution_steps_execution_name", "execution_id", "step_name"),
+    )
+
+
+class PipelineEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """События pipeline для структурированного логирования."""
+    __tablename__ = "pipeline_events"
+
+    execution_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("pipeline_executions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+
+    step_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("pipeline_execution_steps.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info", index=True)
+
+    execution: Mapped["PipelineExecution"] = relationship(back_populates="events")
+    step: Mapped["PipelineExecutionStep | None"] = relationship(back_populates="events")
+
+    __table_args__ = (
+        Index("idx_pipeline_events_execution_type", "execution_id", "event_type"),
+        Index("idx_pipeline_events_type_severity", "event_type", "severity"),
     )

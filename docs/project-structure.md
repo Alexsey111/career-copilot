@@ -1,4 +1,4 @@
-# Структура проекта
+﻿# Структура проекта
 
 Этот документ описывает текущую структуру `career-copilot`, роли основных папок и то, как проходят ключевые запросы внутри backend.
 
@@ -18,7 +18,9 @@ flowchart TD
     RT --> V[vacancies]
     RT --> D[documents]
     RT --> R[applications]
-    API --> I[interviews]
+    RT --> I[interviews]
+    RT --> PE[pipeline executions]
+    RT --> RW[review workspaces]
 
     F --> S1[SourceFileService]
     P --> S2[ProfileImportService / ProfileStructuringService / AchievementExtractionService]
@@ -26,7 +28,9 @@ flowchart TD
     D --> S4[ResumeGenerationService / CoverLetterGenerationService / DocumentReviewService / DocumentActivationService / DocumentRollbackService / DocumentDiffService]
     R --> S5[ApplicationTrackingService]
     I --> S6[InterviewPreparationService]
-    A --> S7[AuthService / PasswordResetService]
+    PE --> S7[PipelineExecutionService]
+    RW --> S8[ReviewWorkspaceService]
+    A --> S9[AuthService / PasswordResetService]
 
     S1 --> REP[repositories]
     S2 --> REP
@@ -35,6 +39,8 @@ flowchart TD
     S5 --> REP
     S6 --> REP
     S7 --> REP
+    S8 --> REP
+    S9 --> REP
     REP --> DB[(PostgreSQL)]
 
     S4 --> AI[AIOrchestrator]
@@ -121,7 +127,9 @@ app/api/
     ├── vacancies.py
     ├── documents.py
     ├── applications.py
-    └── interviews.py
+    ├── interviews.py
+    ├── pipeline_execution_routes.py
+    └── review_workspace_routes.py
 ```
 
 - `router.py` собирает основные роутеры в общий API.
@@ -133,6 +141,8 @@ app/api/
 - `routes/documents.py` генерирует резюме и cover letter, умеет enhance, review, history, diff, activation, rollback, export и получение активного документа.
 - `routes/applications.py` создает заявки, читает их, возвращает timeline и обновляет статусы.
 - `routes/interviews.py` управляет interview sessions, answers, генерацией вопросов, оценкой ответов, AI-coaching и progress по вопросам.
+- `routes/pipeline_execution_routes.py` управляет pipeline executions - создание, получение с прогрессом, artifacts, readiness, tasks и review status.
+- `routes/review_workspace_routes.py` управляет review workspaces для human-in-the-loop операций.
 - `dependencies.py` содержит shared dependencies, включая `get_ai_orchestrator()` и `get_current_dev_user()`.
 
 ### `app/security/`
@@ -185,10 +195,18 @@ app/db/
 
 ```text
 app/domain/
-└── application_statuses.py
+├── application_statuses.py
+├── pipeline_models.py
+├── readiness_models.py
+├── recommendation_models.py
+└── review_models.py
 ```
 
 - `application_statuses.py` хранит допустимые статусы заявок и правила переходов между ними.
+- `pipeline_models.py` содержит модели pipeline execution, steps, events и статусы.
+- `readiness_models.py` определяет readiness score и компонентные scores.
+- `recommendation_models.py` содержит модели recommendation tasks и их типы.
+- `review_models.py` определяет review workspace и связанные модели для human-in-the-loop операций.
 
 ### `app/models/`
 
@@ -219,6 +237,9 @@ app/models/
 - `RefreshSession`
 - `AuthEvent`
 - `PasswordResetToken`
+- `PipelineExecution`
+- `PipelineExecutionStep`
+- `PipelineEvent`
 
 ### `app/repositories/`
 
@@ -234,6 +255,7 @@ app/repositories/
 ├── document_version_repository.py
 ├── file_extraction_repository.py
 ├── interview_session_repository.py
+├── pipeline_repository.py
 ├── source_file_repository.py
 ├── user_repository.py
 ├── vacancy_analysis_repository.py
@@ -253,6 +275,7 @@ app/repositories/
 - `application_record_repository.py` - application records и список откликов пользователя.
 - `application_status_history_repository.py` - история статусных переходов заявок.
 - `interview_session_repository.py` - interview sessions и попытки ответа.
+- `pipeline_repository.py` - pipeline executions, steps, events и их CRUD операции.
 - `ai_run_repository.py` - трассировка AI-вызовов.
 
 ### `app/schemas/`
@@ -267,8 +290,10 @@ app/schemas/
 ├── document.py
 ├── interview.py
 ├── json_contracts.py
+├── pipeline_schemas.py
 ├── profile_import.py
 ├── profile_structured.py
+├── review_workspace.py
 ├── source_file.py
 └── vacancy.py
 ```
@@ -283,6 +308,8 @@ app/schemas/
 - `document.py` - генерация, enhance, review, history, export, activation, rollback и diff.
 - `application.py` - создание, чтение, список, timeline и обновление статусов заявок.
 - `interview.py` - создание interview session, сохранение ответов, оценка, улучшение и progress.
+- `pipeline_schemas.py` - pipeline executions, steps, events и career copilot run response.
+- `review_workspace.py` - review workspace для human-in-the-loop операций.
 - `auth.py` - схемы для аутентификации, сессий и сброса пароля.
 - `json_contracts.py` - внутренние JSON-контракты для AI и interview flow.
 
@@ -302,11 +329,13 @@ app/services/
 ├── document_rollback_service.py
 ├── interview_preparation_service.py
 ├── password_reset_service.py
+├── pipeline_execution_service.py
 ├── profile_builder_service.py
 ├── profile_import_service.py
 ├── profile_structuring_service.py
 ├── resume_generation_service.py
 ├── resume_parser_service.py
+├── review_workspace_service.py
 ├── source_file_service.py
 ├── storage_service.py
 ├── vacancy_analysis_service.py
@@ -332,6 +361,8 @@ app/services/
 - `document_diff_service.py` - сравнение двух версий документа.
 - `application_tracking_service.py` - создание заявок, проверка approved-пакета документов, список заявок и статусные переходы.
 - `interview_preparation_service.py` - построение interview session, deterministic feedback, readiness score, AI-улучшение ответов и AI-коучинг между попытками.
+- `pipeline_execution_service.py` - управление pipeline executions, создание, обновление статусов, получение summary с steps и events.
+- `review_workspace_service.py` - построение review workspace aggregate из pipeline data, documents, evaluations для human-in-the-loop операций.
 - `auth_service.py` - управление сессиями аутентификации, refresh tokens и events.
 - `password_reset_service.py` - генерация и валидация токенов сброса пароля.
 

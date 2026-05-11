@@ -52,6 +52,12 @@ Backend API по умолчанию:
 http://localhost:8000/api/v1
 ```
 
+Примеры новых API путей:
+
+- `POST /api/v1/career-copilot/run` — создание новой pipeline execution
+- `GET /api/v1/career-copilot/run/{execution_id}` — получение полного career copilot run с прогрессом, артефактами, readiness, tasks и review status
+- `GET /api/v1/review-workspaces/{workspace_id}` — получение review workspace для human-in-the-loop review
+
 OpenAPI:
 
 ```text
