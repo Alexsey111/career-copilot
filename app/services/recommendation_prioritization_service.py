@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.domain.readiness_models import RecommendationItem
+from app.domain.readiness_models import RecommendationItem, RecommendationCategory
 from app.domain.recommendation_models import PrioritizedRecommendation, RecommendationImpact
 
 
@@ -23,30 +23,30 @@ class RecommendationPrioritizationService:
 
     # Impact estimation based on recommendation patterns
     IMPACT_PATTERNS = {
-        "critical": {
+        RecommendationCategory.LOW_COVERAGE: {
             "score_delta": 0.15,
             "confidence": 0.9,
             "components": ["coverage", "evidence", "ats"],
         },
-        "blocking": {
+        RecommendationCategory.WEAK_EVIDENCE: {
             "score_delta": 0.12,
             "confidence": 0.85,
             "components": ["coverage", "evidence"],
         },
-        "quality": {
+        RecommendationCategory.STRUCTURE_IMPROVEMENT: {
             "score_delta": 0.08,
             "confidence": 0.75,
             "components": ["quality", "evidence"],
         },
-        "action": {
+        RecommendationCategory.MISSING_METRIC: {
             "score_delta": 0.10,
             "confidence": 0.8,
             "components": ["coverage", "ats"],
         },
-        "ready": {
-            "score_delta": 0.0,
-            "confidence": 1.0,
-            "components": [],
+        RecommendationCategory.GENERAL: {
+            "score_delta": 0.05,
+            "confidence": 0.6,
+            "components": ["quality"],
         },
     }
 
@@ -148,11 +148,11 @@ class RecommendationPrioritizationService:
 
         # Default based on category
         category_effort = {
-            "critical": "high",
-            "blocking": "medium",
-            "quality": "low",
-            "action": "medium",
-            "ready": "low",
+            RecommendationCategory.LOW_COVERAGE: "high",
+            RecommendationCategory.WEAK_EVIDENCE: "medium",
+            RecommendationCategory.STRUCTURE_IMPROVEMENT: "low",
+            RecommendationCategory.MISSING_METRIC: "medium",
+            RecommendationCategory.GENERAL: "low",
         }
         return category_effort.get(recommendation.category, "medium")
 

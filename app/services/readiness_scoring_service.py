@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.config.scoring import COMPONENT_WEIGHTS
-from app.domain.readiness_models import ReadinessSignal, ReadinessScore, RecommendationItem
+from app.domain.readiness_models import ReadinessSignal, ReadinessScore, RecommendationItem, RecommendationCategory
 from app.domain.coverage_models import RequirementCoverage
 from app.domain.coverage_eval_models import CoverageEvaluationReport
 from app.domain.constants import (
@@ -279,7 +279,7 @@ class ReadinessScoringService:
         if overall_score >= 0.8 and not blocking_issues:
             recommendations.append(RecommendationItem(
                 message="Document is ready for submission. High quality across all dimensions.",
-                category="ready",
+                category=RecommendationCategory.GENERAL,
                 severity="info",
             ))
             return recommendations
@@ -287,7 +287,7 @@ class ReadinessScoringService:
         if overall_score >= 0.6 and not blocking_issues:
             recommendations.append(RecommendationItem(
                 message="Document is in good shape. Address warnings to improve quality.",
-                category="quality",
+                category=RecommendationCategory.STRUCTURE_IMPROVEMENT,
                 severity="info",
             ))
             return recommendations
@@ -298,7 +298,7 @@ class ReadinessScoringService:
                     "Document needs significant improvements. "
                     f"Priority: {'; '.join(blocking_issues[:2]) if blocking_issues else 'increase coverage and evidence quality'}."
                 ),
-                category="action",
+                category=RecommendationCategory.WEAK_EVIDENCE,
                 severity="warning",
             ))
             return recommendations
@@ -307,7 +307,7 @@ class ReadinessScoringService:
             message=(
                 "Document is not ready. Major work required on coverage, evidence, and ATS preservation."
             ),
-            category="critical",
+            category=RecommendationCategory.LOW_COVERAGE,
             severity="critical",
         ))
         return recommendations

@@ -1,4 +1,4 @@
-from app.domain.readiness_models import ReadinessScore, RecommendationItem
+from app.domain.readiness_models import ReadinessScore, RecommendationItem, RecommendationCategory
 from app.domain.recommendation_models import RecommendationPriority, RecommendationTask, RecommendationTaskType
 from app.services.recommendation_task_service import RecommendationTaskService
 
@@ -14,12 +14,12 @@ class TestRecommendationTaskService:
             recommendations=[
                 RecommendationItem(
                     message="Add quantifiable results to demonstrate impact",
-                    category="evidence",
+                    category=RecommendationCategory.MISSING_METRIC,
                     severity="warning"
                 ),
                 RecommendationItem(
                     message="Strengthen evidence for key achievements",
-                    category="evidence",
+                    category=RecommendationCategory.WEAK_EVIDENCE,
                     severity="info"
                 ),
             ],
@@ -50,7 +50,7 @@ class TestRecommendationTaskService:
 
         recommendation = RecommendationItem(
             message="Add quantifiable results to demonstrate impact",
-            category="evidence",
+            category=RecommendationCategory.MISSING_METRIC,
             severity="warning"
         )
 

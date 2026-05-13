@@ -1,17 +1,32 @@
+# app\domain\readiness_models.py
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.domain.recommendation_models import RecommendationTask
 
 
+class RecommendationCategory(str, Enum):
+    """Категории рекомендаций для typed processing."""
+    MISSING_METRIC = "missing_metric"
+    WEAK_EVIDENCE = "weak_evidence"
+    LOW_COVERAGE = "low_coverage"
+    MISSING_CONTEXT = "missing_context"
+    VAGUE_DESCRIPTION = "vague_description"
+    ATS_PRESERVATION = "ats_preservation"
+    STRUCTURE_IMPROVEMENT = "structure_improvement"
+    GENERAL = "general"
+
+
 @dataclass(slots=True)
 class RecommendationItem:
     """Typed recommendation produced by the readiness scoring engine."""
     message: str
-    category: str = ""
+    category: RecommendationCategory = RecommendationCategory.GENERAL
     severity: str = "info"
 
 

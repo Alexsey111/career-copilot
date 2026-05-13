@@ -25,6 +25,10 @@ from app.models.entities import (
     Vacancy,
     VacancyAnalysis,
 )
+from app.models.evaluation_snapshot import EvaluationSnapshot
+from app.models.impact_measurement import (
+    ImpactMeasurement,
+)
 
 __all__ = [
     "AIRun",
@@ -37,6 +41,7 @@ __all__ = [
     "CandidateProfile",
     "DocumentReview",
     "DocumentVersion",
+    "EvaluationSnapshot",
     "FileExtraction",
     "InterviewAnswerAttempt",
     "InterviewSession",
@@ -49,4 +54,5 @@ __all__ = [
     "User",
     "Vacancy",
     "VacancyAnalysis",
+    "ImpactMeasurement",
 ]

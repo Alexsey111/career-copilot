@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import (
     Float,
@@ -26,6 +26,9 @@ from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.evaluation_snapshot import EvaluationSnapshot
 
 
 class UUIDPrimaryKeyMixin:
@@ -342,6 +345,12 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
         back_populates="resume_document",
         cascade="all, delete-orphan",
+        foreign_keys="PipelineExecution.resume_document_id",
+    )
+    evaluation_snapshots: Mapped[list["EvaluationSnapshot"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="EvaluationSnapshot.created_at.desc()",
     )
 
 
@@ -670,6 +679,25 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    # Step 17 minimal execution envelope.
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("document_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    execution_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="generic",
+        index=True,
+    )
+    trigger_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="manual",
+        index=True,
+    )
     vacancy_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("vacancies.id", ondelete="SET NULL"),
@@ -690,6 +718,12 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_artifact_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    input_params: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     resume_document_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
@@ -716,7 +750,10 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     user: Mapped["User"] = relationship(back_populates="pipeline_executions")
     vacancy: Mapped["Vacancy | None"] = relationship(back_populates="pipeline_executions")
     profile: Mapped["CandidateProfile | None"] = relationship(back_populates="pipeline_executions")
-    resume_document: Mapped["DocumentVersion | None"] = relationship(back_populates="pipeline_executions")
+    resume_document: Mapped["DocumentVersion | None"] = relationship(
+        back_populates="pipeline_executions",
+        foreign_keys=[resume_document_id],
+    )
     evaluation_snapshot: Mapped["VacancyAnalysis | None"] = relationship(back_populates="pipeline_executions")
     review: Mapped["DocumentReview | None"] = relationship(back_populates="pipeline_executions")
 
@@ -735,6 +772,9 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("idx_pipeline_executions_user_status", "user_id", "status"),
         Index("idx_pipeline_executions_vacancy_status", "vacancy_id", "status"),
         Index("idx_pipeline_executions_profile_status", "profile_id", "status"),
+        Index("idx_pipeline_executions_user_created", "user_id", "created_at"),
+        Index("idx_pipeline_executions_status_created", "status", "created_at"),
+        Index("idx_pipeline_executions_type_status", "execution_type", "status"),
     )
 
 

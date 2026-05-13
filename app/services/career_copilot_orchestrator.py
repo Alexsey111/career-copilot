@@ -1,3 +1,5 @@
+# app\services\career_copilot_orchestrator.py
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -150,11 +152,13 @@ class DefaultCareerCopilotOrchestrator:
 
             # Generate actionable recommendation tasks
             # In real implementation, this would use the actual readiness_score from evaluation
+            from app.domain.readiness_models import RecommendationCategory
+            
             mock_readiness = ReadinessScore(
                 overall_score=0.75,
                 recommendations=[
-                    RecommendationItem(message="Add quantifiable results to demonstrate impact", category="evidence", severity="warning"),
-                    RecommendationItem(message="Strengthen evidence for key achievements", category="evidence", severity="info"),
+                    RecommendationItem(message="Add quantifiable results to demonstrate impact", category=RecommendationCategory.MISSING_METRIC, severity="warning"),
+                    RecommendationItem(message="Strengthen evidence for key achievements", category=RecommendationCategory.WEAK_EVIDENCE, severity="info"),
                 ]
             )
             recommendation_tasks = self._recommendation_task_service.generate_tasks_from_readiness(mock_readiness)

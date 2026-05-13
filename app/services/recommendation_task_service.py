@@ -1,8 +1,10 @@
+# app\services\recommendation_task_service.py
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from app.domain.readiness_models import ReadinessScore, RecommendationItem
+from app.domain.readiness_models import ReadinessScore, RecommendationItem, RecommendationCategory
 from app.domain.recommendation_models import (
     RecommendationPriority,
     RecommendationTask,
@@ -22,6 +24,7 @@ class RecommendationTaskService:
                 "blocking": True,
                 "description": "Add specific evidence or examples to support this achievement",
                 "expected_improvement": 0.15,
+                "confidence": 0.40,
             },
             "missing_metrics": {
                 "task_type": RecommendationTaskType.ADD_METRIC,
@@ -29,6 +32,7 @@ class RecommendationTaskService:
                 "blocking": False,
                 "description": "Add quantifiable results or metrics to demonstrate impact",
                 "expected_improvement": 0.12,
+                "confidence": 0.35,
             },
             "vague_description": {
                 "task_type": RecommendationTaskType.IMPROVE_DESCRIPTION,
@@ -36,6 +40,7 @@ class RecommendationTaskService:
                 "blocking": False,
                 "description": "Make the achievement description more specific and detailed",
                 "expected_improvement": 0.08,
+                "confidence": 0.30,
             },
             "no_timeframe": {
                 "task_type": RecommendationTaskType.ADD_TIMEFRAME,
@@ -43,6 +48,7 @@ class RecommendationTaskService:
                 "blocking": False,
                 "description": "Add specific time periods or durations to achievements",
                 "expected_improvement": 0.05,
+                "confidence": 0.25,
             },
             "missing_context": {
                 "task_type": RecommendationTaskType.ADD_CONTEXT,
@@ -50,6 +56,7 @@ class RecommendationTaskService:
                 "blocking": False,
                 "description": "Add context about the situation, challenges, or environment",
                 "expected_improvement": 0.07,
+                "confidence": 0.30,
             },
             "redundant_content": {
                 "task_type": RecommendationTaskType.REMOVE_REDUNDANT,
@@ -57,6 +64,7 @@ class RecommendationTaskService:
                 "blocking": False,
                 "description": "Remove duplicate or redundant information",
                 "expected_improvement": 0.03,
+                "confidence": 0.20,
             },
         }
 
@@ -89,25 +97,46 @@ class RecommendationTaskService:
         recommendation: RecommendationItem,
         achievement_ids: Optional[List[str]] = None,
     ) -> Optional[RecommendationTask]:
-        """Generate a task from a single recommendation."""
-        # Map recommendation message patterns to task types
-        message_lower = recommendation.message.lower()
-
-        if "evidence" in message_lower and ("weak" in message_lower or "missing" in message_lower):
-            pattern = self.task_patterns["weak_evidence"]
-        elif "metric" in message_lower or "quantifiable" in message_lower or "result" in message_lower:
-            pattern = self.task_patterns["missing_metrics"]
-        elif "description" in message_lower and ("vague" in message_lower or "specific" in message_lower):
-            pattern = self.task_patterns["vague_description"]
-        elif "time" in message_lower or "period" in message_lower:
-            pattern = self.task_patterns["no_timeframe"]
-        elif "context" in message_lower or "situation" in message_lower:
-            pattern = self.task_patterns["missing_context"]
-        elif "redundant" in message_lower or "duplicate" in message_lower:
-            pattern = self.task_patterns["redundant_content"]
-        else:
-            # Default to evidence improvement
-            pattern = self.task_patterns["weak_evidence"]
+        """Generate a task from a single recommendation using typed categories."""
+        # Map recommendation category to task type using match statement
+        match recommendation.category:
+            case RecommendationCategory.WEAK_EVIDENCE:
+                pattern = self.task_patterns["weak_evidence"]
+            case RecommendationCategory.MISSING_METRIC:
+                pattern = self.task_patterns["missing_metrics"]
+            case RecommendationCategory.VAGUE_DESCRIPTION:
+                pattern = self.task_patterns["vague_description"]
+            case RecommendationCategory.MISSING_CONTEXT:
+                pattern = self.task_patterns["missing_context"]
+            case RecommendationCategory.LOW_COVERAGE:
+                pattern = {
+                    "task_type": RecommendationTaskType.ADD_SKILL_KEYWORD,
+                    "priority": RecommendationPriority.HIGH,
+                    "blocking": False,
+                    "description": "Add relevant keywords and skills that match job requirements",
+                    "expected_improvement": 0.10,
+                    "confidence": 0.35,
+                }
+            case RecommendationCategory.ATS_PRESERVATION:
+                pattern = {
+                    "task_type": RecommendationTaskType.ADD_SKILL_KEYWORD,
+                    "priority": RecommendationPriority.MEDIUM,
+                    "blocking": False,
+                    "description": "Add missing ATS keywords from job description",
+                    "expected_improvement": 0.08,
+                    "confidence": 0.30,
+                }
+            case RecommendationCategory.STRUCTURE_IMPROVEMENT:
+                pattern = {
+                    "task_type": RecommendationTaskType.IMPROVE_DESCRIPTION,
+                    "priority": RecommendationPriority.LOW,
+                    "blocking": False,
+                    "description": "Improve overall document structure and formatting",
+                    "expected_improvement": 0.05,
+                    "confidence": 0.25,
+                }
+            case RecommendationCategory.GENERAL:
+                pattern = self.task_patterns["weak_evidence"]
 
         # Determine target achievement (use first available or None)
         target_id = achievement_ids[0] if achievement_ids else None
@@ -119,7 +148,8 @@ class RecommendationTaskService:
             blocking=pattern["blocking"],
             description=pattern["description"],
             rationale=recommendation.message,
-            expected_score_improvement=pattern["expected_improvement"],
+            estimated_score_improvement=pattern["expected_improvement"],
+            confidence=pattern["confidence"],
             metadata={"source": "recommendation_analysis", "severity": recommendation.severity},
         )
 
@@ -135,7 +165,8 @@ class RecommendationTaskService:
                 blocking=readiness_score.evidence_score < 0.3,
                 description="Strengthen evidence and examples throughout the resume",
                 rationale=f"Evidence score is {readiness_score.evidence_score:.2f}, needs improvement",
-                expected_score_improvement=min(0.2, 1.0 - readiness_score.evidence_score),
+                estimated_score_improvement=min(0.2, 1.0 - readiness_score.evidence_score),
+                confidence=0.35,
                 metadata={"component": "evidence", "current_score": readiness_score.evidence_score},
             ))
 
@@ -147,7 +178,8 @@ class RecommendationTaskService:
                 blocking=False,
                 description="Add relevant keywords and skills that match job requirements",
                 rationale=f"Coverage score is {readiness_score.coverage_score:.2f}, missing key terms",
-                expected_score_improvement=min(0.15, 1.0 - readiness_score.coverage_score),
+                estimated_score_improvement=min(0.15, 1.0 - readiness_score.coverage_score),
+                confidence=0.30,
                 metadata={"component": "coverage", "current_score": readiness_score.coverage_score},
             ))
 
@@ -179,7 +211,8 @@ class RecommendationTaskService:
                 blocking=True,
                 description=description,
                 rationale=f"Blocking issue: {issue}",
-                expected_score_improvement=0.2,
+                estimated_score_improvement=0.2,
+                confidence=0.25,
                 metadata={"source": "blocking_issue", "issue": issue},
             ))
 
@@ -196,5 +229,5 @@ class RecommendationTaskService:
 
         return sorted(
             tasks,
-            key=lambda t: (0 if t.blocking else 1, priority_order[t.priority], -t.expected_score_improvement)
+            key=lambda t: (0 if t.blocking else 1, priority_order[t.priority], -t.estimated_score_improvement)
         )

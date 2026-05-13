@@ -126,10 +126,12 @@ class TestPipelineRepository:
     @pytest.fixture
     def mock_session(self):
         """Create a mock async session."""
-        session = AsyncMock()
+        session = MagicMock()
         session.execute = AsyncMock()
         session.flush = AsyncMock()
         session.commit = AsyncMock()
+        # add() is a synchronous method in SQLAlchemy
+        session.add = MagicMock()
         return session
 
     @pytest.fixture

@@ -1,3 +1,5 @@
+# app\domain\recommendation_models.py
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -45,8 +47,9 @@ class RecommendationTask:
     description: str = ""
     rationale: str = ""
 
-    # Expected impact
-    expected_score_improvement: float = 0.0
+    # Estimated impact with confidence
+    estimated_score_improvement: float = 0.0
+    confidence: float = 0.0
 
     # Additional context
     metadata: dict = field(default_factory=dict)

@@ -16,7 +16,8 @@ class TestRecommendationTask:
             blocking=True,
             description="Add quantifiable results",
             rationale="Evidence is weak",
-            expected_score_improvement=0.15,
+            estimated_score_improvement=0.15,
+            confidence=0.35,
         )
 
         assert task.task_type == RecommendationTaskType.ADD_METRIC
@@ -25,7 +26,8 @@ class TestRecommendationTask:
         assert task.blocking is True
         assert task.description == "Add quantifiable results"
         assert task.rationale == "Evidence is weak"
-        assert task.expected_score_improvement == 0.15
+        assert task.estimated_score_improvement == 0.15
+        assert task.confidence == 0.35
         assert task.metadata == {}
         assert task.related_recommendation_ids == []
 
@@ -36,4 +38,5 @@ class TestRecommendationTask:
         assert task.priority == RecommendationPriority.MEDIUM
         assert task.blocking is False
         assert task.description == ""
-        assert task.expected_score_improvement == 0.0
+        assert task.estimated_score_improvement == 0.0
+        assert task.confidence == 0.0
