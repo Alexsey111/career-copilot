@@ -94,6 +94,24 @@ class ImpactMeasurementRepository:
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_measurements_in_range(
+        self,
+        session: AsyncSession,
+        start_time: datetime,
+        end_time: datetime,
+        limit: int = 1000,
+    ) -> list[ImpactMeasurement]:
+        """Get impact measurements within a closed time range."""
+        stmt = (
+            select(ImpactMeasurement)
+            .where(ImpactMeasurement.created_at >= start_time)
+            .where(ImpactMeasurement.created_at <= end_time)
+            .order_by(ImpactMeasurement.created_at.desc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_recommendation_impact_metrics(
         self,
         session: AsyncSession,

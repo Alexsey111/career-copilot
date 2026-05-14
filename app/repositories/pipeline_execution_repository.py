@@ -22,6 +22,8 @@ class PipelineDurationMetrics:
     max_duration_ms: float
     p50_duration_ms: float
     p90_duration_ms: float
+    avg_evaluation_duration_ms: float = 0.0
+    avg_mutation_duration_ms: float = 0.0
 
 
 @dataclass
@@ -99,9 +101,10 @@ class PipelineExecutionRepository:
             if completed_at:
                 execution.completed_at = completed_at
                 if execution.started_at:
-                    execution.duration_ms = int(
+                    execution.execution_duration_ms = int(
                         (completed_at - execution.started_at).total_seconds() * 1000
                     )
+                    execution.duration_ms = execution.execution_duration_ms
             if failure_reason:
                 execution.failure_reason = failure_reason
             if failure_code:
@@ -197,11 +200,20 @@ class PipelineExecutionRepository:
             FROM pipeline_executions
             WHERE status = 'completed' AND created_at >= :start_time
         """
+        duration_expr = func.coalesce(
+            PipelineExecution.execution_duration_ms,
+            func.extract("epoch", PipelineExecution.completed_at - PipelineExecution.started_at) * 1000,
+        )
+        evaluation_expr = func.coalesce(PipelineExecution.evaluation_duration_ms, 0.0)
+        mutation_expr = func.coalesce(PipelineExecution.mutation_duration_ms, 0.0)
+
         stmt = select(
             func.count(PipelineExecution.id).label('count'),
-            func.coalesce(func.avg(PipelineExecution.duration_ms), 0.0).label('avg_duration'),
-            func.coalesce(func.min(PipelineExecution.duration_ms), 0.0).label('min_duration'),
-            func.coalesce(func.max(PipelineExecution.duration_ms), 0.0).label('max_duration'),
+            func.coalesce(func.avg(duration_expr), 0.0).label('avg_duration'),
+            func.coalesce(func.min(duration_expr), 0.0).label('min_duration'),
+            func.coalesce(func.max(duration_expr), 0.0).label('max_duration'),
+            func.coalesce(func.avg(evaluation_expr), 0.0).label('avg_evaluation_duration'),
+            func.coalesce(func.avg(mutation_expr), 0.0).label('avg_mutation_duration'),
         )
 
         stmt = stmt.where(PipelineExecution.status == 'completed')
@@ -222,6 +234,8 @@ class PipelineExecutionRepository:
             max_duration_ms=row.max_duration,
             p50_duration_ms=0.0,  # TODO: compute percentile with window functions
             p90_duration_ms=0.0,
+            avg_evaluation_duration_ms=row.avg_evaluation_duration,
+            avg_mutation_duration_ms=row.avg_mutation_duration,
         )
 
     async def get_success_metrics(

@@ -29,6 +29,11 @@ from app.models.evaluation_snapshot import EvaluationSnapshot
 from app.models.impact_measurement import (
     ImpactMeasurement,
 )
+from app.models.review_workflow import (
+    ReviewActionRecord,
+    ReviewOutcomeRecord,
+    ReviewSessionRecord,
+)
 
 __all__ = [
     "AIRun",
@@ -55,4 +60,7 @@ __all__ = [
     "Vacancy",
     "VacancyAnalysis",
     "ImpactMeasurement",
+    "ReviewActionRecord",
+    "ReviewOutcomeRecord",
+    "ReviewSessionRecord",
 ]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
@@ -58,7 +58,7 @@ class PipelineExecutionService:
         await self._repository.update_execution(
             execution_id=UUID(execution.id),
             status=PipelineStatus.RUNNING,
-            started_at=datetime.now(),
+            started_at=datetime.now(timezone.utc),
             calibration_version=calibration_version,
         )
 
@@ -79,7 +79,7 @@ class PipelineExecutionService:
         await self._repository.update_execution(
             execution_id=execution_id,
             status=PipelineStatus.COMPLETED,
-            completed_at=datetime.now(),
+            completed_at=datetime.now(timezone.utc),
             artifacts=artifacts,
             metrics=metrics,
             resume_document_id=resume_document_id,
@@ -114,7 +114,7 @@ class PipelineExecutionService:
         await self._repository.update_execution(
             execution_id=execution_id,
             status=PipelineStatus.FAILED,
-            failed_at=datetime.now(),
+            failed_at=datetime.now(timezone.utc),
             error_code=error_code,
             error_message=error_message,
             artifacts=artifacts,
@@ -212,12 +212,22 @@ class PipelineExecutionService:
         update_kwargs = {}
         if update_data.status is not None:
             update_kwargs["status"] = PipelineStatus(update_data.status.value)
+        if update_data.review_required is not None:
+            update_kwargs["review_required"] = update_data.review_required
+        if update_data.review_completed is not None:
+            update_kwargs["review_completed"] = update_data.review_completed
         if update_data.started_at is not None:
             update_kwargs["started_at"] = update_data.started_at
         if update_data.completed_at is not None:
             update_kwargs["completed_at"] = update_data.completed_at
         if update_data.failed_at is not None:
             update_kwargs["failed_at"] = update_data.failed_at
+        if update_data.execution_duration_ms is not None:
+            update_kwargs["execution_duration_ms"] = update_data.execution_duration_ms
+        if update_data.evaluation_duration_ms is not None:
+            update_kwargs["evaluation_duration_ms"] = update_data.evaluation_duration_ms
+        if update_data.mutation_duration_ms is not None:
+            update_kwargs["mutation_duration_ms"] = update_data.mutation_duration_ms
         if update_data.error_code is not None:
             update_kwargs["error_code"] = update_data.error_code
         if update_data.error_message is not None:
@@ -260,7 +270,7 @@ class PipelineExecutionService:
         await self._repository.update_step(
             step_id=UUID(step.id),
             status=StepStatus.RUNNING.value,
-            started_at=datetime.now(),
+            started_at=datetime.now(timezone.utc),
         )
 
         await self._repository.create_event(
@@ -284,7 +294,7 @@ class PipelineExecutionService:
         if not step:
             raise ValueError(f"Step {step_id} not found")
 
-        completed_at = datetime.now()
+        completed_at = datetime.now(timezone.utc)
         duration_ms = None
         if step.started_at:
             duration_ms = int((completed_at - step.started_at).total_seconds() * 1000)
@@ -316,7 +326,7 @@ class PipelineExecutionService:
         if not step:
             raise ValueError(f"Step {step_id} not found")
 
-        completed_at = datetime.now()
+        completed_at = datetime.now(timezone.utc)
         duration_ms = None
         if step.started_at:
             duration_ms = int((completed_at - step.started_at).total_seconds() * 1000)
@@ -359,10 +369,37 @@ class PipelineExecutionService:
         review_reason: Optional[str] = None,
     ) -> None:
         """Record that manual review is required."""
+        await self._repository.update_execution(
+            execution_id=execution_id,
+            review_required=True,
+            status=PipelineStatus.REVIEW_GATE,
+            error_message=review_reason,
+        )
+
         await self._repository.create_event(
             execution_id=execution_id,
             event_type=PipelineEventType.REVIEW_REQUIRED,
             payload={"review_reason": review_reason},
+            step_id=step_id,
+            severity=EventSeverity.INFO,
+        )
+
+    async def record_review_completed(
+        self,
+        execution_id: UUID,
+        step_id: Optional[UUID] = None,
+        review_summary: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Record that manual review is completed."""
+        await self._repository.update_execution(
+            execution_id=execution_id,
+            review_completed=True,
+        )
+
+        await self._repository.create_event(
+            execution_id=execution_id,
+            event_type=PipelineEventType.REVIEW_COMPLETED,
+            payload=review_summary or {"review_completed": True},
             step_id=step_id,
             severity=EventSeverity.INFO,
         )

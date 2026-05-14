@@ -712,6 +712,8 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending", index=True)
+    review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    review_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     pipeline_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     calibration_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
@@ -720,6 +722,9 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    execution_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    evaluation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mutation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_artifact_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     input_params: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)

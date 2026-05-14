@@ -10,6 +10,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.document_version_repository import DocumentVersionRepository
+from app.repositories.review_workflow_repository import ReviewWorkflowRepository
 from app.services.document_activation_service import (
     DocumentActivationService,
 )
@@ -30,6 +31,7 @@ class DocumentReviewService:
         self,
         document_version_repository: DocumentVersionRepository | None = None,
         document_activation_service: DocumentActivationService | None = None,
+        review_workflow_repository: ReviewWorkflowRepository | None = None,
     ) -> None:
         self.document_version_repository = (
             document_version_repository
@@ -41,6 +43,90 @@ class DocumentReviewService:
             or DocumentActivationService(
                 document_version_repository=self.document_version_repository,
             )
+        )
+        self.review_workflow_repository = review_workflow_repository
+
+    async def start_review(
+        self,
+        session: AsyncSession,
+        *,
+        document_id: UUID,
+        user_id: UUID,
+        review_required: bool = True,
+        review_reason: str | None = None,
+        pipeline_execution_id: UUID | None = None,
+        reviewer_id: UUID | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
+        """Create or reopen a persistent review session."""
+        if self.review_workflow_repository is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="review workflow repository is not configured",
+            )
+
+        open_session = await self.review_workflow_repository.get_open_session(
+            session,
+            document_id=document_id,
+            user_id=user_id,
+        )
+        if open_session is not None:
+            return open_session
+
+        session_key = f"review_{document_id}_{int(datetime.now(timezone.utc).timestamp())}"
+        return await self.review_workflow_repository.create_session(
+            session,
+            session_id=session_key,
+            document_id=document_id,
+            user_id=user_id,
+            started_at=datetime.now(timezone.utc),
+            review_required=review_required,
+            status="review_required" if review_required else "draft",
+            pipeline_execution_id=pipeline_execution_id,
+            reviewer_id=reviewer_id,
+            review_reason=review_reason,
+            metadata=metadata,
+        )
+
+    async def get_review_state(
+        self,
+        session: AsyncSession,
+        *,
+        document_id: UUID,
+        user_id: UUID,
+    ):
+        """Return the current persistent review session if it exists."""
+        if self.review_workflow_repository is None:
+            return None
+
+        return await self.review_workflow_repository.get_open_session(
+            session,
+            document_id=document_id,
+            user_id=user_id,
+        )
+
+    async def complete_review(
+        self,
+        session: AsyncSession,
+        *,
+        document_id: UUID,
+        user_id: UUID,
+        reviewer_action: ReviewerAction,
+        accepted_claims: list[str] | None = None,
+        rejected_claims: list[str] | None = None,
+        edited_sections: list[str] | None = None,
+        reviewer_comment: str | None = None,
+    ):
+        """Finalize a persistent review session and store the outcome."""
+        await self.submit_review_decisions(
+            session,
+            document_id=document_id,
+            user_id=user_id,
+            reviewer_action=reviewer_action,
+            accepted_claims=accepted_claims,
+            rejected_claims=rejected_claims,
+            edited_sections=edited_sections,
+            reviewer_comment=reviewer_comment,
         )
 
     def evaluate_review_requirement(
@@ -141,6 +227,23 @@ class DocumentReviewService:
         document.review_status = normalized_status
         document.content_json = content_json
 
+        if self.review_workflow_repository is not None and normalized_status == "review_required":
+            session_key = f"review_{document_id}_{int(datetime.now(timezone.utc).timestamp())}"
+            await self.review_workflow_repository.create_session(
+                session,
+                session_id=session_key,
+                document_id=document_id,
+                user_id=user_id,
+                started_at=datetime.now(timezone.utc),
+                review_required=True,
+                status="review_required",
+                review_reason=reason if evaluation_report is not None else review_comment,
+                metadata={
+                    "review_status": normalized_status,
+                    "evaluation_report": evaluation_report.model_dump() if evaluation_report else None,
+                },
+            )
+
         if normalized_status == "approved" and set_active_when_approved:
             await session.commit()
 
@@ -226,6 +329,74 @@ class DocumentReviewService:
 
         document.review_status = "reviewed"
         document.content_json = content
+
+        if self.review_workflow_repository is not None:
+            open_session = await self.review_workflow_repository.get_open_session(
+                session,
+                document_id=document_id,
+                user_id=user_id,
+            )
+            if open_session is None:
+                open_session = await self.review_workflow_repository.create_session(
+                    session,
+                    session_id=f"review_{document_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                    document_id=document_id,
+                    user_id=user_id,
+                    started_at=datetime.now(timezone.utc),
+                    review_required=True,
+                    status="review_required",
+                    review_reason=reviewer_comment,
+                    metadata={"review_action": reviewer_action},
+                )
+
+            for claim_text in accepted_claims or []:
+                await self.review_workflow_repository.record_action(
+                    session,
+                    review_session_id=open_session.id,
+                    action_type="claim_accept",
+                    target_type="claim",
+                    target_id=claim_text,
+                    action_payload={
+                        "claim_text": claim_text,
+                        "reviewer_action": reviewer_action,
+                        "resolution": "accepted",
+                    },
+                )
+            for claim_text in rejected_claims or []:
+                await self.review_workflow_repository.record_action(
+                    session,
+                    review_session_id=open_session.id,
+                    action_type="claim_reject",
+                    target_type="claim",
+                    target_id=claim_text,
+                    action_payload={
+                        "claim_text": claim_text,
+                        "reviewer_action": reviewer_action,
+                        "resolution": "rejected",
+                    },
+                )
+
+            outcome_status = self._map_outcome_status(reviewer_action)
+            await self.review_workflow_repository.record_outcome(
+                session,
+                review_session_id=open_session.id,
+                outcome_status=outcome_status,
+                approved=outcome_status == "approved",
+                outcome_payload={
+                    "reviewer_action": reviewer_action,
+                    "accepted_claims": accepted_claims or [],
+                    "rejected_claims": rejected_claims or [],
+                    "edited_sections": edited_sections or [],
+                    "reviewer_comment": reviewer_comment,
+                },
+            )
+            await self.review_workflow_repository.complete_session(
+                session,
+                review_session_id=open_session.id,
+                completed_at=datetime.now(timezone.utc),
+                final_status=outcome_status,
+            )
+
         await session.commit()
         await session.refresh(document)
         return document
@@ -236,3 +407,11 @@ class DocumentReviewService:
     ) -> set[ReviewStatus]:
         """Возвращает допустимые переходы из текущего статуса."""
         return get_allowed_transitions(current_status)
+
+    @staticmethod
+    def _map_outcome_status(reviewer_action: ReviewerAction) -> str:
+        if reviewer_action == "accept_all":
+            return "approved"
+        if reviewer_action == "reject_all":
+            return "rejected"
+        return "reviewed"

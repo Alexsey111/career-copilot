@@ -15,7 +15,7 @@ Artifact Registry — explicit lineage tracking for AI pipeline artifacts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -138,7 +138,7 @@ class ArtifactRegistry:
             raise ValueError(f"Artifact {artifact_id} already registered")
 
         parent_ids = parent_artifact_ids or []
-        created = created_at or datetime.now()
+        created = created_at or datetime.now(timezone.utc)
 
         reference = ArtifactReference(
             artifact_id=artifact_id,

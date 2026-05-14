@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Protocol
 
 from app.domain.pipeline_models import CareerCopilotRun, PipelineStatus
 from app.domain.readiness_models import ReadinessScore, RecommendationItem
 from app.domain.recommendation_models import RecommendationTask
-from app.domain.review_models import ReviewSession
 from app.services.recommendation_task_service import RecommendationTaskService
-from app.services.review_session_service import ReviewSessionService
-from app.domain.recommendation_models import RecommendationTask
+from app.services.document_review_service import DocumentReviewService
+from app.repositories.review_workflow_repository import ReviewWorkflowRepository
 
 
 @dataclass(slots=True)
@@ -34,7 +33,7 @@ class ResumePipelineResult:
     recommendation_tasks: list[RecommendationTask] = field(default_factory=list)
 
     # Timestamps
-    started_at: datetime = field(default_factory=datetime.now)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
 
     # Error info
@@ -71,7 +70,9 @@ class DefaultCareerCopilotOrchestrator:
         # self._readiness_service = readiness_service
         # self._pipeline_repo = pipeline_repository
         self._recommendation_task_service = RecommendationTaskService()
-        self._review_session_service = ReviewSessionService()
+        self._review_service = DocumentReviewService(
+            review_workflow_repository=ReviewWorkflowRepository(),
+        )
 
     def run_resume_pipeline(
         self,
@@ -80,7 +81,7 @@ class DefaultCareerCopilotOrchestrator:
         profile_id: str,
     ) -> ResumePipelineResult:
         """Execute the complete resume pipeline."""
-        started_at = datetime.now()
+        started_at = datetime.now(timezone.utc)
 
         # Create pipeline run record
         run_id = f"run_{user_id}_{vacancy_id}_{profile_id}_{int(started_at.timestamp())}"
@@ -145,7 +146,7 @@ class DefaultCareerCopilotOrchestrator:
             pipeline_run.evaluation_snapshot_id = "placeholder_eval_id"  # eval_snapshot_id
             pipeline_run.review_id = "placeholder_review_id"  # review_id
             pipeline_run.status = PipelineStatus.COMPLETED
-            pipeline_run.completed_at = datetime.now()
+            pipeline_run.completed_at = datetime.now(timezone.utc)
 
             # Persist pipeline run
             # self._pipeline_repo.save_run(pipeline_run)
@@ -180,7 +181,7 @@ class DefaultCareerCopilotOrchestrator:
         except Exception as e:
             pipeline_run.status = PipelineStatus.FAILED
             pipeline_run.error_message = str(e)
-            pipeline_run.completed_at = datetime.now()
+            pipeline_run.completed_at = datetime.now(timezone.utc)
 
             # Persist failed run
             # self._pipeline_repo.save_run(pipeline_run)

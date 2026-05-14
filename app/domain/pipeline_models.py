@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -35,6 +35,7 @@ class PipelineEventType(Enum):
     STEP_FAILED = "step_failed"
     EVALUATION_FAILED = "evaluation_failed"
     REVIEW_REQUIRED = "review_required"
+    REVIEW_COMPLETED = "review_completed"
     RECOMMENDATION_GENERATED = "recommendation_generated"
 
 
@@ -71,10 +72,15 @@ class CareerCopilotRun:
 
     # Execution metadata
     status: PipelineStatus = PipelineStatus.PENDING
+    review_required: bool = False
+    review_completed: bool = False
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     pipeline_version: str = "v1.0"
     calibration_version: Optional[str] = None
+    execution_duration_ms: Optional[int] = None
+    evaluation_duration_ms: Optional[int] = None
+    mutation_duration_ms: Optional[int] = None
 
     # Error handling
     error_code: Optional[str] = None
@@ -85,8 +91,8 @@ class CareerCopilotRun:
     metrics: dict[str, Any] = field(default_factory=dict)
 
     # Additional context
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -119,7 +125,7 @@ class PipelineEvent:
     payload: dict[str, Any] = field(default_factory=dict)
     severity: EventSeverity = EventSeverity.INFO
     
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass

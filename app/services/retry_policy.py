@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable
 from uuid import UUID
@@ -184,7 +184,7 @@ class PipelineRecoveryManager:
         state.last_successful_step = RecoveryPoint(
             step_name=step_name,
             step_id=step_id,
-            completed_at=datetime.now(),
+            completed_at=datetime.now(timezone.utc),
             output_artifact_ids=output_artifact_ids,
             metadata=metadata or {},
         )
@@ -210,7 +210,7 @@ class PipelineRecoveryManager:
 
         state = self._recovery_states[execution_id]
         state.failed_step = step_name
-        state.failed_at = datetime.now()
+        state.failed_at = datetime.now(timezone.utc)
         state.error_message = error_message
 
     def get_recovery_state(self, execution_id: str) -> ExecutionRecoveryState | None:
@@ -222,7 +222,7 @@ class PipelineRecoveryManager:
         state = self._recovery_states.get(execution_id)
         if state:
             state.recovered = True
-            state.recovered_at = datetime.now()
+            state.recovered_at = datetime.now(timezone.utc)
 
     def get_resumable_step(self, execution_id: str) -> str | None:
         """
@@ -324,7 +324,7 @@ def resume_execution_from_step(
         "skipped_steps": [],
         "input_artifacts": input_artifacts or {},
         "override_parameters": override_parameters or {},
-        "resumed_at": datetime.now().isoformat(),
+        "resumed_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

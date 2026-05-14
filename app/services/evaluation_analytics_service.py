@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from statistics import mean, stdev
 from typing import Dict, List, Protocol, Tuple
 
@@ -49,6 +49,13 @@ class DefaultEvaluationAnalyticsService:
     def __init__(self, repository: EvaluationRepository) -> None:
         self._repository = repository
 
+    @staticmethod
+    def _ensure_utc(value: datetime) -> datetime:
+        """Normalize datetimes to UTC-aware values before comparisons."""
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
     def analyze_trajectory(self, candidate_id: str, days_back: int = 30) -> TrajectoryTrend:
         """Analyze the trajectory trend for a candidate."""
         snapshots = self._repository.get_snapshots_for_candidate(candidate_id, limit=50)
@@ -68,18 +75,21 @@ class DefaultEvaluationAnalyticsService:
                 overall_trend_slope=0.0,
                 stability_score=0.0,
                 confidence_trend=0.0,
-                analyzed_at=datetime.now(),
+                analyzed_at=datetime.now(timezone.utc),
             )
 
         # Filter by time period
-        cutoff_date = datetime.now() - timedelta(days=days_back)
-        recent_snapshots = [s for s in snapshots if s.created_at >= cutoff_date]
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+        recent_snapshots = [
+            s for s in snapshots
+            if self._ensure_utc(s.created_at) >= cutoff_date
+        ]
 
         if not recent_snapshots:
             recent_snapshots = snapshots[:5]  # Use most recent if none in period
 
         # Sort by creation time
-        recent_snapshots.sort(key=lambda s: s.created_at)
+        recent_snapshots.sort(key=lambda s: self._ensure_utc(s.created_at))
 
         scores = [s.readiness_score for s in recent_snapshots]
         confidences = [s.confidence for s in recent_snapshots]
@@ -116,7 +126,7 @@ class DefaultEvaluationAnalyticsService:
             overall_trend_slope=round(overall_trend_slope, 3),
             stability_score=round(stability_score, 3),
             confidence_trend=round(confidence_trend, 3),
-            analyzed_at=datetime.now(),
+            analyzed_at=datetime.now(timezone.utc),
         )
 
     def analyze_signal_trends(self, candidate_id: str, days_back: int = 30) -> List[SignalTrend]:
@@ -134,7 +144,7 @@ class DefaultEvaluationAnalyticsService:
                 if signal.type.value not in signal_history:
                     signal_history[signal.type.value] = []
                 signal_history[signal.type.value].append((
-                    snapshot.created_at,
+                    self._ensure_utc(snapshot.created_at),
                     signal.value,
                     signal.confidence
                 ))
@@ -148,7 +158,7 @@ class DefaultEvaluationAnalyticsService:
             history.sort(key=lambda x: x[0])
 
             # Filter by time period
-            cutoff_date = datetime.now() - timedelta(days=days_back)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
             recent_history = [h for h in history if h[0] >= cutoff_date]
 
             if not recent_history:
@@ -224,11 +234,11 @@ class DefaultEvaluationAnalyticsService:
                 regression_risk=0.0,
                 stagnation_risk=1.0,
                 volatility_risk=0.0,
-                analyzed_at=datetime.now(),
+                analyzed_at=datetime.now(timezone.utc),
             )
 
         # Sort snapshots by time ascending for momentum calculations
-        snapshots.sort(key=lambda s: s.created_at)
+        snapshots.sort(key=lambda s: self._ensure_utc(s.created_at))
 
         current_readiness = snapshots[-1].readiness_score
 
@@ -260,7 +270,7 @@ class DefaultEvaluationAnalyticsService:
             critical_weaknesses=critical_weaknesses,
             recent_improvements=recent_improvements,
             recommended_focus_areas=recommended_focus_areas,
-            analyzed_at=datetime.now(),
+                analyzed_at=datetime.now(timezone.utc),
         )
 
     def _calculate_trend_slope(self, snapshots: List[EvaluationSnapshot]) -> float:

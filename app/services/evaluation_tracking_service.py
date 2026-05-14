@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Protocol
 from uuid import uuid4
 
@@ -64,11 +64,11 @@ class DefaultEvaluationTrackingService:
         signal_taxonomy_version: str = SIGNAL_TAXONOMY_VERSION,
     ) -> EvaluationSnapshot:
         """Create and persist a new evaluation snapshot."""
-        snapshot_id = f"{candidate_id}_{datetime.now().timestamp()}"
+        snapshot_id = f"{candidate_id}_{datetime.now(timezone.utc).timestamp()}"
 
         snapshot = EvaluationSnapshot(
             snapshot_id=snapshot_id,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
             readiness_score=round(readiness_score, 3),
             calibration_version=calibration_version,
             schema_version=schema_version,

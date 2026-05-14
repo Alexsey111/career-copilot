@@ -30,6 +30,10 @@ from app.services.metrics_aggregator import (
     MetricsAggregator,
     PipelineMetricsService,
 )
+from app.services.snapshot_lineage_service import (
+    SnapshotBranch,
+    SnapshotLineageService,
+)
 from app.services.readiness_evaluation_service import (
     ReadinessEvaluationService,
     EvaluationProvenance,
@@ -80,6 +84,9 @@ __all__ = [
     # Metrics Aggregation
     "MetricsAggregator",
     "PipelineMetricsService",
+    # Snapshot Lineage
+    "SnapshotBranch",
+    "SnapshotLineageService",
     # Readiness Evaluation
     "ReadinessEvaluationService",
     "EvaluationProvenance",

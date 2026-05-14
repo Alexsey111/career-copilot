@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -157,7 +157,7 @@ class ReadinessEvaluationService:
             prompt_version=provenance.prompt_version,
             extractor_version=provenance.extractor_version,
             model_name=provenance.model_name,
-            evaluated_at=datetime.now(),
+            evaluated_at=datetime.now(timezone.utc),
             components=components,
             blockers=score.blocking_issues,
             warnings=score.warnings,

@@ -1,5 +1,4 @@
-from datetime import datetime, timedelta
-import time
+from datetime import datetime, timedelta, timezone
 
 from app.domain.analytics_models import TrajectoryClassification
 from app.domain.evaluation_models import EvaluationSnapshot
@@ -26,7 +25,7 @@ class TestDefaultEvaluationAnalyticsService:
         service = DefaultEvaluationAnalyticsService(repo)
 
         # Create snapshots with improving trend
-        base_time = datetime.now()
+        base_time = datetime.now(timezone.utc)
         for i in range(5):
             snapshot = EvaluationSnapshot(
                 snapshot_id=f"candidate1_{i}",
@@ -53,7 +52,7 @@ class TestDefaultEvaluationAnalyticsService:
         service = DefaultEvaluationAnalyticsService(repo)
 
         # Create snapshots with coverage signals
-        base_time = datetime.now()
+        base_time = datetime.now(timezone.utc)
         for i in range(3):
             signals = [
                 NormalizedSignal(
@@ -89,7 +88,7 @@ class TestDefaultEvaluationAnalyticsService:
         service = DefaultEvaluationAnalyticsService(repo)
 
         # Create improving snapshots
-        base_time = datetime.now()
+        base_time = datetime.now(timezone.utc)
         for i in range(5):
             snapshot = EvaluationSnapshot(
                 snapshot_id=f"candidate1_{i}",

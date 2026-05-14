@@ -15,6 +15,7 @@ from app.ai.orchestrator import AIOrchestrator
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.document_version_repository import DocumentVersionRepository
+from app.repositories.review_workflow_repository import ReviewWorkflowRepository
 from app.schemas.document import (
     ActiveDocumentResponse,
     CoverLetterEnhanceRequest,
@@ -392,7 +393,9 @@ async def review_document(
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentReviewResponse:
-    service = DocumentReviewService()
+    service = DocumentReviewService(
+        review_workflow_repository=ReviewWorkflowRepository(),
+    )
     document = await service.review_document(
         session,
         document_id=document_id,

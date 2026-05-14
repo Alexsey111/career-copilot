@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -207,8 +207,8 @@ async def get_career_copilot_run(
                 output_artifact_ids=step.output_artifact_ids,
                 error_message=step.error_message,
                 metadata_json=step.metadata,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             for step in summary.steps
         ],
@@ -238,8 +238,8 @@ async def get_career_copilot_run(
                 output_artifact_ids=step.output_artifact_ids,
                 error_message=step.error_message,
                 metadata_json=step.metadata,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             for step in summary.failed_steps
         ],
@@ -256,8 +256,8 @@ async def get_career_copilot_run(
                 output_artifact_ids=step.output_artifact_ids,
                 error_message=step.error_message,
                 metadata_json=step.metadata,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             for step in summary.completed_steps
         ],

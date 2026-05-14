@@ -53,6 +53,7 @@ class PipelineEventTypeEnum(str, Enum):
     STEP_FAILED = "step_failed"
     EVALUATION_FAILED = "evaluation_failed"
     REVIEW_REQUIRED = "review_required"
+    REVIEW_COMPLETED = "review_completed"
     RECOMMENDATION_GENERATED = "recommendation_generated"
 
 
@@ -70,11 +71,16 @@ class PipelineExecutionResponse(BaseModel):
     vacancy_id: Optional[UUID] = None
     profile_id: Optional[UUID] = None
     status: PipelineStatusEnum
+    review_required: bool = False
+    review_completed: bool = False
     pipeline_version: Optional[str] = None
     calibration_version: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     failed_at: Optional[datetime] = None
+    execution_duration_ms: Optional[int] = None
+    evaluation_duration_ms: Optional[int] = None
+    mutation_duration_ms: Optional[int] = None
     resume_document_id: Optional[UUID] = None
     evaluation_snapshot_id: Optional[UUID] = None
     review_id: Optional[UUID] = None
@@ -160,9 +166,14 @@ class StepUpdateRequest(BaseModel):
 
 class ExecutionUpdateRequest(BaseModel):
     status: Optional[PipelineStatusEnum] = None
+    review_required: Optional[bool] = None
+    review_completed: Optional[bool] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     failed_at: Optional[datetime] = None
+    execution_duration_ms: Optional[int] = None
+    evaluation_duration_ms: Optional[int] = None
+    mutation_duration_ms: Optional[int] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     artifacts_json: Optional[dict[str, Any]] = None

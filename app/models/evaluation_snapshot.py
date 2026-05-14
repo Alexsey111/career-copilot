@@ -9,7 +9,7 @@ from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import Float, JSON, String, DateTime, ForeignKey, Index
 from sqlalchemy import Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -85,7 +85,7 @@ class EvaluationSnapshot(Base):
         server_default="now()",
     )
 
-    # Chain relationship for delta history
+    # Parent link for branchable snapshot history
     previous_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("evaluation_snapshots.id"),
@@ -99,12 +99,17 @@ class EvaluationSnapshot(Base):
         foreign_keys=[document_id],
     )
 
-    # Self-referential relationship for snapshot chain
+    # Self-referential relationships for branchable snapshot history
     previous_snapshot: Mapped["EvaluationSnapshot | None"] = relationship(
         "EvaluationSnapshot",
         remote_side="EvaluationSnapshot.id",
         foreign_keys=[previous_snapshot_id],
-        backref=backref("next_snapshot", remote_side="EvaluationSnapshot.previous_snapshot_id", uselist=False),
+        back_populates="next_snapshots",
+    )
+    next_snapshots: Mapped[list["EvaluationSnapshot"]] = relationship(
+        "EvaluationSnapshot",
+        foreign_keys=[previous_snapshot_id],
+        back_populates="previous_snapshot",
     )
 
     __table_args__ = (

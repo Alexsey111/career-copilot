@@ -153,7 +153,7 @@ class ExecutionMetrics:
     Пример использования:
         metrics = ExecutionMetrics(
             time_window=MetricTimeWindow.LAST_7D,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
         )
 
         print(f"Completion rate: {metrics.success_rate.completion_rate:.1%}")

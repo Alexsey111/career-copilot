@@ -30,11 +30,22 @@ class TimeWindow:
     """Временное окно с явными границами."""
     start: datetime
     end: datetime
-    duration_days: int
 
     @property
-    def duration_hours(self) -> float:
-        return self.duration_days * 24
+    def duration(self) -> timedelta:
+        return self.end - self.start
+
+    def __post_init__(self) -> None:
+        if self.start.tzinfo is None:
+            self.start = self.start.replace(tzinfo=timezone.utc)
+        else:
+            self.start = self.start.astimezone(timezone.utc)
+        if self.end.tzinfo is None:
+            self.end = self.end.replace(tzinfo=timezone.utc)
+        else:
+            self.end = self.end.astimezone(timezone.utc)
+        if self.end <= self.start:
+            raise ValueError("TimeWindow end must be after start")
 
 
 class TrendService:
@@ -78,35 +89,35 @@ class TrendService:
             ValueError: Если попытка сравнить несопоставимые окна
         """
         now = reference_date or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        else:
+            now = now.astimezone(timezone.utc)
 
-        # Вычисляем duration для текущего окна
         match time_window:
             case MetricTimeWindow.LAST_24H:
-                duration_days = 1
+                duration = timedelta(hours=24)
             case MetricTimeWindow.LAST_7D:
-                duration_days = 7
+                duration = timedelta(days=7)
             case MetricTimeWindow.LAST_30D:
-                duration_days = 30
+                duration = timedelta(days=30)
             case MetricTimeWindow.LAST_90D:
-                duration_days = 90
+                duration = timedelta(days=90)
             case MetricTimeWindow.ALL_TIME:
-                # Для ALL_TIME previous тоже ALL_TIME (до начала данных)
-                duration_days = 365  # Placeholder
+                raise ValueError("ALL_TIME trend comparison is not supported")
 
         # Current window
-        current_start = now - timedelta(days=duration_days)
+        current_start = now - duration
         current_window = TimeWindow(
             start=current_start,
             end=now,
-            duration_days=duration_days,
         )
 
         # Previous window = current_start - duration до current_start
-        previous_start = current_start - timedelta(days=duration_days)
+        previous_start = current_start - duration
         previous_window = TimeWindow(
             start=previous_start,
             end=current_start,
-            duration_days=duration_days,
         )
 
         return current_window, previous_window
@@ -170,11 +181,16 @@ class TrendService:
             ValueError: Если duration окон не совпадает
         """
         # Enforce comparable windows
-        if current_window.duration_days != previous_window.duration_days:
+        if current_window.duration != previous_window.duration:
             raise ValueError(
-                f"Incomparable windows: current={current_window.duration_days}d, "
-                f"previous={previous_window.duration_days}d. "
+                f"Incomparable windows: current={current_window.duration}, "
+                f"previous={previous_window.duration}. "
                 f"Both windows must have the same duration."
+            )
+        if current_window.start != previous_window.end:
+            raise ValueError(
+                "Incomparable windows: previous window must end exactly where "
+                "current window starts."
             )
 
         # Получаем метрики

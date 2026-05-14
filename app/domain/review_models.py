@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from app.domain.readiness_models import ReadinessScore
@@ -96,8 +96,8 @@ class ReviewSession:
 
     # Session metadata
     status: ReviewStatus = "draft"
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     reviewer_id: str | None = None
 
     # Review decisions (populated during review)
@@ -196,8 +196,8 @@ class ReviewWorkspace:
 
     # Session metadata
     status: ReviewStatus = "draft"
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     reviewer_id: str | None = None
 
     # Review decisions (when completed)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 from uuid import UUID, uuid4
 
@@ -56,9 +56,14 @@ class PipelineRepository(Protocol):
         self,
         execution_id: UUID,
         status: Optional[PipelineStatus] = None,
+        review_required: Optional[bool] = None,
+        review_completed: Optional[bool] = None,
         started_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         failed_at: Optional[datetime] = None,
+        execution_duration_ms: Optional[int] = None,
+        evaluation_duration_ms: Optional[int] = None,
+        mutation_duration_ms: Optional[int] = None,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         artifacts: Optional[dict[str, Any]] = None,
@@ -174,7 +179,12 @@ class SQLAlchemyAsyncPipelineRepository:
             vacancy_id=str(execution.vacancy_id) if execution.vacancy_id else None,
             profile_id=str(execution.profile_id) if execution.profile_id else None,
             status=PipelineStatus.PENDING,
+            review_required=execution.review_required,
+            review_completed=execution.review_completed,
             pipeline_version=pipeline_version,
+            execution_duration_ms=execution.execution_duration_ms,
+            evaluation_duration_ms=execution.evaluation_duration_ms,
+            mutation_duration_ms=execution.mutation_duration_ms,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
         )
@@ -244,12 +254,28 @@ class SQLAlchemyAsyncPipelineRepository:
 
         if status is not None:
             execution.status = status.value
+        if review_required is not None:
+            execution.review_required = review_required
+        if review_completed is not None:
+            execution.review_completed = review_completed
         if started_at is not None:
             execution.started_at = started_at
         if completed_at is not None:
             execution.completed_at = completed_at
+            if execution.started_at:
+                execution.execution_duration_ms = int(
+                    (completed_at - execution.started_at).total_seconds() * 1000
+                )
+                execution.duration_ms = execution.execution_duration_ms
         if failed_at is not None:
             execution.failed_at = failed_at
+        if execution_duration_ms is not None:
+            execution.execution_duration_ms = execution_duration_ms
+            execution.duration_ms = execution_duration_ms
+        if evaluation_duration_ms is not None:
+            execution.evaluation_duration_ms = evaluation_duration_ms
+        if mutation_duration_ms is not None:
+            execution.mutation_duration_ms = mutation_duration_ms
         if error_code is not None:
             execution.error_code = error_code
         if error_message is not None:
@@ -421,10 +447,15 @@ class SQLAlchemyAsyncPipelineRepository:
             evaluation_snapshot_id=str(execution.evaluation_snapshot_id) if execution.evaluation_snapshot_id else None,
             review_id=str(execution.review_id) if execution.review_id else None,
             status=status,
+            review_required=execution.review_required,
+            review_completed=execution.review_completed,
             started_at=execution.started_at,
             completed_at=execution.completed_at,
             pipeline_version=execution.pipeline_version or "v1.0",
             calibration_version=execution.calibration_version,
+            execution_duration_ms=execution.execution_duration_ms,
+            evaluation_duration_ms=execution.evaluation_duration_ms,
+            mutation_duration_ms=execution.mutation_duration_ms,
             error_code=execution.error_code,
             error_message=execution.error_message,
             artifacts=execution.artifacts_json,
@@ -696,7 +727,8 @@ class InMemoryPipelineRepository:
             if exec.user_id == user_id
         ]
         # Sort by started_at descending (most recent first)
-        executions.sort(key=lambda x: x.started_at or datetime.min, reverse=True)
+        min_aware = datetime.min.replace(tzinfo=timezone.utc)
+        executions.sort(key=lambda x: x.started_at or min_aware, reverse=True)
         return executions[:limit]
 
     def get_runs_for_vacancy(self, vacancy_id: str) -> list[CareerCopilotRun]:

@@ -45,6 +45,10 @@ from app.repositories.evaluation_snapshot_repository import (
 from app.repositories.impact_measurement_repository import ImpactMeasurementRepository
 from app.repositories.impact_measurement_repository import RecommendationImpactAggregate
 from app.repositories.pipeline_execution_repository import PipelineExecutionRepository
+from app.repositories.review_workflow_repository import (
+    ReviewWorkflowRepository,
+    ReviewWorkflowMetricsAggregate,
+)
 
 
 @dataclass
@@ -102,10 +106,12 @@ class MetricsAggregator:
         pipeline_repository: PipelineExecutionRepository,
         snapshot_repository: EvaluationSnapshotRepository,
         impact_repository: ImpactMeasurementRepository,
+        review_repository: ReviewWorkflowRepository | None = None,
     ) -> None:
         self._pipeline_repo = pipeline_repository
         self._snapshot_repo = snapshot_repository
         self._impact_repo = impact_repository
+        self._review_repo = review_repository
 
     async def get_metrics(
         self,
@@ -158,11 +164,12 @@ class MetricsAggregator:
             session=session,
             start_time=cutoff_time,
         )
+        review_metrics = await self._get_review_metrics(session, cutoff_time)
 
         # Compose metrics from repository aggregates
         durations = self._compose_duration_metrics(pipeline_duration)
         success_rate = self._compose_success_rate(pipeline_success, resume_metrics)
-        reviews = self._compose_review_metrics(readiness_dist)
+        reviews = self._compose_review_metrics(readiness_dist, review_metrics)
         failures = self._compose_failure_metrics(pipeline_failures, failure_agg)
         recommendations = self._compose_recommendation_metrics(recommendation_impact)
         resumes = self._compose_resume_success_metrics(resume_metrics, readiness_dist)
@@ -202,6 +209,10 @@ class MetricsAggregator:
             ExecutionMetrics для указанного диапазона
         """
         from app.domain.execution_metrics import MetricTimeWindow, ExecutionMetrics, PipelineHealthStatus
+
+        start_time = self._ensure_utc(start_time)
+        if end_time is not None:
+            end_time = self._ensure_utc(end_time)
 
         if end_time is None:
             end_time = datetime.now(timezone.utc)
@@ -247,11 +258,12 @@ class MetricsAggregator:
             start_time=start_time,
             end_time=end_time,
         )
+        review_metrics = await self._get_review_metrics(session, start_time, end_time)
 
         # Compose metrics from repository aggregates
         durations = self._compose_duration_metrics(pipeline_duration)
         success_rate = self._compose_success_rate(pipeline_success, resume_metrics)
-        reviews = self._compose_review_metrics(readiness_dist)
+        reviews = self._compose_review_metrics(readiness_dist, review_metrics)
         failures = self._compose_failure_metrics(pipeline_failures, failure_agg)
         recommendations = self._compose_recommendation_metrics(recommendation_impact)
         resumes = self._compose_resume_success_metrics(resume_metrics, readiness_dist)
@@ -260,7 +272,7 @@ class MetricsAggregator:
 
         return ExecutionMetrics(
             time_window=time_window,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
             durations=durations,
             success_rate=success_rate,
             reviews=reviews,
@@ -286,7 +298,14 @@ class MetricsAggregator:
             case MetricTimeWindow.LAST_90D:
                 return now - timedelta(days=90)
             case MetricTimeWindow.ALL_TIME:
-                return datetime.min
+                return datetime.min.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _ensure_utc(value: datetime) -> datetime:
+        """Normalize datetimes to UTC-aware values for range comparisons."""
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     def _compose_duration_metrics(
         self,
@@ -295,7 +314,7 @@ class MetricsAggregator:
         """Composes DurationMetrics from repository aggregate DTO."""
         return DurationMetrics(
             average_pipeline_duration_seconds=repo_metrics.avg_duration_ms / 1000,
-            average_evaluation_duration_seconds=0.0,
+            average_evaluation_duration_seconds=repo_metrics.avg_evaluation_duration_ms / 1000,
             average_review_duration_seconds=0.0,
             p50_pipeline_duration_seconds=repo_metrics.p50_duration_ms / 1000,
             p90_pipeline_duration_seconds=repo_metrics.p90_duration_ms / 1000,
@@ -321,11 +340,32 @@ class MetricsAggregator:
             sample_count=pipeline_success.total_count,
         )
 
+    async def _get_review_metrics(
+        self,
+        session: AsyncSession,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> ReviewWorkflowMetricsAggregate | None:
+        if self._review_repo is None:
+            return None
+        return await self._review_repo.get_review_metrics(session, start_time, end_time)
+
     def _compose_review_metrics(
         self,
         readiness_dist: ReadinessDistribution,
+        review_metrics: ReviewWorkflowMetricsAggregate | None,
     ) -> ReviewMetrics:
         """Composes ReviewMetrics from repository aggregates."""
+        if review_metrics is not None:
+            return ReviewMetrics(
+                review_required_rate=review_metrics.review_required_rate,
+                review_approval_rate=review_metrics.approval_rate,
+                average_review_duration_seconds=review_metrics.average_review_duration_ms / 1000,
+                critical_review_rate=review_metrics.review_required_rate,
+                manual_review_rate=review_metrics.review_required_rate,
+                sample_count=review_metrics.total_sessions,
+            )
+
         return ReviewMetrics(
             review_required_rate=readiness_dist.needs_work_rate,
             review_approval_rate=0.85,
@@ -503,11 +543,13 @@ class PipelineMetricsService:
         pipeline_repository,
         snapshot_repository,
         impact_repository,
+        review_repository: ReviewWorkflowRepository | None = None,
     ) -> None:
         self._aggregator = MetricsAggregator(
             pipeline_repository, 
             snapshot_repository, 
-            impact_repository
+            impact_repository,
+            review_repository,
         )
 
     async def get_execution_metrics(

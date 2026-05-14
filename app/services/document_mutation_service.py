@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -226,7 +226,7 @@ class DocumentMutationService:
             document.content_json["mutation_history"] = []
 
         mutation_record = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "changes": changes,
             "reason": change_reason,
         }

@@ -32,6 +32,7 @@ from app.repositories.pipeline_execution_repository import (
     PipelineSuccessMetrics,
 )
 from app.repositories.impact_measurement_repository import RecommendationImpactAggregate
+from app.repositories.review_workflow_repository import ReviewWorkflowMetricsAggregate
 from app.services.metrics_aggregator import MetricsAggregator
 
 
@@ -388,6 +389,42 @@ class TestMetricsAggregator:
 
         metrics_7d = await service.get_metrics(AsyncMock(), MetricTimeWindow.LAST_7D)
         assert metrics_7d.recommendations.sample_count == 2
+
+    @pytest.mark.asyncio
+    async def test_review_metrics_from_workflow_repository(self):
+        """Test review metrics are sourced from persistent workflow tables when available."""
+        pipeline_repo = AsyncMock()
+        snapshot_repo = AsyncMock()
+        impact_repo = AsyncMock()
+        review_repo = AsyncMock()
+        service = MetricsAggregator(pipeline_repo, snapshot_repo, impact_repo, review_repo)
+
+        pipeline_repo.get_duration_metrics.return_value = PipelineDurationMetrics(1, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0)
+        pipeline_repo.get_success_metrics.return_value = PipelineSuccessMetrics(1, 1, 0, 1.0, 1.0, 0.0)
+        pipeline_repo.get_failure_metrics.return_value = PipelineFailureMetrics(1, 0, 0.0, [])
+        snapshot_repo.get_resume_metrics.return_value = ResumeMetricsAggregate(1, 0.7, 0.7, 0.7, 0.7, 0.7)
+        snapshot_repo.get_readiness_distribution.return_value = ReadinessDistribution(1, 1.0, 0, 0.0, 0, 0.0)
+        snapshot_repo.get_failure_metrics.return_value = FailureMetricsAggregate(1, 0, 0.0)
+        impact_repo.get_recommendation_impact_metrics.return_value = RecommendationImpactAggregate(
+            completed_count=0,
+            positive_impact_count=0,
+            average_readiness_improvement=0.0,
+            completion_count_by_type={},
+        )
+        review_repo.get_review_metrics.return_value = ReviewWorkflowMetricsAggregate(
+            total_sessions=10,
+            completed_sessions=8,
+            approved_sessions=6,
+            review_required_sessions=7,
+            average_review_duration_ms=300000.0,
+            average_actions_per_session=2.5,
+        )
+
+        metrics = await service.get_metrics(AsyncMock(), MetricTimeWindow.LAST_7D)
+
+        assert metrics.reviews.review_approval_rate == 0.75
+        assert metrics.reviews.average_review_duration_seconds == 300.0
+        assert metrics.reviews.sample_count == 10
 
     @pytest.mark.asyncio
     async def test_trend_calculation(self, aggregator):
