@@ -66,6 +66,7 @@ async def create_pipeline_execution(
             profile_id=execution_data.profile_id,
             pipeline_version=execution_data.pipeline_version,
             calibration_version=execution_data.calibration_version,
+            session=db,
         )
 
         return PipelineExecutionResponse(

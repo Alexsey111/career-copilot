@@ -29,6 +29,7 @@ from app.models.evaluation_snapshot import EvaluationSnapshot
 from app.models.impact_measurement import (
     ImpactMeasurement,
 )
+from app.models.pipeline_execution_event import PipelineExecutionEvent
 from app.models.review_workflow import (
     ReviewActionRecord,
     ReviewOutcomeRecord,
@@ -54,6 +55,7 @@ __all__ = [
     "PipelineEvent",
     "PipelineExecution",
     "PipelineExecutionStep",
+    "PipelineExecutionEvent",
     "RefreshSession",
     "SourceFile",
     "User",

@@ -34,6 +34,10 @@ from app.services.snapshot_lineage_service import (
     SnapshotBranch,
     SnapshotLineageService,
 )
+from app.services.snapshot_comparison_service import (
+    SnapshotComparison,
+    SnapshotComparisonService,
+)
 from app.services.readiness_evaluation_service import (
     ReadinessEvaluationService,
     EvaluationProvenance,
@@ -87,6 +91,9 @@ __all__ = [
     # Snapshot Lineage
     "SnapshotBranch",
     "SnapshotLineageService",
+    # Snapshot Comparison
+    "SnapshotComparison",
+    "SnapshotComparisonService",
     # Readiness Evaluation
     "ReadinessEvaluationService",
     "EvaluationProvenance",

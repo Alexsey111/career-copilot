@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.domain.pipeline_models import (
     CareerCopilotRun,
     PipelineEvent,
@@ -17,6 +19,10 @@ from app.domain.pipeline_models import (
     EventSeverity,
     StepStatus,
 )
+from app.domain.execution_events import ExecutionEventType
+from app.repositories.pipeline_execution_event_repository import (
+    PipelineExecutionEventRepository,
+)
 from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
 from app.schemas.pipeline_schemas import ExecutionUpdateRequest
 
@@ -26,8 +32,38 @@ logger = logging.getLogger(__name__)
 class PipelineExecutionService:
     """Service for managing pipeline execution lifecycle."""
 
-    def __init__(self, repository: SQLAlchemyAsyncPipelineRepository) -> None:
+    def __init__(
+        self,
+        repository: SQLAlchemyAsyncPipelineRepository,
+        event_repository: PipelineExecutionEventRepository | None = None,
+    ) -> None:
         self._repository = repository
+        self._event_repository = event_repository or PipelineExecutionEventRepository()
+
+    async def _record_execution_event(
+        self,
+        session: AsyncSession | None,
+        *,
+        execution_id: UUID,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        if session is not None:
+            await self._event_repository.create_event(
+                session,
+                execution_id=execution_id,
+                event_type=event_type,
+                payload_json=payload or {},
+            )
+            return
+
+        create_event = getattr(self._repository, "create_event", None)
+        if create_event is not None:
+            await create_event(
+                execution_id=execution_id,
+                event_type=event_type,
+                payload=payload or {},
+            )
 
     async def start_execution(
         self,
@@ -36,6 +72,7 @@ class PipelineExecutionService:
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
         calibration_version: Optional[str] = None,
+        session: AsyncSession | None = None,
     ) -> CareerCopilotRun:
         """Start a new pipeline execution."""
         logger.info(
@@ -62,6 +99,16 @@ class PipelineExecutionService:
             calibration_version=calibration_version,
         )
 
+        await self._record_execution_event(
+            session,
+            execution_id=UUID(execution.id),
+            event_type=ExecutionEventType.EXECUTION_STARTED,
+            payload={
+                "pipeline_version": pipeline_version,
+                "calibration_version": calibration_version,
+            },
+        )
+
         return execution
 
     async def complete_execution(
@@ -72,6 +119,7 @@ class PipelineExecutionService:
         resume_document_id: Optional[UUID] = None,
         evaluation_snapshot_id: Optional[UUID] = None,
         review_id: Optional[UUID] = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Mark pipeline execution as completed."""
         logger.info("Completing pipeline execution", extra={"execution_id": str(execution_id)})
@@ -87,14 +135,14 @@ class PipelineExecutionService:
             review_id=review_id,
         )
 
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=execution_id,
-            event_type=PipelineEventType.PIPELINE_COMPLETED,
+            event_type=ExecutionEventType.EXECUTION_COMPLETED,
             payload={
                 "artifacts_count": len(artifacts) if artifacts else 0,
                 "metrics_count": len(metrics) if metrics else 0,
             },
-            severity=EventSeverity.INFO,
         )
 
     async def fail_execution(
@@ -104,6 +152,7 @@ class PipelineExecutionService:
         error_message: str,
         artifacts: Optional[dict[str, Any]] = None,
         metrics: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Mark pipeline execution as failed."""
         logger.error(
@@ -121,14 +170,14 @@ class PipelineExecutionService:
             metrics=metrics,
         )
 
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=execution_id,
-            event_type=PipelineEventType.PIPELINE_FAILED,
+            event_type=ExecutionEventType.EXECUTION_FAILED,
             payload={
                 "error_code": error_code,
                 "error_message": error_message,
             },
-            severity=EventSeverity.ERROR,
         )
 
     async def update_pipeline_status(
@@ -137,6 +186,7 @@ class PipelineExecutionService:
         status: PipelineStatus,
         artifacts: Optional[dict[str, Any]] = None,
         metrics: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Update pipeline execution status to a specific state."""
         logger.info(
@@ -151,51 +201,70 @@ class PipelineExecutionService:
             metrics=metrics,
         )
 
-        # Create event for status change (only for major transitions)
-        if status in [PipelineStatus.RUNNING, PipelineStatus.COMPLETED, PipelineStatus.FAILED]:
-            event_type = {
-                PipelineStatus.RUNNING: PipelineEventType.PIPELINE_STARTED,
-                PipelineStatus.COMPLETED: PipelineEventType.PIPELINE_COMPLETED,
-                PipelineStatus.FAILED: PipelineEventType.PIPELINE_FAILED,
-            }[status]
-            await self._repository.create_event(
-                execution_id=execution_id,
-                event_type=event_type,
-                payload={"new_status": status.value},
-                severity=EventSeverity.INFO,
-            )
-
-    async def set_profile_loading(self, execution_id: UUID) -> None:
+    async def set_profile_loading(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to profile loading."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.PROFILE_LOADING)
+        await self.update_pipeline_status(execution_id, PipelineStatus.PROFILE_LOADING, session=session)
 
-    async def set_vacancy_analysis(self, execution_id: UUID) -> None:
+    async def set_vacancy_analysis(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to vacancy analysis."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.VACANCY_ANALYSIS)
+        await self.update_pipeline_status(execution_id, PipelineStatus.VACANCY_ANALYSIS, session=session)
 
-    async def set_achievement_retrieval(self, execution_id: UUID) -> None:
+    async def set_achievement_retrieval(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to achievement retrieval."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.ACHIEVEMENT_RETRIEVAL)
+        await self.update_pipeline_status(execution_id, PipelineStatus.ACHIEVEMENT_RETRIEVAL, session=session)
 
-    async def set_coverage_mapping(self, execution_id: UUID) -> None:
+    async def set_coverage_mapping(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to coverage mapping."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.COVERAGE_MAPPING)
+        await self.update_pipeline_status(execution_id, PipelineStatus.COVERAGE_MAPPING, session=session)
 
-    async def set_document_generation(self, execution_id: UUID) -> None:
+    async def set_document_generation(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to document generation."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.DOCUMENT_GENERATION)
+        await self.update_pipeline_status(execution_id, PipelineStatus.DOCUMENT_GENERATION, session=session)
 
-    async def set_document_evaluation(self, execution_id: UUID) -> None:
+    async def set_document_evaluation(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to document evaluation."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.DOCUMENT_EVALUATION)
+        await self.update_pipeline_status(execution_id, PipelineStatus.DOCUMENT_EVALUATION, session=session)
 
-    async def set_readiness_scoring(self, execution_id: UUID) -> None:
+    async def set_readiness_scoring(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to readiness scoring."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.READINESS_SCORING)
+        await self.update_pipeline_status(execution_id, PipelineStatus.READINESS_SCORING, session=session)
+        await self.record_evaluation_completed(execution_id, session=session)
 
-    async def set_review_gate(self, execution_id: UUID) -> None:
+    async def set_review_gate(
+        self,
+        execution_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Set pipeline status to review gate."""
-        await self.update_pipeline_status(execution_id, PipelineStatus.REVIEW_GATE)
+        await self.update_pipeline_status(execution_id, PipelineStatus.REVIEW_GATE, session=session)
 
     async def update_execution(
         self,
@@ -254,6 +323,7 @@ class PipelineExecutionService:
         execution_id: UUID,
         step_name: str,
         input_artifact_ids: Optional[list[str]] = None,
+        session: AsyncSession | None = None,
     ) -> PipelineExecutionStep:
         """Start a new pipeline step."""
         logger.debug(
@@ -273,12 +343,11 @@ class PipelineExecutionService:
             started_at=datetime.now(timezone.utc),
         )
 
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=execution_id,
-            event_type=PipelineEventType.STEP_STARTED,
+            event_type="step_started",
             payload={"step_name": step_name},
-            step_id=UUID(step.id),
-            severity=EventSeverity.DEBUG,
         )
 
         return step
@@ -288,6 +357,7 @@ class PipelineExecutionService:
         step_id: UUID,
         output_artifact_ids: Optional[list[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Mark pipeline step as completed."""
         step = await self._repository.get_step(step_id)
@@ -308,18 +378,18 @@ class PipelineExecutionService:
             metadata=metadata,
         )
 
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=UUID(step.execution_id),
-            event_type=PipelineEventType.STEP_COMPLETED,
+            event_type="step_completed",
             payload={"output_artifacts_count": len(output_artifact_ids) if output_artifact_ids else 0},
-            step_id=step_id,
-            severity=EventSeverity.DEBUG,
         )
 
     async def fail_step(
         self,
         step_id: UUID,
         error_message: str,
+        session: AsyncSession | None = None,
     ) -> None:
         """Mark pipeline step as failed."""
         step = await self._repository.get_step(step_id)
@@ -339,12 +409,11 @@ class PipelineExecutionService:
             error_message=error_message,
         )
 
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=UUID(step.execution_id),
-            event_type=PipelineEventType.STEP_FAILED,
+            event_type="step_failed",
             payload={"error_message": error_message},
-            step_id=step_id,
-            severity=EventSeverity.ERROR,
         )
 
     async def record_evaluation_failed(
@@ -352,14 +421,29 @@ class PipelineExecutionService:
         execution_id: UUID,
         step_id: Optional[UUID] = None,
         error_details: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Record evaluation failure event."""
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=execution_id,
-            event_type=PipelineEventType.EVALUATION_FAILED,
+            event_type="evaluation_failed",
             payload=error_details or {},
-            step_id=step_id,
-            severity=EventSeverity.WARNING,
+        )
+
+    async def record_evaluation_completed(
+        self,
+        execution_id: UUID,
+        step_id: Optional[UUID] = None,
+        evaluation_summary: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
+    ) -> None:
+        """Record that evaluation has completed."""
+        await self._record_execution_event(
+            session,
+            execution_id=execution_id,
+            event_type=ExecutionEventType.EVALUATION_COMPLETED,
+            payload=evaluation_summary or {"evaluation_completed": True},
         )
 
     async def record_review_required(
@@ -367,6 +451,7 @@ class PipelineExecutionService:
         execution_id: UUID,
         step_id: Optional[UUID] = None,
         review_reason: Optional[str] = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Record that manual review is required."""
         await self._repository.update_execution(
@@ -376,12 +461,11 @@ class PipelineExecutionService:
             error_message=review_reason,
         )
 
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=execution_id,
-            event_type=PipelineEventType.REVIEW_REQUIRED,
+            event_type="review_required",
             payload={"review_reason": review_reason},
-            step_id=step_id,
-            severity=EventSeverity.INFO,
         )
 
     async def record_review_completed(
@@ -389,6 +473,7 @@ class PipelineExecutionService:
         execution_id: UUID,
         step_id: Optional[UUID] = None,
         review_summary: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Record that manual review is completed."""
         await self._repository.update_execution(
@@ -396,12 +481,11 @@ class PipelineExecutionService:
             review_completed=True,
         )
 
-        await self._repository.create_event(
+        await self._record_execution_event(
+            session,
             execution_id=execution_id,
-            event_type=PipelineEventType.REVIEW_COMPLETED,
+            event_type=ExecutionEventType.REVIEW_COMPLETED,
             payload=review_summary or {"review_completed": True},
-            step_id=step_id,
-            severity=EventSeverity.INFO,
         )
 
     async def record_recommendation_generated(
@@ -409,14 +493,14 @@ class PipelineExecutionService:
         execution_id: UUID,
         step_id: Optional[UUID] = None,
         recommendation_data: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
     ) -> None:
-        """Record that a recommendation was generated."""
-        await self._repository.create_event(
+        """Record that a recommendation was applied."""
+        await self._record_execution_event(
+            session,
             execution_id=execution_id,
-            event_type=PipelineEventType.RECOMMENDATION_GENERATED,
+            event_type=ExecutionEventType.RECOMMENDATION_APPLIED,
             payload=recommendation_data or {},
-            step_id=step_id,
-            severity=EventSeverity.INFO,
         )
 
     async def get_execution_summary(self, execution_id: UUID) -> Optional[PipelineExecutionSummary]:
