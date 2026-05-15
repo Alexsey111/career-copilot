@@ -15,6 +15,10 @@ from app.domain.pipeline_models import (
     EventSeverity,
     StepStatus,
 )
+from app.domain.execution_event_payloads import (
+    ExecutionStartedPayload,
+    serialize_execution_event_payload,
+)
 from app.domain.pipeline_execution_status import PipelineExecutionStatus
 from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
 from app.services.pipeline_execution_service import PipelineExecutionService
@@ -331,3 +335,32 @@ class TestPipelineExecutionService:
 
         assert step.step_name == "test_step"
         mock_repository.create_step.assert_called_once()
+
+    def test_serialize_execution_event_payload(self):
+        payload = ExecutionStartedPayload(
+            pipeline_version="v1.0",
+            calibration_version="calib-v2",
+        )
+
+        serialized = serialize_execution_event_payload(payload)
+
+        assert serialized == {
+            "pipeline_version": "v1.0",
+            "calibration_version": "calib-v2",
+        }
+
+    def test_serialize_execution_event_payload_converts_uuid(self):
+        from uuid import uuid4
+        from app.domain.execution_event_payloads import RecommendationAppliedPayload
+
+        payload = RecommendationAppliedPayload(
+            recommendation_id="rec-1",
+            task_type="add_evidence",
+            document_id=uuid4(),
+        )
+
+        serialized = serialize_execution_event_payload(payload)
+
+        assert serialized["recommendation_id"] == "rec-1"
+        assert serialized["task_type"] == "add_evidence"
+        assert isinstance(serialized["document_id"], str)

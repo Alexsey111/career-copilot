@@ -19,6 +19,20 @@ from app.domain.pipeline_models import (
     EventSeverity,
     StepStatus,
 )
+from app.domain.execution_event_payloads import (
+    ExecutionCompletedPayload,
+    ExecutionFailedPayload,
+    ExecutionStartedPayload,
+    EvaluationCompletedPayload,
+    EvaluationFailedPayload,
+    RecommendationAppliedPayload,
+    ReviewCompletedPayload,
+    ReviewRequiredPayload,
+    StepCompletedPayload,
+    StepFailedPayload,
+    StepStartedPayload,
+    serialize_execution_event_payload,
+)
 from app.domain.pipeline_execution_status import PipelineExecutionStatus
 from app.domain.execution_events import ExecutionEventType
 from app.repositories.pipeline_execution_event_repository import (
@@ -106,22 +120,54 @@ class PipelineExecutionService:
 
         return target_state
 
+    @staticmethod
+    def _build_evaluation_completed_payload(
+        evaluation_summary: Optional[dict[str, Any]],
+    ) -> EvaluationCompletedPayload | dict[str, Any]:
+        if not evaluation_summary or not evaluation_summary.get("snapshot_id"):
+            return evaluation_summary or {"evaluation_completed": True}
+
+        return EvaluationCompletedPayload(
+            snapshot_id=UUID(str(evaluation_summary["snapshot_id"])),
+            score=float(evaluation_summary.get("overall_score", 0.0)),
+            duration_ms=int(evaluation_summary.get("duration_ms", 0)),
+            phase=str(evaluation_summary.get("phase", "initial")),
+        )
+
+    @staticmethod
+    def _build_recommendation_applied_payload(
+        recommendation_data: Optional[dict[str, Any]],
+    ) -> RecommendationAppliedPayload | dict[str, Any]:
+        if not recommendation_data:
+            return {}
+
+        document_id = recommendation_data.get("document_id")
+        if not document_id:
+            return recommendation_data
+
+        return RecommendationAppliedPayload(
+            recommendation_id=str(recommendation_data.get("recommendation_id", "")),
+            task_type=str(recommendation_data.get("task_type", "")),
+            document_id=UUID(str(document_id)),
+        )
+
     async def _record_execution_event(
         self,
         session: AsyncSession | None,
         *,
         execution_id: UUID,
         event_type: str | ExecutionEventType,
-        payload: dict[str, Any] | None = None,
+        payload: Any | None = None,
     ) -> None:
         event_type_value = event_type.value if hasattr(event_type, "value") else event_type
+        payload_json = serialize_execution_event_payload(payload)
 
         if session is not None:
             await self._event_repository.create_event(
                 session,
                 execution_id=execution_id,
                 event_type=event_type_value,
-                payload_json=payload or {},
+                payload_json=payload_json,
             )
             return
 
@@ -130,7 +176,7 @@ class PipelineExecutionService:
             await create_event(
                 execution_id=execution_id,
                 event_type=event_type_value,
-                payload=payload or {},
+                payload=payload_json,
             )
 
     async def start_execution(
@@ -172,10 +218,10 @@ class PipelineExecutionService:
             session,
             execution_id=UUID(execution.id),
             event_type=ExecutionEventType.EXECUTION_STARTED,
-            payload={
-                "pipeline_version": pipeline_version,
-                "calibration_version": calibration_version,
-            },
+            payload=ExecutionStartedPayload(
+                pipeline_version=pipeline_version,
+                calibration_version=calibration_version,
+            ),
         )
 
         return execution
@@ -220,10 +266,10 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type=ExecutionEventType.EXECUTION_COMPLETED,
-            payload={
-                "artifacts_count": len(artifacts) if artifacts else 0,
-                "metrics_count": len(metrics) if metrics else 0,
-            },
+            payload=ExecutionCompletedPayload(
+                artifacts_count=len(artifacts) if artifacts else 0,
+                metrics_count=len(metrics) if metrics else 0,
+            ),
         )
 
     async def fail_execution(
@@ -259,12 +305,12 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type=ExecutionEventType.EXECUTION_FAILED,
-            payload={
-                "error_type": error_code,
-                "message": error_message,
-                "error_code": error_code,
-                "error_message": error_message,
-            },
+            payload=ExecutionFailedPayload(
+                error_type=error_code,
+                message=error_message,
+                error_code=error_code,
+                error_message=error_message,
+            ),
         )
 
     async def update_pipeline_status(
@@ -440,7 +486,7 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type="step_started",
-            payload={"step_name": step_name},
+            payload=StepStartedPayload(step_name=step_name),
         )
 
         return step
@@ -475,7 +521,9 @@ class PipelineExecutionService:
             session,
             execution_id=UUID(step.execution_id),
             event_type="step_completed",
-            payload={"output_artifacts_count": len(output_artifact_ids) if output_artifact_ids else 0},
+            payload=StepCompletedPayload(
+                output_artifacts_count=len(output_artifact_ids) if output_artifact_ids else 0,
+            ),
         )
 
     async def fail_step(
@@ -506,7 +554,7 @@ class PipelineExecutionService:
             session,
             execution_id=UUID(step.execution_id),
             event_type="step_failed",
-            payload={"error_message": error_message},
+            payload=StepFailedPayload(error_message=error_message),
         )
 
     async def record_evaluation_failed(
@@ -521,7 +569,7 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type="evaluation_failed",
-            payload=error_details or {},
+            payload=EvaluationFailedPayload(error_details=error_details),
         )
 
     async def record_evaluation_completed(
@@ -536,7 +584,7 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type=ExecutionEventType.EVALUATION_COMPLETED,
-            payload=evaluation_summary or {"evaluation_completed": True},
+            payload=self._build_evaluation_completed_payload(evaluation_summary),
         )
 
     async def record_review_required(
@@ -562,7 +610,7 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type="review_required",
-            payload={"review_reason": review_reason},
+            payload=ReviewRequiredPayload(review_reason=review_reason),
         )
 
     async def record_review_completed(
@@ -582,7 +630,7 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type=ExecutionEventType.REVIEW_COMPLETED,
-            payload=review_summary or {"review_completed": True},
+            payload=ReviewCompletedPayload(review_summary=review_summary),
         )
 
     async def record_recommendation_applied(
@@ -597,7 +645,7 @@ class PipelineExecutionService:
             session,
             execution_id=execution_id,
             event_type=ExecutionEventType.RECOMMENDATION_APPLIED,
-            payload=recommendation_data or {},
+            payload=self._build_recommendation_applied_payload(recommendation_data),
         )
 
     async def record_recommendation_generated(
