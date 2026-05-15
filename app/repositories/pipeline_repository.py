@@ -61,6 +61,7 @@ class PipelineRepository(Protocol):
         started_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         failed_at: Optional[datetime] = None,
+        calibration_version: Optional[str] = None,
         execution_duration_ms: Optional[int] = None,
         evaluation_duration_ms: Optional[int] = None,
         mutation_duration_ms: Optional[int] = None,
@@ -233,9 +234,15 @@ class SQLAlchemyAsyncPipelineRepository:
         self,
         execution_id: UUID,
         status: Optional[PipelineStatus] = None,
+        review_required: Optional[bool] = None,
+        review_completed: Optional[bool] = None,
         started_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         failed_at: Optional[datetime] = None,
+        calibration_version: Optional[str] = None,
+        execution_duration_ms: Optional[int] = None,
+        evaluation_duration_ms: Optional[int] = None,
+        mutation_duration_ms: Optional[int] = None,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         artifacts: Optional[dict[str, Any]] = None,
@@ -269,6 +276,8 @@ class SQLAlchemyAsyncPipelineRepository:
                 execution.duration_ms = execution.execution_duration_ms
         if failed_at is not None:
             execution.failed_at = failed_at
+        if calibration_version is not None:
+            execution.calibration_version = calibration_version
         if execution_duration_ms is not None:
             execution.execution_duration_ms = execution_duration_ms
             execution.duration_ms = execution_duration_ms

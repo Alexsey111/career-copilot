@@ -287,6 +287,12 @@ async def test_document_history_shows_all_versions(client, db_session):
     history = history_response.json()
 
     assert len(history["items"]) == 3
+    assert len(history["snapshots"]) == 3
+    assert len(history["branches"]) == 1
+    assert history["latest"]["id"] == document_c_id
+    assert history["comparison"]["from_document_id"] == document_c_id
+    assert history["comparison"]["to_document_id"] == document_b_id
+    assert history["comparison"]["diff"]
 
     # Порядок: C, B, A (новые первыми)
     assert history["items"][0]["id"] == document_c_id

@@ -33,13 +33,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/career-copilot/run", tags=["Career Copilot Run"])
 
 
-def get_pipeline_service(db: AsyncSession) -> PipelineExecutionService:
+def get_pipeline_service(db: AsyncSession = Depends(get_db_session)) -> PipelineExecutionService:
     """Dependency injection for pipeline service."""
     repository = SQLAlchemyAsyncPipelineRepository(session=db)
     return PipelineExecutionService(repository=repository)
 
 
-def get_review_workspace_service(db: AsyncSession) -> ReviewWorkspaceService:
+def get_review_workspace_service(db: AsyncSession = Depends(get_db_session)) -> ReviewWorkspaceService:
     """Dependency injection for review workspace service."""
     from app.repositories.document_version_repository import DocumentVersionRepository
     from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
@@ -55,8 +55,8 @@ def get_review_workspace_service(db: AsyncSession) -> ReviewWorkspaceService:
 @router.post("", response_model=PipelineExecutionResponse, status_code=status.HTTP_201_CREATED)
 async def create_pipeline_execution(
     execution_data: PipelineExecutionCreate,
-    service: PipelineExecutionService = Depends(lambda db=None: get_pipeline_service(db)),
     db: AsyncSession = Depends(get_db_session),
+    service: PipelineExecutionService = Depends(get_pipeline_service),
 ):
     """Create and start a new pipeline execution."""
     try:
@@ -93,8 +93,8 @@ async def create_pipeline_execution(
 async def update_pipeline_execution(
     execution_id: UUID,
     update_data: ExecutionUpdateRequest,
-    service: PipelineExecutionService = Depends(lambda db=None: get_pipeline_service(db)),
     db: AsyncSession = Depends(get_db_session),
+    service: PipelineExecutionService = Depends(get_pipeline_service),
 ):
     """Update pipeline execution status and metadata."""
     execution = await service.update_execution(execution_id, update_data)
@@ -131,9 +131,9 @@ async def update_pipeline_execution(
 @router.get("/{execution_id}", response_model=CareerCopilotRunResponse)
 async def get_career_copilot_run(
     execution_id: UUID,
-    pipeline_service: PipelineExecutionService = Depends(lambda db=None: get_pipeline_service(db)),
-    review_service: ReviewWorkspaceService = Depends(lambda db=None: get_review_workspace_service(db)),
     db: AsyncSession = Depends(get_db_session),
+    pipeline_service: PipelineExecutionService = Depends(get_pipeline_service),
+    review_service: ReviewWorkspaceService = Depends(get_review_workspace_service),
 ):
     """Get complete career copilot run with progress, artifacts, readiness, tasks, and review status."""
     # Get pipeline execution summary
@@ -276,8 +276,8 @@ async def get_user_executions(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status: Optional[PipelineStatusEnum] = None,
-    service: PipelineExecutionService = Depends(lambda db=None: get_pipeline_service(db)),
     db: AsyncSession = Depends(get_db_session),
+    service: PipelineExecutionService = Depends(get_pipeline_service),
 ):
     """Get pipeline executions for a user."""
     executions = await service.get_user_executions(
@@ -323,8 +323,8 @@ async def get_vacancy_executions(
     vacancy_id: UUID,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    service: PipelineExecutionService = Depends(lambda db=None: get_pipeline_service(db)),
     db: AsyncSession = Depends(get_db_session),
+    service: PipelineExecutionService = Depends(get_pipeline_service),
 ):
     """Get pipeline executions for a vacancy."""
     executions = await service.get_vacancy_executions(

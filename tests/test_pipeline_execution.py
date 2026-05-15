@@ -258,6 +258,10 @@ class TestPipelineExecutionService:
         call_args = mock_repository.update_execution.call_args
         assert call_args[1]["error_code"] == "TEST_ERROR"
         assert call_args[1]["error_message"] == "Test error message"
+        event_args = mock_repository.create_event.call_args[1]
+        assert event_args["event_type"] == "execution_failed"
+        assert event_args["payload"]["error_type"] == "TEST_ERROR"
+        assert event_args["payload"]["message"] == "Test error message"
 
     @pytest.mark.asyncio
     async def test_start_step(self, service, mock_repository):

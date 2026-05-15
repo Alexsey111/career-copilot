@@ -45,14 +45,16 @@ class PipelineExecutionService:
         session: AsyncSession | None,
         *,
         execution_id: UUID,
-        event_type: str,
+        event_type: str | ExecutionEventType,
         payload: dict[str, Any] | None = None,
     ) -> None:
+        event_type_value = event_type.value if hasattr(event_type, "value") else event_type
+
         if session is not None:
             await self._event_repository.create_event(
                 session,
                 execution_id=execution_id,
-                event_type=event_type,
+                event_type=event_type_value,
                 payload_json=payload or {},
             )
             return
@@ -61,7 +63,7 @@ class PipelineExecutionService:
         if create_event is not None:
             await create_event(
                 execution_id=execution_id,
-                event_type=event_type,
+                event_type=event_type_value,
                 payload=payload or {},
             )
 
@@ -175,6 +177,8 @@ class PipelineExecutionService:
             execution_id=execution_id,
             event_type=ExecutionEventType.EXECUTION_FAILED,
             payload={
+                "error_type": error_code,
+                "message": error_message,
                 "error_code": error_code,
                 "error_message": error_message,
             },

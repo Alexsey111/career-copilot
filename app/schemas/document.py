@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
+
+from pydantic import Field
 
 from app.schemas.json_contracts import DocumentKind, StrictBaseModel
 
@@ -96,8 +99,32 @@ class DocumentHistoryItem(StrictBaseModel):
     created_at: datetime
 
 
+class DocumentSnapshotHistoryItem(StrictBaseModel):
+    id: UUID
+    derived_from_id: UUID | None = None
+    created_at: datetime
+    version_label: str | None = None
+    review_status: str
+    is_active: bool
+
+
+class DocumentSnapshotComparison(StrictBaseModel):
+    from_document_id: UUID
+    to_document_id: UUID
+    diff: str
+
+
+class DocumentSnapshotBranch(StrictBaseModel):
+    head_snapshot_id: UUID
+    snapshots: list[DocumentSnapshotHistoryItem] = Field(default_factory=list)
+
+
 class DocumentHistoryResponse(StrictBaseModel):
-    items: list[DocumentHistoryItem]
+    snapshots: list[DocumentSnapshotHistoryItem] = Field(default_factory=list)
+    branches: list[DocumentSnapshotBranch] = Field(default_factory=list)
+    latest: DocumentSnapshotHistoryItem | None = None
+    comparison: DocumentSnapshotComparison | None = None
+    items: list[DocumentSnapshotHistoryItem] = Field(default_factory=list)
 
 
 class DocumentDiffResponse(StrictBaseModel):

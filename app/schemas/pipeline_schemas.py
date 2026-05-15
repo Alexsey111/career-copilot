@@ -138,6 +138,14 @@ class PipelineEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ExecutionEventTimelineItem(BaseModel):
+    event_type: str
+    created_at: datetime
+    payload_json: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PipelineExecutionSummaryResponse(BaseModel):
     execution: PipelineExecutionResponse
     steps: list[PipelineExecutionStepResponse] = Field(default_factory=list)
