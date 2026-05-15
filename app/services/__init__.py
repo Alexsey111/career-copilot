@@ -38,6 +38,9 @@ from app.services.snapshot_comparison_service import (
     SnapshotComparison,
     SnapshotComparisonService,
 )
+from app.services.career_pipeline_orchestrator import (
+    CareerPipelineOrchestrator,
+)
 from app.services.readiness_evaluation_service import (
     ReadinessEvaluationService,
     EvaluationProvenance,
@@ -94,6 +97,8 @@ __all__ = [
     # Snapshot Comparison
     "SnapshotComparison",
     "SnapshotComparisonService",
+    # Career Pipeline Orchestration
+    "CareerPipelineOrchestrator",
     # Readiness Evaluation
     "ReadinessEvaluationService",
     "EvaluationProvenance",

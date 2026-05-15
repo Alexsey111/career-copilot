@@ -182,6 +182,7 @@ class SQLAlchemyAsyncPipelineRepository:
             status=PipelineStatus.PENDING,
             review_required=execution.review_required,
             review_completed=execution.review_completed,
+            failed_at=execution.failed_at,
             pipeline_version=pipeline_version,
             execution_duration_ms=execution.execution_duration_ms,
             evaluation_duration_ms=execution.evaluation_duration_ms,
@@ -460,6 +461,7 @@ class SQLAlchemyAsyncPipelineRepository:
             review_completed=execution.review_completed,
             started_at=execution.started_at,
             completed_at=execution.completed_at,
+            failed_at=execution.failed_at,
             pipeline_version=execution.pipeline_version or "v1.0",
             calibration_version=execution.calibration_version,
             execution_duration_ms=execution.execution_duration_ms,
@@ -533,6 +535,7 @@ class InMemoryPipelineRepository:
             profile_id=str(profile_id) if profile_id else None,
             pipeline_version=pipeline_version,
             status=PipelineStatus.PENDING,
+            failed_at=None,
         )
         self._executions[execution_id] = execution
         self._steps[execution_id] = []

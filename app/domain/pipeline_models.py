@@ -76,6 +76,7 @@ class CareerCopilotRun:
     review_completed: bool = False
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    failed_at: Optional[datetime] = None
     pipeline_version: str = "v1.0"
     calibration_version: Optional[str] = None
     execution_duration_ms: Optional[int] = None

@@ -59,7 +59,8 @@ class PipelineEventTypeEnum(str, Enum):
 
 class PipelineExecutionCreate(BaseModel):
     user_id: UUID
-    vacancy_id: Optional[UUID] = None
+    document_id: UUID
+    vacancy_id: UUID
     profile_id: Optional[UUID] = None
     pipeline_version: str = Field(default="v1.0", description="Version of the pipeline")
     calibration_version: Optional[str] = None

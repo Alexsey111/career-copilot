@@ -121,6 +121,10 @@ class PipelineExecutionService:
         resume_document_id: Optional[UUID] = None,
         evaluation_snapshot_id: Optional[UUID] = None,
         review_id: Optional[UUID] = None,
+        review_required: Optional[bool] = None,
+        review_completed: Optional[bool] = None,
+        evaluation_duration_ms: Optional[int] = None,
+        mutation_duration_ms: Optional[int] = None,
         session: AsyncSession | None = None,
     ) -> None:
         """Mark pipeline execution as completed."""
@@ -135,6 +139,10 @@ class PipelineExecutionService:
             resume_document_id=resume_document_id,
             evaluation_snapshot_id=evaluation_snapshot_id,
             review_id=review_id,
+            review_required=review_required,
+            review_completed=review_completed,
+            evaluation_duration_ms=evaluation_duration_ms,
+            mutation_duration_ms=mutation_duration_ms,
         )
 
         await self._record_execution_event(
@@ -492,7 +500,7 @@ class PipelineExecutionService:
             payload=review_summary or {"review_completed": True},
         )
 
-    async def record_recommendation_generated(
+    async def record_recommendation_applied(
         self,
         execution_id: UUID,
         step_id: Optional[UUID] = None,
@@ -505,6 +513,21 @@ class PipelineExecutionService:
             execution_id=execution_id,
             event_type=ExecutionEventType.RECOMMENDATION_APPLIED,
             payload=recommendation_data or {},
+        )
+
+    async def record_recommendation_generated(
+        self,
+        execution_id: UUID,
+        step_id: Optional[UUID] = None,
+        recommendation_data: Optional[dict[str, Any]] = None,
+        session: AsyncSession | None = None,
+    ) -> None:
+        """Backward-compatible alias for recommendation_applied."""
+        await self.record_recommendation_applied(
+            execution_id=execution_id,
+            step_id=step_id,
+            recommendation_data=recommendation_data,
+            session=session,
         )
 
     async def get_execution_summary(self, execution_id: UUID) -> Optional[PipelineExecutionSummary]:

@@ -24,6 +24,7 @@ from app.schemas.pipeline_schemas import (
     StepUpdateRequest,
     CareerCopilotRunResponse,
 )
+from app.services.career_pipeline_orchestrator import CareerPipelineOrchestrator
 from app.services.pipeline_execution_service import PipelineExecutionService
 from app.services.review_workspace_service import ReviewWorkspaceService
 from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
@@ -37,6 +38,15 @@ def get_pipeline_service(db: AsyncSession = Depends(get_db_session)) -> Pipeline
     """Dependency injection for pipeline service."""
     repository = SQLAlchemyAsyncPipelineRepository(session=db)
     return PipelineExecutionService(repository=repository)
+
+
+def get_career_pipeline_orchestrator(
+    db: AsyncSession = Depends(get_db_session),
+) -> CareerPipelineOrchestrator:
+    """Dependency injection for the full career pipeline orchestrator."""
+    # The orchestrator builds its own service graph and only needs the session.
+    _ = db
+    return CareerPipelineOrchestrator()
 
 
 def get_review_workspace_service(db: AsyncSession = Depends(get_db_session)) -> ReviewWorkspaceService:
@@ -56,17 +66,15 @@ def get_review_workspace_service(db: AsyncSession = Depends(get_db_session)) -> 
 async def create_pipeline_execution(
     execution_data: PipelineExecutionCreate,
     db: AsyncSession = Depends(get_db_session),
-    service: PipelineExecutionService = Depends(get_pipeline_service),
+    orchestrator: CareerPipelineOrchestrator = Depends(get_career_pipeline_orchestrator),
 ):
     """Create and start a new pipeline execution."""
     try:
-        execution = await service.start_execution(
-            user_id=execution_data.user_id,
-            vacancy_id=execution_data.vacancy_id,
-            profile_id=execution_data.profile_id,
-            pipeline_version=execution_data.pipeline_version,
-            calibration_version=execution_data.calibration_version,
+        execution = await orchestrator.run_pipeline(
             session=db,
+            document_id=execution_data.document_id,
+            vacancy_id=execution_data.vacancy_id,
+            user_id=execution_data.user_id,
         )
 
         return PipelineExecutionResponse(
@@ -75,14 +83,28 @@ async def create_pipeline_execution(
             vacancy_id=UUID(execution.vacancy_id) if execution.vacancy_id else None,
             profile_id=UUID(execution.profile_id) if execution.profile_id else None,
             status=execution.status.value,
+            review_required=execution.review_required,
+            review_completed=execution.review_completed,
             pipeline_version=execution.pipeline_version,
             calibration_version=execution.calibration_version,
             started_at=execution.started_at,
+            completed_at=execution.completed_at,
+            failed_at=execution.failed_at,
+            execution_duration_ms=execution.execution_duration_ms,
+            evaluation_duration_ms=execution.evaluation_duration_ms,
+            mutation_duration_ms=execution.mutation_duration_ms,
+            resume_document_id=UUID(execution.resume_document_id) if execution.resume_document_id else None,
+            evaluation_snapshot_id=UUID(execution.evaluation_snapshot_id) if execution.evaluation_snapshot_id else None,
+            review_id=UUID(execution.review_id) if execution.review_id else None,
+            error_code=execution.error_code,
+            error_message=execution.error_message,
+            artifacts_json=execution.artifacts,
+            metrics_json=execution.metrics,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
         )
     except Exception as e:
-        logger.error(f"Failed to create pipeline execution: {e}")
+        logger.exception("Failed to create pipeline execution")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create pipeline execution: {str(e)}",

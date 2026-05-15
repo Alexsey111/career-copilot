@@ -58,7 +58,11 @@ class ImpactMeasurement(Base):
         index=True,
     )
     recommendation_type: Mapped[ImpactRecommendationType] = mapped_column(
-        SQLEnum(ImpactRecommendationType, name="impact_recommendation_type"),
+        SQLEnum(
+            ImpactRecommendationType,
+            name="impact_recommendation_type",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         nullable=False,
         default=ImpactRecommendationType.UNKNOWN,
         index=True,
