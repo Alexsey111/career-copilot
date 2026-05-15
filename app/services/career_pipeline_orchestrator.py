@@ -16,6 +16,7 @@ from app.repositories.document_version_repository import DocumentVersionReposito
 from app.repositories.impact_measurement_repository import ImpactMeasurementRepository
 from app.repositories.pipeline_execution_event_repository import PipelineExecutionEventRepository
 from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
+from app.repositories.recommendation_repository import RecommendationRepository
 from app.repositories.review_workflow_repository import ReviewWorkflowRepository
 from app.services.deterministic_scoring_service import DeterministicScoringService
 from app.services.document_mutation_service import DocumentMutationService
@@ -45,6 +46,7 @@ class CareerPipelineOrchestrator:
         document_repo = DocumentVersionRepository()
         pipeline_repo = SQLAlchemyAsyncPipelineRepository(session=session)
         event_repo = PipelineExecutionEventRepository()
+        recommendation_repo = RecommendationRepository()
         review_repo = ReviewWorkflowRepository()
         impact_repo = ImpactMeasurementRepository()
 
@@ -102,8 +104,20 @@ class CareerPipelineOrchestrator:
         )
 
         primary_task = before_tasks[0] if before_tasks else self._build_fallback_task(before_score)
+        recommendation_records = await recommendation_repo.create_recommendations(
+            session,
+            execution_id=UUID(execution.id),
+            document_id=document_id,
+            recommendations=[
+                self._recommendation_payload(task)
+                for task in before_tasks
+            ] or [
+                self._recommendation_payload(primary_task)
+            ],
+        )
+        primary_recommendation = recommendation_records[0]
         changes = self._build_changes_from_task(primary_task, before_evaluation)
-        recommendation_id = self._build_recommendation_id(primary_task)
+        recommendation_id = str(primary_recommendation.id)
 
         mutation_started_at = datetime.now(timezone.utc)
         mutated_document = await mutation_service.apply_recommendation(
@@ -167,6 +181,12 @@ class CareerPipelineOrchestrator:
             document_id=mutated_document.id,
             started_at=impact_started_at,
             completed_at=impact_completed_at,
+        )
+
+        await recommendation_repo.mark_applied(
+            session,
+            recommendation_id=primary_recommendation.id,
+            applied_at=impact_completed_at,
         )
 
         review_required, review_reason = self._needs_review(after_evaluation, after_tasks)
@@ -269,6 +289,14 @@ class CareerPipelineOrchestrator:
 
     def _build_recommendation_id(self, task: RecommendationTask) -> str:
         return f"{task.task_type.value}-{task.priority.value}"
+
+    def _recommendation_payload(self, task: RecommendationTask) -> dict[str, Any]:
+        return {
+            "category": task.task_type.value,
+            "message": task.description or task.rationale,
+            "estimated_score_improvement": task.estimated_score_improvement,
+            "confidence": task.confidence,
+        }
 
     def _build_changes_from_task(
         self,

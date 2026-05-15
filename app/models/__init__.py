@@ -30,6 +30,10 @@ from app.models.impact_measurement import (
     ImpactMeasurement,
 )
 from app.models.pipeline_execution_event import PipelineExecutionEvent
+from app.models.recommendation import (
+    Recommendation,
+    RecommendationLifecycleStatus,
+)
 from app.models.review_workflow import (
     ReviewActionRecord,
     ReviewOutcomeRecord,
@@ -62,6 +66,8 @@ __all__ = [
     "Vacancy",
     "VacancyAnalysis",
     "ImpactMeasurement",
+    "Recommendation",
+    "RecommendationLifecycleStatus",
     "ReviewActionRecord",
     "ReviewOutcomeRecord",
     "ReviewSessionRecord",

@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import DocumentVersion
 from app.repositories.document_version_repository import DocumentVersionRepository
@@ -99,6 +100,7 @@ class DocumentMutationService:
 
         # 4. Добавляем metadata об изменениях
         await self._add_mutation_metadata(new_document, changes, change_reason)
+        await session.flush()
 
         return new_document
 
@@ -232,4 +234,5 @@ class DocumentMutationService:
         }
 
         document.content_json["mutation_history"].append(mutation_record)
+        flag_modified(document, "content_json")
         document.rendered_text = None  # Сброс рендеринга

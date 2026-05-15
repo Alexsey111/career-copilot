@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
+from uuid import UUID
+
+from app.models import DocumentVersion, ImpactMeasurement, Recommendation
 
 
 API_PREFIX = "/api/v1"
@@ -67,7 +71,7 @@ async def _create_analyzed_vacancy(client) -> str:
 
 
 @pytest.mark.asyncio
-async def test_execution_events_api_returns_timeline(client, test_user):
+async def test_execution_events_api_returns_timeline(client, db_session, test_user):
     await _prepare_profile(client)
     vacancy_id = await _create_analyzed_vacancy(client)
 
@@ -88,7 +92,35 @@ async def test_execution_events_api_returns_timeline(client, test_user):
         },
     )
     assert create_response.status_code == 201, create_response.text
-    execution_id = create_response.json()["id"]
+    run_payload = create_response.json()
+    execution_id = UUID(run_payload["id"])
+    recommendation_id = run_payload["artifacts_json"]["recommendation_id"]
+    mutated_document_id = UUID(run_payload["artifacts_json"]["mutated_document_id"])
+
+    recommendation_rows = (
+        await db_session.execute(
+            select(Recommendation).where(Recommendation.execution_id == execution_id)
+        )
+    ).scalars().all()
+    assert recommendation_rows, "Expected persistent recommendations for the execution"
+    assert any(str(row.id) == recommendation_id for row in recommendation_rows)
+
+    impact_row = (
+        await db_session.execute(
+            select(ImpactMeasurement).where(ImpactMeasurement.recommendation_id == recommendation_id)
+        )
+    ).scalar_one_or_none()
+    assert impact_row is not None
+
+    mutated_document = (
+        await db_session.execute(
+            select(DocumentVersion).where(DocumentVersion.id == mutated_document_id)
+        )
+    ).scalar_one_or_none()
+    assert mutated_document is not None
+    mutation_history = mutated_document.content_json.get("mutation_history", [])
+    assert mutation_history, "Expected mutation history in mutated document"
+    assert recommendation_id in mutation_history[-1]["reason"]
 
     events_response = await client.get(f"{API_PREFIX}/executions/{execution_id}/events")
     assert events_response.status_code == 200
