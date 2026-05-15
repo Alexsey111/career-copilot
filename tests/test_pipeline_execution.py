@@ -15,6 +15,7 @@ from app.domain.pipeline_models import (
     EventSeverity,
     StepStatus,
 )
+from app.domain.pipeline_execution_status import PipelineExecutionStatus
 from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
 from app.services.pipeline_execution_service import PipelineExecutionService
 
@@ -228,6 +229,16 @@ class TestPipelineExecutionService:
         artifacts = {"resume": "doc_123"}
         metrics = {"score": 0.95}
 
+        mock_repository.get_execution = AsyncMock(
+            return_value=CareerCopilotRun(
+                id=str(execution_id),
+                user_id=str(uuid4()),
+                vacancy_id=str(uuid4()),
+                profile_id=None,
+                status=PipelineStatus.RUNNING,
+            )
+        )
+
         mock_repository.update_execution = AsyncMock()
         mock_repository.create_event = AsyncMock()
 
@@ -244,6 +255,16 @@ class TestPipelineExecutionService:
     async def test_fail_execution(self, service, mock_repository):
         """Test failing a pipeline execution."""
         execution_id = uuid4()
+
+        mock_repository.get_execution = AsyncMock(
+            return_value=CareerCopilotRun(
+                id=str(execution_id),
+                user_id=str(uuid4()),
+                vacancy_id=str(uuid4()),
+                profile_id=None,
+                status=PipelineStatus.RUNNING,
+            )
+        )
 
         mock_repository.update_execution = AsyncMock()
         mock_repository.create_event = AsyncMock()
@@ -262,6 +283,29 @@ class TestPipelineExecutionService:
         assert event_args["event_type"] == "execution_failed"
         assert event_args["payload"]["error_type"] == "TEST_ERROR"
         assert event_args["payload"]["message"] == "Test error message"
+
+    def test_transition_status_rejects_invalid_transitions(self, service):
+        with pytest.raises(ValueError):
+            service._transition_status(
+                PipelineExecutionStatus.COMPLETED,
+                PipelineExecutionStatus.RUNNING,
+            )
+
+        with pytest.raises(ValueError):
+            service._transition_status(
+                PipelineExecutionStatus.FAILED,
+                PipelineExecutionStatus.RUNNING,
+            )
+
+    def test_transition_status_allows_valid_transitions(self, service):
+        assert service._transition_status(
+            PipelineExecutionStatus.CREATED,
+            PipelineExecutionStatus.RUNNING,
+        ) == PipelineExecutionStatus.RUNNING
+        assert service._transition_status(
+            PipelineExecutionStatus.RUNNING,
+            PipelineExecutionStatus.REVIEW_REQUIRED,
+        ) == PipelineExecutionStatus.REVIEW_REQUIRED
 
     @pytest.mark.asyncio
     async def test_start_step(self, service, mock_repository):

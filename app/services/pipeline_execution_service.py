@@ -19,6 +19,7 @@ from app.domain.pipeline_models import (
     EventSeverity,
     StepStatus,
 )
+from app.domain.pipeline_execution_status import PipelineExecutionStatus
 from app.domain.execution_events import ExecutionEventType
 from app.repositories.pipeline_execution_event_repository import (
     PipelineExecutionEventRepository,
@@ -39,6 +40,71 @@ class PipelineExecutionService:
     ) -> None:
         self._repository = repository
         self._event_repository = event_repository or PipelineExecutionEventRepository()
+
+    @staticmethod
+    def _normalize_status(
+        status: PipelineStatus | PipelineExecutionStatus | None,
+    ) -> PipelineExecutionStatus | None:
+        if status is None:
+            return None
+
+        if isinstance(status, PipelineExecutionStatus):
+            return status
+
+        return {
+            PipelineStatus.PENDING: PipelineExecutionStatus.CREATED,
+            PipelineStatus.RUNNING: PipelineExecutionStatus.RUNNING,
+            PipelineStatus.REVIEW_GATE: PipelineExecutionStatus.REVIEW_REQUIRED,
+            PipelineStatus.COMPLETED: PipelineExecutionStatus.COMPLETED,
+            PipelineStatus.FAILED: PipelineExecutionStatus.FAILED,
+            PipelineStatus.CANCELLED: PipelineExecutionStatus.CANCELLED,
+        }.get(status, None)
+
+    @staticmethod
+    def _to_repository_status(status: PipelineExecutionStatus) -> PipelineStatus:
+        return {
+            PipelineExecutionStatus.CREATED: PipelineStatus.PENDING,
+            PipelineExecutionStatus.RUNNING: PipelineStatus.RUNNING,
+            PipelineExecutionStatus.REVIEW_REQUIRED: PipelineStatus.REVIEW_GATE,
+            PipelineExecutionStatus.COMPLETED: PipelineStatus.COMPLETED,
+            PipelineExecutionStatus.FAILED: PipelineStatus.FAILED,
+            PipelineExecutionStatus.CANCELLED: PipelineStatus.CANCELLED,
+        }[status]
+
+    def _transition_status(
+        self,
+        current: PipelineStatus | PipelineExecutionStatus | None,
+        target: PipelineStatus | PipelineExecutionStatus,
+    ) -> PipelineExecutionStatus:
+        current_state = self._normalize_status(current)
+        target_state = self._normalize_status(target)
+
+        if target_state is None:
+            raise ValueError(f"Unsupported target status: {target!r}")
+
+        allowed_transitions: dict[PipelineExecutionStatus, set[PipelineExecutionStatus]] = {
+            PipelineExecutionStatus.CREATED: {PipelineExecutionStatus.RUNNING},
+            PipelineExecutionStatus.RUNNING: {
+                PipelineExecutionStatus.REVIEW_REQUIRED,
+                PipelineExecutionStatus.COMPLETED,
+                PipelineExecutionStatus.FAILED,
+            },
+            PipelineExecutionStatus.REVIEW_REQUIRED: {
+                PipelineExecutionStatus.COMPLETED,
+                PipelineExecutionStatus.FAILED,
+            },
+            PipelineExecutionStatus.COMPLETED: set(),
+            PipelineExecutionStatus.FAILED: set(),
+            PipelineExecutionStatus.CANCELLED: set(),
+        }
+
+        if current_state is None:
+            current_state = PipelineExecutionStatus.CREATED
+
+        if target_state not in allowed_transitions[current_state]:
+            raise ValueError(f"Invalid pipeline execution transition: {current_state.value} -> {target_state.value}")
+
+        return target_state
 
     async def _record_execution_event(
         self,
@@ -94,9 +160,10 @@ class PipelineExecutionService:
             pipeline_version=pipeline_version,
         )
 
+        execution_state = self._transition_status(PipelineExecutionStatus.CREATED, PipelineExecutionStatus.RUNNING)
         await self._repository.update_execution(
             execution_id=UUID(execution.id),
-            status=PipelineStatus.RUNNING,
+            status=self._to_repository_status(execution_state),
             started_at=datetime.now(timezone.utc),
             calibration_version=calibration_version,
         )
@@ -129,6 +196,10 @@ class PipelineExecutionService:
     ) -> None:
         """Mark pipeline execution as completed."""
         logger.info("Completing pipeline execution", extra={"execution_id": str(execution_id)})
+
+        execution = await self._repository.get_execution(execution_id)
+        current_status = execution.status if execution else None
+        self._transition_status(current_status, PipelineExecutionStatus.COMPLETED)
 
         await self._repository.update_execution(
             execution_id=execution_id,
@@ -170,6 +241,10 @@ class PipelineExecutionService:
             extra={"execution_id": str(execution_id), "error_code": error_code},
         )
 
+        execution = await self._repository.get_execution(execution_id)
+        current_status = execution.status if execution else None
+        self._transition_status(current_status, PipelineExecutionStatus.FAILED)
+
         await self._repository.update_execution(
             execution_id=execution_id,
             status=PipelineStatus.FAILED,
@@ -205,6 +280,12 @@ class PipelineExecutionService:
             "Updating pipeline status",
             extra={"execution_id": str(execution_id), "status": status.value},
         )
+
+        execution = await self._repository.get_execution(execution_id)
+        current_status = execution.status if execution else None
+        target_state = self._normalize_status(status)
+        if target_state is not None:
+            self._transition_status(current_status, target_state)
 
         await self._repository.update_execution(
             execution_id=execution_id,
@@ -466,6 +547,10 @@ class PipelineExecutionService:
         session: AsyncSession | None = None,
     ) -> None:
         """Record that manual review is required."""
+        execution = await self._repository.get_execution(execution_id)
+        current_status = execution.status if execution else None
+        self._transition_status(current_status, PipelineExecutionStatus.REVIEW_REQUIRED)
+
         await self._repository.update_execution(
             execution_id=execution_id,
             review_required=True,

@@ -13,6 +13,7 @@ from app.domain.execution_metrics import (
     TrendMetrics,
 )
 from app.domain.execution_events import ExecutionEventType
+from app.domain.pipeline_execution_status import PipelineExecutionStatus
 from app.domain.readiness_evaluation import (
     ReadinessLevel,
     ComponentScore,
@@ -32,6 +33,7 @@ __all__ = [
     "ExecutionMetrics",
     "TrendMetrics",
     "ExecutionEventType",
+    "PipelineExecutionStatus",
     # Readiness Evaluation
     "ReadinessLevel",
     "ComponentScore",
