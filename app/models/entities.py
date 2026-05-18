@@ -29,6 +29,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.evaluation_snapshot import EvaluationSnapshot
+    from app.models.recommendation import Recommendation
 
 
 class UUIDPrimaryKeyMixin:
@@ -315,6 +316,12 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    source_recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("recommendations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     document_kind: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     version_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -327,6 +334,10 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     user: Mapped["User"] = relationship(back_populates="document_versions")
     vacancy: Mapped["Vacancy | None"] = relationship(back_populates="document_versions")
     parent: Mapped["DocumentVersion | None"] = relationship(remote_side="DocumentVersion.id")
+    source_recommendation: Mapped["Recommendation | None"] = relationship(
+        back_populates="derived_document_versions",
+        foreign_keys=[source_recommendation_id],
+    )
 
     review_decisions: Mapped[list["DocumentReview"]] = relationship(
         back_populates="document",
@@ -710,6 +721,7 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    idempotency_key: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending", index=True)
     review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -725,6 +737,9 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     execution_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evaluation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mutation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_step: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_artifact_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     input_params: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)

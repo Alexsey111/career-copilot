@@ -8,7 +8,6 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-import fitz
 from fastapi import HTTPException, status
 
 try:
@@ -54,6 +53,8 @@ class ResumeParserService:
         )
 
     def _parse_pdf(self, file_bytes: bytes) -> ParsedResume:
+        import fitz
+
         with fitz.open(stream=file_bytes, filetype="pdf") as document:
             pages = [page.get_text() for page in document]
             page_count = len(document)

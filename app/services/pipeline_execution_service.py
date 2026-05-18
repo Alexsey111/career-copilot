@@ -31,10 +31,10 @@ from app.domain.execution_event_payloads import (
     StepCompletedPayload,
     StepFailedPayload,
     StepStartedPayload,
-    serialize_execution_event_payload,
 )
 from app.domain.pipeline_execution_status import PipelineExecutionStatus
 from app.domain.execution_events import ExecutionEventType
+from app.core.tracing import enrich_execution_event_payload, set_trace_context
 from app.repositories.pipeline_execution_event_repository import (
     PipelineExecutionEventRepository,
 )
@@ -160,7 +160,7 @@ class PipelineExecutionService:
         payload: Any | None = None,
     ) -> None:
         event_type_value = event_type.value if hasattr(event_type, "value") else event_type
-        payload_json = serialize_execution_event_payload(payload)
+        payload_json = enrich_execution_event_payload(execution_id, payload)
 
         if session is not None:
             await self._event_repository.create_event(
@@ -182,10 +182,13 @@ class PipelineExecutionService:
     async def start_execution(
         self,
         user_id: UUID,
+        execution_id: UUID | None = None,
+        document_id: UUID | None = None,
         vacancy_id: Optional[UUID] = None,
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
         calibration_version: Optional[str] = None,
+        idempotency_key: str | None = None,
         session: AsyncSession | None = None,
     ) -> CareerCopilotRun:
         """Start a new pipeline execution."""
@@ -196,14 +199,34 @@ class PipelineExecutionService:
                 "vacancy_id": str(vacancy_id) if vacancy_id else None,
                 "profile_id": str(profile_id) if profile_id else None,
                 "pipeline_version": pipeline_version,
+                "idempotency_key": idempotency_key,
             },
         )
 
+        if (
+            idempotency_key
+            and document_id is not None
+            and vacancy_id is not None
+            and hasattr(self._repository, "get_execution_by_idempotency_key")
+        ):
+            existing_execution = await self._repository.get_execution_by_idempotency_key(
+                user_id,
+                document_id,
+                vacancy_id,
+                idempotency_key,
+            )
+            if existing_execution is not None:
+                return existing_execution
+
         execution = await self._repository.create_execution(
             user_id=user_id,
+            execution_id=execution_id,
+            document_id=document_id,
             vacancy_id=vacancy_id,
             profile_id=profile_id,
             pipeline_version=pipeline_version,
+            idempotency_key=idempotency_key,
+            commit=session is None,
         )
 
         execution_state = self._transition_status(PipelineExecutionStatus.CREATED, PipelineExecutionStatus.RUNNING)
@@ -212,7 +235,9 @@ class PipelineExecutionService:
             status=self._to_repository_status(execution_state),
             started_at=datetime.now(timezone.utc),
             calibration_version=calibration_version,
+            commit=session is None,
         )
+        set_trace_context(trace_id=execution.id)
 
         await self._record_execution_event(
             session,
@@ -260,6 +285,7 @@ class PipelineExecutionService:
             review_completed=review_completed,
             evaluation_duration_ms=evaluation_duration_ms,
             mutation_duration_ms=mutation_duration_ms,
+            commit=session is None,
         )
 
         await self._record_execution_event(
@@ -277,6 +303,9 @@ class PipelineExecutionService:
         execution_id: UUID,
         error_code: str,
         error_message: str,
+        failed_step: str | None = None,
+        last_error: str | None = None,
+        retry_count: int | None = None,
         artifacts: Optional[dict[str, Any]] = None,
         metrics: Optional[dict[str, Any]] = None,
         session: AsyncSession | None = None,
@@ -291,15 +320,11 @@ class PipelineExecutionService:
         current_status = execution.status if execution else None
         self._transition_status(current_status, PipelineExecutionStatus.FAILED)
 
-        await self._repository.update_execution(
-            execution_id=execution_id,
-            status=PipelineStatus.FAILED,
-            failed_at=datetime.now(timezone.utc),
-            error_code=error_code,
-            error_message=error_message,
-            artifacts=artifacts,
-            metrics=metrics,
-        )
+        next_retry_count = retry_count
+        if next_retry_count is None and execution is not None:
+            next_retry_count = (execution.retry_count or 0) + 1
+
+        failure_text = last_error or error_message
 
         await self._record_execution_event(
             session,
@@ -307,10 +332,26 @@ class PipelineExecutionService:
             event_type=ExecutionEventType.EXECUTION_FAILED,
             payload=ExecutionFailedPayload(
                 error_type=error_code,
-                message=error_message,
+                message=failure_text,
                 error_code=error_code,
-                error_message=error_message,
+                error_message=failure_text,
+                failed_step=failed_step,
+                retry_count=next_retry_count,
             ),
+        )
+
+        await self._repository.update_execution(
+            execution_id=execution_id,
+            status=PipelineStatus.FAILED,
+            failed_at=datetime.now(timezone.utc),
+            retry_count=next_retry_count,
+            failed_step=failed_step,
+            last_error=failure_text,
+            error_code=error_code,
+            error_message=failure_text,
+            artifacts=artifacts,
+            metrics=metrics,
+            commit=session is None,
         )
 
     async def update_pipeline_status(
@@ -338,6 +379,7 @@ class PipelineExecutionService:
             status=status,
             artifacts=artifacts,
             metrics=metrics,
+            commit=session is None,
         )
 
     async def set_profile_loading(
@@ -436,6 +478,12 @@ class PipelineExecutionService:
             update_kwargs["evaluation_duration_ms"] = update_data.evaluation_duration_ms
         if update_data.mutation_duration_ms is not None:
             update_kwargs["mutation_duration_ms"] = update_data.mutation_duration_ms
+        if update_data.retry_count is not None:
+            update_kwargs["retry_count"] = update_data.retry_count
+        if update_data.failed_step is not None:
+            update_kwargs["failed_step"] = update_data.failed_step
+        if update_data.last_error is not None:
+            update_kwargs["last_error"] = update_data.last_error
         if update_data.error_code is not None:
             update_kwargs["error_code"] = update_data.error_code
         if update_data.error_message is not None:
@@ -480,6 +528,7 @@ class PipelineExecutionService:
             step_id=UUID(step.id),
             status=StepStatus.RUNNING.value,
             started_at=datetime.now(timezone.utc),
+            commit=session is None,
         )
 
         await self._record_execution_event(
@@ -515,6 +564,7 @@ class PipelineExecutionService:
             duration_ms=duration_ms,
             output_artifact_ids=output_artifact_ids,
             metadata=metadata,
+            commit=session is None,
         )
 
         await self._record_execution_event(
@@ -548,6 +598,7 @@ class PipelineExecutionService:
             completed_at=completed_at,
             duration_ms=duration_ms,
             error_message=error_message,
+            commit=session is None,
         )
 
         await self._record_execution_event(
@@ -604,6 +655,7 @@ class PipelineExecutionService:
             review_required=True,
             status=PipelineStatus.REVIEW_GATE,
             error_message=review_reason,
+            commit=session is None,
         )
 
         await self._record_execution_event(
@@ -624,6 +676,7 @@ class PipelineExecutionService:
         await self._repository.update_execution(
             execution_id=execution_id,
             review_completed=True,
+            commit=session is None,
         )
 
         await self._record_execution_event(

@@ -40,12 +40,8 @@ def get_pipeline_service(db: AsyncSession = Depends(get_db_session)) -> Pipeline
     return PipelineExecutionService(repository=repository)
 
 
-def get_career_pipeline_orchestrator(
-    db: AsyncSession = Depends(get_db_session),
-) -> CareerPipelineOrchestrator:
+def get_career_pipeline_orchestrator() -> CareerPipelineOrchestrator:
     """Dependency injection for the full career pipeline orchestrator."""
-    # The orchestrator builds its own service graph and only needs the session.
-    _ = db
     return CareerPipelineOrchestrator()
 
 
@@ -75,13 +71,16 @@ async def create_pipeline_execution(
             document_id=execution_data.document_id,
             vacancy_id=execution_data.vacancy_id,
             user_id=execution_data.user_id,
+            idempotency_key=execution_data.idempotency_key,
         )
 
         return PipelineExecutionResponse(
             id=UUID(execution.id),
             user_id=UUID(execution.user_id),
+            document_id=UUID(execution.document_id) if execution.document_id else None,
             vacancy_id=UUID(execution.vacancy_id) if execution.vacancy_id else None,
             profile_id=UUID(execution.profile_id) if execution.profile_id else None,
+            idempotency_key=execution.idempotency_key,
             status=execution.status.value,
             review_required=execution.review_required,
             review_completed=execution.review_completed,
@@ -93,6 +92,9 @@ async def create_pipeline_execution(
             execution_duration_ms=execution.execution_duration_ms,
             evaluation_duration_ms=execution.evaluation_duration_ms,
             mutation_duration_ms=execution.mutation_duration_ms,
+            retry_count=execution.retry_count,
+            failed_step=execution.failed_step,
+            last_error=execution.last_error,
             resume_document_id=UUID(execution.resume_document_id) if execution.resume_document_id else None,
             evaluation_snapshot_id=UUID(execution.evaluation_snapshot_id) if execution.evaluation_snapshot_id else None,
             review_id=UUID(execution.review_id) if execution.review_id else None,
@@ -130,6 +132,7 @@ async def update_pipeline_execution(
     return PipelineExecutionResponse(
         id=UUID(execution.id),
         user_id=UUID(execution.user_id),
+        document_id=UUID(execution.document_id) if execution.document_id else None,
         vacancy_id=UUID(execution.vacancy_id) if execution.vacancy_id else None,
         profile_id=UUID(execution.profile_id) if execution.profile_id else None,
         status=execution.status.value,
@@ -138,6 +141,9 @@ async def update_pipeline_execution(
         started_at=execution.started_at,
         completed_at=execution.completed_at,
         failed_at=execution.failed_at,
+        retry_count=execution.retry_count,
+        failed_step=execution.failed_step,
+        last_error=execution.last_error,
         resume_document_id=UUID(execution.resume_document_id) if execution.resume_document_id else None,
         evaluation_snapshot_id=UUID(execution.evaluation_snapshot_id) if execution.evaluation_snapshot_id else None,
         review_id=UUID(execution.review_id) if execution.review_id else None,
@@ -199,14 +205,19 @@ async def get_career_copilot_run(
         execution=PipelineExecutionResponse(
             id=UUID(summary.execution.id),
             user_id=UUID(summary.execution.user_id),
+            document_id=UUID(summary.execution.document_id) if summary.execution.document_id else None,
             vacancy_id=UUID(summary.execution.vacancy_id) if summary.execution.vacancy_id else None,
             profile_id=UUID(summary.execution.profile_id) if summary.execution.profile_id else None,
+            idempotency_key=summary.execution.idempotency_key,
             status=summary.execution.status.value,
             pipeline_version=summary.execution.pipeline_version,
             calibration_version=summary.execution.calibration_version,
             started_at=summary.execution.started_at,
             completed_at=summary.execution.completed_at,
             failed_at=summary.execution.failed_at,
+            retry_count=summary.execution.retry_count,
+            failed_step=summary.execution.failed_step,
+            last_error=summary.execution.last_error,
             resume_document_id=UUID(summary.execution.resume_document_id) if summary.execution.resume_document_id else None,
             evaluation_snapshot_id=UUID(summary.execution.evaluation_snapshot_id) if summary.execution.evaluation_snapshot_id else None,
             review_id=UUID(summary.execution.review_id) if summary.execution.review_id else None,
@@ -314,14 +325,19 @@ async def get_user_executions(
             PipelineExecutionResponse(
                 id=UUID(exec.id),
                 user_id=UUID(exec.user_id),
+                document_id=UUID(exec.document_id) if exec.document_id else None,
                 vacancy_id=UUID(exec.vacancy_id) if exec.vacancy_id else None,
                 profile_id=UUID(exec.profile_id) if exec.profile_id else None,
+                idempotency_key=exec.idempotency_key,
                 status=exec.status.value,
                 pipeline_version=exec.pipeline_version,
                 calibration_version=exec.calibration_version,
                 started_at=exec.started_at,
                 completed_at=exec.completed_at,
                 failed_at=exec.failed_at,
+                retry_count=exec.retry_count,
+                failed_step=exec.failed_step,
+                last_error=exec.last_error,
                 resume_document_id=UUID(exec.resume_document_id) if exec.resume_document_id else None,
                 evaluation_snapshot_id=UUID(exec.evaluation_snapshot_id) if exec.evaluation_snapshot_id else None,
                 review_id=UUID(exec.review_id) if exec.review_id else None,
@@ -360,14 +376,19 @@ async def get_vacancy_executions(
             PipelineExecutionResponse(
                 id=UUID(exec.id),
                 user_id=UUID(exec.user_id),
+                document_id=UUID(exec.document_id) if exec.document_id else None,
                 vacancy_id=UUID(exec.vacancy_id) if exec.vacancy_id else None,
                 profile_id=UUID(exec.profile_id) if exec.profile_id else None,
+                idempotency_key=exec.idempotency_key,
                 status=exec.status.value,
                 pipeline_version=exec.pipeline_version,
                 calibration_version=exec.calibration_version,
                 started_at=exec.started_at,
                 completed_at=exec.completed_at,
                 failed_at=exec.failed_at,
+                retry_count=exec.retry_count,
+                failed_step=exec.failed_step,
+                last_error=exec.last_error,
                 resume_document_id=UUID(exec.resume_document_id) if exec.resume_document_id else None,
                 evaluation_snapshot_id=UUID(exec.evaluation_snapshot_id) if exec.evaluation_snapshot_id else None,
                 review_id=UUID(exec.review_id) if exec.review_id else None,

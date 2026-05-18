@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db_session
 from app.repositories.pipeline_execution_event_repository import PipelineExecutionEventRepository
 from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
-from app.schemas.pipeline_schemas import ExecutionEventTimelineItem
+from app.schemas.pipeline_schemas import ExecutionEventTimelineItem, ExecutionTimelineItem
 
 
 router = APIRouter(prefix="/executions", tags=["executions"])
@@ -39,3 +39,40 @@ async def get_execution_events(
         )
         for event in events
     ]
+
+
+@router.get("/{execution_id}/timeline", response_model=list[ExecutionTimelineItem])
+async def get_execution_timeline(
+    execution_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+) -> list[ExecutionTimelineItem]:
+    pipeline_repo = SQLAlchemyAsyncPipelineRepository(session=db)
+    execution = await pipeline_repo.get_execution(execution_id)
+    if execution is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="execution not found",
+        )
+
+    event_repo = PipelineExecutionEventRepository()
+    events = await event_repo.get_execution_events(db, execution_id=execution_id)
+
+    timeline: list[ExecutionTimelineItem] = []
+    for event in events:
+        payload = event.payload_json or {}
+        score = None
+        if event.event_type == "evaluation_completed":
+            score_value = payload.get("score")
+            if isinstance(score_value, (int, float)):
+                score = float(score_value)
+        timeline.append(
+            ExecutionTimelineItem(
+                type=event.event_type,
+                timestamp=event.created_at,
+                score=score,
+                trace_id=payload.get("trace_id"),
+                correlation_id=payload.get("correlation_id"),
+            )
+        )
+
+    return timeline

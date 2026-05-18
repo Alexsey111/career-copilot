@@ -227,6 +227,47 @@ class TestPipelineExecutionService:
         mock_repository.update_execution.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_start_execution_returns_existing_for_same_idempotency_key(
+        self,
+        service,
+        mock_repository,
+    ):
+        user_id = uuid4()
+        document_id = uuid4()
+        vacancy_id = uuid4()
+        existing_execution = CareerCopilotRun(
+            id=str(uuid4()),
+            user_id=str(user_id),
+            vacancy_id=str(vacancy_id),
+            profile_id=None,
+            document_id=str(document_id),
+            idempotency_key="idem-123",
+            status=PipelineStatus.COMPLETED,
+        )
+
+        mock_repository.get_execution_by_idempotency_key = AsyncMock(return_value=existing_execution)
+        mock_repository.create_execution = AsyncMock()
+        mock_repository.update_execution = AsyncMock()
+
+        execution = await service.start_execution(
+            user_id=user_id,
+            document_id=document_id,
+            vacancy_id=vacancy_id,
+            pipeline_version="v1.0",
+            idempotency_key="idem-123",
+        )
+
+        assert execution.id == existing_execution.id
+        mock_repository.get_execution_by_idempotency_key.assert_called_once_with(
+            user_id,
+            document_id,
+            vacancy_id,
+            "idem-123",
+        )
+        mock_repository.create_execution.assert_not_called()
+        mock_repository.update_execution.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_complete_execution(self, service, mock_repository):
         """Test completing a pipeline execution."""
         execution_id = uuid4()
@@ -277,16 +318,22 @@ class TestPipelineExecutionService:
             execution_id=execution_id,
             error_code="TEST_ERROR",
             error_message="Test error message",
+            failed_step="mutation",
+            retry_count=3,
         )
 
         mock_repository.update_execution.assert_called_once()
         call_args = mock_repository.update_execution.call_args
         assert call_args[1]["error_code"] == "TEST_ERROR"
         assert call_args[1]["error_message"] == "Test error message"
+        assert call_args[1]["failed_step"] == "mutation"
+        assert call_args[1]["retry_count"] == 3
         event_args = mock_repository.create_event.call_args[1]
         assert event_args["event_type"] == "execution_failed"
         assert event_args["payload"]["error_type"] == "TEST_ERROR"
         assert event_args["payload"]["message"] == "Test error message"
+        assert event_args["payload"]["failed_step"] == "mutation"
+        assert event_args["payload"]["retry_count"] == 3
 
     def test_transition_status_rejects_invalid_transitions(self, service):
         with pytest.raises(ValueError):

@@ -26,6 +26,7 @@ from app.services.pipeline_execution_service import PipelineExecutionService
 from app.services.readiness_evaluation_service import ReadinessEvaluationService
 from app.services.readiness_feature_extraction_service import ReadinessFeatureExtractionService
 from app.services.recommendation_task_service import RecommendationTaskService
+from app.core.tracing import get_trace_context, set_trace_context
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ class CareerPipelineOrchestrator:
         document_id: UUID,
         vacancy_id: UUID,
         user_id: UUID,
+        idempotency_key: str | None = None,
+        execution_id: UUID | None = None,
     ) -> PipelineExecution:
         document_repo = DocumentVersionRepository()
         pipeline_repo = SQLAlchemyAsyncPipelineRepository(session=session)
@@ -67,190 +70,244 @@ class CareerPipelineOrchestrator:
             review_workflow_repository=review_repo,
         )
 
+        if idempotency_key:
+            existing_execution = await pipeline_repo.get_execution_by_idempotency_key(
+                user_id=user_id,
+                document_id=document_id,
+                vacancy_id=vacancy_id,
+                idempotency_key=idempotency_key,
+            )
+            if existing_execution is not None:
+                set_trace_context(trace_id=existing_execution.id)
+                return existing_execution
+
+        if execution_id is not None:
+            existing_execution = await pipeline_repo.get_execution(execution_id)
+            if existing_execution is not None:
+                set_trace_context(trace_id=existing_execution.id)
+                return existing_execution
+
         execution = await pipeline_service.start_execution(
             user_id=user_id,
+            execution_id=execution_id,
+            document_id=document_id,
             vacancy_id=vacancy_id,
             profile_id=None,
             pipeline_version="v1.0",
+            idempotency_key=idempotency_key,
             session=session,
         )
+        await session.commit()
 
         before_started_at = datetime.now(timezone.utc)
-        before_evaluation, before_snapshot_id = await evaluation_service.evaluate_document(
-            session,
-            document_id=document_id,
-            user_id=user_id,
-        )
-        before_completed_at = datetime.now(timezone.utc)
-        before_score = self._evaluation_to_score(before_evaluation)
-        before_tasks = recommendation_service.prioritize_tasks(
-            recommendation_service.generate_tasks_from_readiness(before_score)
-        )
-        await pipeline_service.record_evaluation_completed(
-            execution_id=UUID(execution.id),
-            evaluation_summary={
-                "phase": "initial",
-                "snapshot_id": str(before_snapshot_id),
-                "overall_score": before_evaluation.overall_score,
-                "duration_ms": int((before_completed_at - before_started_at).total_seconds() * 1000),
-                "ats_score": before_evaluation.ats_score,
-                "coverage_score": before_evaluation.coverage_score,
-                "evidence_score": before_evaluation.evidence_score,
-                "quality_score": before_evaluation.quality_score,
-                "blocking_issues": before_evaluation.blockers,
-                "warnings": before_evaluation.warnings,
-            },
-            session=session,
-        )
-
-        primary_task = before_tasks[0] if before_tasks else self._build_fallback_task(before_score)
-        recommendation_records = await recommendation_repo.create_recommendations(
-            session,
-            execution_id=UUID(execution.id),
-            document_id=document_id,
-            recommendations=[
-                self._recommendation_payload(task)
-                for task in before_tasks
-            ] or [
-                self._recommendation_payload(primary_task)
-            ],
-        )
-        primary_recommendation = recommendation_records[0]
-        changes = self._build_changes_from_task(primary_task, before_evaluation)
-        recommendation_id = str(primary_recommendation.id)
-
-        mutation_started_at = datetime.now(timezone.utc)
-        mutated_document = await mutation_service.apply_recommendation(
-            session=session,
-            document_id=document_id,
-            recommendation_id=recommendation_id,
-            changes=changes,
-            user_id=user_id,
-        )
-        mutation_completed_at = datetime.now(timezone.utc)
-
-        after_evaluation, after_snapshot_id = await evaluation_service.evaluate_document(
-            session,
-            document_id=mutated_document.id,
-            user_id=user_id,
-        )
-        after_completed_at = datetime.now(timezone.utc)
-        after_score = self._evaluation_to_score(after_evaluation)
-        after_tasks = recommendation_service.prioritize_tasks(
-            recommendation_service.generate_tasks_from_readiness(after_score)
-        )
-        await pipeline_service.record_evaluation_completed(
-            execution_id=UUID(execution.id),
-            evaluation_summary={
-                "phase": "post_mutation",
-                "snapshot_id": str(after_snapshot_id),
-                "overall_score": after_evaluation.overall_score,
-                "duration_ms": int((after_completed_at - mutation_completed_at).total_seconds() * 1000),
-                "ats_score": after_evaluation.ats_score,
-                "coverage_score": after_evaluation.coverage_score,
-                "evidence_score": after_evaluation.evidence_score,
-                "quality_score": after_evaluation.quality_score,
-                "blocking_issues": after_evaluation.blockers,
-                "warnings": after_evaluation.warnings,
-            },
-            session=session,
-        )
-
-        await pipeline_service.record_recommendation_applied(
-            execution_id=UUID(execution.id),
-            recommendation_data={
-                "recommendation_id": recommendation_id,
-                "task_type": primary_task.task_type.value,
-                "document_id": str(mutated_document.id),
-            },
-            session=session,
-        )
-
-        impact_started_at = mutation_started_at
-        impact_completed_at = after_completed_at
-        impact_measurement = await impact_service.measure_impact(
-            session=session,
-            recommendation_id=recommendation_id,
-            recommendation_type=primary_task.task_type.value,
-            target_achievement_id=primary_task.target_achievement_id,
-            changes=changes,
-            before_evaluation=before_evaluation,
-            after_evaluation=after_evaluation,
-            before_snapshot_id=before_snapshot_id,
-            after_snapshot_id=after_snapshot_id,
-            document_id=mutated_document.id,
-            started_at=impact_started_at,
-            completed_at=impact_completed_at,
-        )
-
-        await recommendation_repo.mark_applied(
-            session,
-            recommendation_id=primary_recommendation.id,
-            applied_at=impact_completed_at,
-        )
-
-        review_required, review_reason = self._needs_review(after_evaluation, after_tasks)
+        current_step = "evaluation"
+        mutated_document = None
+        before_evaluation = None
+        before_snapshot_id = None
+        before_completed_at = None
+        before_score = None
+        before_tasks: list[RecommendationTask] = []
+        primary_task = None
+        recommendation_records = []
+        primary_recommendation = None
+        changes: dict[str, Any] | None = None
+        after_evaluation = None
+        after_snapshot_id = None
+        after_completed_at = None
+        impact_measurement = None
         review_session = None
-        if review_required:
-            review_session = await review_service.start_review(
-                session,
-                document_id=mutated_document.id,
-                user_id=user_id,
-                review_required=True,
-                review_reason=review_reason,
-                pipeline_execution_id=UUID(execution.id),
-                metadata={
-                    "primary_task": self._task_payload(primary_task),
-                    "readiness_before": self._evaluation_payload(before_evaluation),
-                    "readiness_after": self._evaluation_payload(after_evaluation),
+        review_required = False
+        review_reason = "No manual review required"
+        mutation_started_at = None
+        mutation_completed_at = None
+        try:
+            async with session.begin():
+                before_evaluation, before_snapshot_id = await evaluation_service.evaluate_document(
+                    session,
+                    document_id=document_id,
+                    user_id=user_id,
+                )
+                before_completed_at = datetime.now(timezone.utc)
+                before_score = self._evaluation_to_score(before_evaluation)
+                before_tasks = recommendation_service.prioritize_tasks(
+                    recommendation_service.generate_tasks_from_readiness(before_score)
+                )
+                await pipeline_service.record_evaluation_completed(
+                    execution_id=UUID(execution.id),
+                    evaluation_summary={
+                        "phase": "initial",
+                        "snapshot_id": str(before_snapshot_id),
+                        "overall_score": before_evaluation.overall_score,
+                        "duration_ms": int((before_completed_at - before_started_at).total_seconds() * 1000),
+                        "ats_score": before_evaluation.ats_score,
+                        "coverage_score": before_evaluation.coverage_score,
+                        "evidence_score": before_evaluation.evidence_score,
+                        "quality_score": before_evaluation.quality_score,
+                        "blocking_issues": before_evaluation.blockers,
+                        "warnings": before_evaluation.warnings,
+                    },
+                    session=session,
+                )
+
+                primary_task = before_tasks[0] if before_tasks else self._build_fallback_task(before_score)
+                recommendation_records = await recommendation_repo.create_recommendations(
+                    session,
+                    execution_id=UUID(execution.id),
+                    document_id=document_id,
+                    recommendations=[
+                        self._recommendation_payload(task)
+                        for task in before_tasks
+                    ] or [
+                        self._recommendation_payload(primary_task)
+                    ],
+                )
+                primary_recommendation = recommendation_records[0]
+                changes = self._build_changes_from_task(primary_task, before_evaluation)
+
+                current_step = "mutation"
+                mutation_started_at = datetime.now(timezone.utc)
+                mutated_document = await mutation_service.apply_recommendation(
+                    session=session,
+                    document_id=document_id,
+                    recommendation_id=primary_recommendation.id,
+                    changes=changes,
+                    user_id=user_id,
+                )
+                mutation_completed_at = datetime.now(timezone.utc)
+
+                current_step = "after_evaluation"
+                after_evaluation, after_snapshot_id = await evaluation_service.evaluate_document(
+                    session,
+                    document_id=mutated_document.id,
+                    user_id=user_id,
+                )
+                after_completed_at = datetime.now(timezone.utc)
+                after_score = self._evaluation_to_score(after_evaluation)
+                after_tasks = recommendation_service.prioritize_tasks(
+                    recommendation_service.generate_tasks_from_readiness(after_score)
+                )
+
+                current_step = "impact"
+                impact_measurement = await impact_service.measure_impact(
+                    session=session,
+                    recommendation_id=str(primary_recommendation.id),
+                    recommendation_type=primary_task.task_type.value,
+                    target_achievement_id=primary_task.target_achievement_id,
+                    changes=changes,
+                    before_evaluation=before_evaluation,
+                    after_evaluation=after_evaluation,
+                    before_snapshot_id=before_snapshot_id,
+                    after_snapshot_id=after_snapshot_id,
+                    document_id=mutated_document.id,
+                    started_at=mutation_started_at,
+                    completed_at=after_completed_at,
+                )
+
+                current_step = "recommendation_applied"
+                await recommendation_repo.mark_applied(
+                    session,
+                    recommendation_id=primary_recommendation.id,
+                    applied_at=after_completed_at,
+                )
+
+                review_required, review_reason = self._needs_review(after_evaluation, after_tasks)
+
+            if review_required:
+                current_step = "review"
+                review_session = await review_service.start_review(
+                    session,
+                    document_id=mutated_document.id,
+                    user_id=user_id,
+                    review_required=True,
+                    review_reason=review_reason,
+                    pipeline_execution_id=UUID(execution.id),
+                    metadata={
+                        "primary_task": self._task_payload(primary_task),
+                        "readiness_before": self._evaluation_payload(before_evaluation),
+                        "readiness_after": self._evaluation_payload(after_evaluation),
+                    },
+                )
+                await pipeline_service.record_review_required(
+                    execution_id=UUID(execution.id),
+                    review_reason=review_reason,
+                    session=session,
+                )
+
+            artifacts = {
+                "document_id": str(document_id),
+                "mutated_document_id": str(mutated_document.id),
+                "before_snapshot_id": str(before_snapshot_id),
+                "after_snapshot_id": str(after_snapshot_id),
+                "recommendation_id": str(primary_recommendation.id),
+                "primary_task": self._task_payload(primary_task),
+                "review_session_id": str(review_session.id) if review_session is not None else None,
+                "trace": {
+                    "trace_id": str(execution.id),
+                    "correlation_id": get_trace_context().correlation_id,
                 },
-            )
-            await pipeline_service.record_review_required(
+            }
+            metrics = {
+                "readiness_score": self._evaluation_payload(after_evaluation),
+                "review_required": review_required,
+                "impact": {
+                    "readiness_delta": impact_measurement.readiness_delta.delta,
+                    "time_to_complete_seconds": impact_measurement.time_to_complete_seconds,
+                },
+                "trace": {
+                    "trace_id": str(execution.id),
+                    "correlation_id": get_trace_context().correlation_id,
+                },
+            }
+
+            current_step = "completion"
+            await pipeline_service.complete_execution(
                 execution_id=UUID(execution.id),
-                review_reason=review_reason,
+                artifacts=artifacts,
+                metrics=metrics,
+                resume_document_id=mutated_document.id,
+                review_required=review_required,
+                review_completed=False,
+                evaluation_duration_ms=int((before_completed_at - before_started_at).total_seconds() * 1000),
+                mutation_duration_ms=int((mutation_completed_at - mutation_started_at).total_seconds() * 1000),
                 session=session,
             )
+            await session.commit()
 
-        artifacts = {
-            "document_id": str(document_id),
-            "mutated_document_id": str(mutated_document.id),
-            "before_snapshot_id": str(before_snapshot_id),
-            "after_snapshot_id": str(after_snapshot_id),
-            "recommendation_id": recommendation_id,
-            "primary_task": self._task_payload(primary_task),
-            "review_session_id": str(review_session.id) if review_session is not None else None,
-        }
-        metrics = {
-            "readiness_score": self._evaluation_payload(after_evaluation),
-            "review_required": review_required,
-            "impact": {
-                "readiness_delta": impact_measurement.readiness_delta.delta,
-                "time_to_complete_seconds": impact_measurement.time_to_complete_seconds,
-            },
-        }
+            logger.info(
+                "Career pipeline completed",
+                extra={
+                    "execution_id": str(execution.id),
+                    "document_id": str(mutated_document.id),
+                    "review_required": review_required,
+                },
+            )
 
-        await pipeline_service.complete_execution(
-            execution_id=UUID(execution.id),
-            artifacts=artifacts,
-            metrics=metrics,
-            resume_document_id=mutated_document.id,
-            review_required=review_required,
-            review_completed=False,
-            evaluation_duration_ms=int((before_completed_at - before_started_at).total_seconds() * 1000),
-            mutation_duration_ms=int((mutation_completed_at - mutation_started_at).total_seconds() * 1000),
-            session=session,
-        )
+            return await pipeline_repo.get_execution(UUID(execution.id)) or execution
 
-        logger.info(
-            "Career pipeline completed",
-            extra={
-                "execution_id": str(execution.id),
-                "document_id": str(mutated_document.id),
-                "review_required": review_required,
-            },
-        )
+        except Exception as exc:
+            await session.rollback()
+            error_message = str(exc)
+            failed_step = current_step or "evaluation"
+            retry_count = (execution.retry_count or 0) + 1
 
-        return await pipeline_repo.get_execution(UUID(execution.id)) or execution
+            await pipeline_service.fail_execution(
+                execution_id=UUID(execution.id),
+                error_code=type(exc).__name__,
+                error_message=error_message,
+                failed_step=failed_step,
+                last_error=error_message,
+                retry_count=retry_count,
+                session=session,
+            )
+            await session.commit()
+            logger.exception(
+                "Career pipeline failed",
+                extra={
+                    "execution_id": str(execution.id),
+                    "failed_step": failed_step,
+                },
+            )
+            raise
 
     def _evaluation_to_score(self, evaluation) -> ReadinessScore:
         return ReadinessScore(

@@ -166,6 +166,8 @@ class RecommendationExecutor:
                 user_id=user_id,
             )
 
+            source_recommendation_id = self._parse_recommendation_uuid(recommendation_task_id)
+
             # 2. Применяем изменения через DocumentMutationService (создаёт новую версию)
             new_document = await self._mutation_service.apply_changes(
                 session=session,
@@ -173,6 +175,7 @@ class RecommendationExecutor:
                 changes=changes,
                 user_id=user_id,
                 change_reason=f"Recommendation: {recommendation_task_id}",
+                source_recommendation_id=source_recommendation_id,
             )
 
             # 3. Пересчитываем readiness через ReadinessEvaluationService для новой версии
@@ -206,6 +209,14 @@ class RecommendationExecutor:
     def get_impact_measurement(self, recommendation_id: str) -> RecommendationImpactMeasurement | None:
         """Получает измерение impact для рекомендации."""
         return self._impact_measurements.get(recommendation_id)
+
+    @staticmethod
+    def _parse_recommendation_uuid(recommendation_id: str) -> UUID | None:
+        """Returns persisted recommendation UUID when available."""
+        try:
+            return UUID(recommendation_id)
+        except ValueError:
+            return None
 
     def get_all_impact_measurements(self) -> list[RecommendationImpactMeasurement]:
         """Получает все измерения impact."""

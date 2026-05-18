@@ -63,12 +63,14 @@ class CareerCopilotRun:
     user_id: str
     vacancy_id: str
     profile_id: str
+    document_id: Optional[str] = None
 
     # Artifacts produced
     resume_document_id: Optional[str] = None
     evaluation_snapshot_id: Optional[str] = None
     review_id: Optional[str] = None
     review_session_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
     # Execution metadata
     status: PipelineStatus = PipelineStatus.PENDING
@@ -82,6 +84,9 @@ class CareerCopilotRun:
     execution_duration_ms: Optional[int] = None
     evaluation_duration_ms: Optional[int] = None
     mutation_duration_ms: Optional[int] = None
+    retry_count: int = 0
+    failed_step: Optional[str] = None
+    last_error: Optional[str] = None
 
     # Error handling
     error_code: Optional[str] = None

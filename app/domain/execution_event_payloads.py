@@ -57,6 +57,8 @@ class ExecutionFailedPayload:
     message: str
     error_code: str | None = None
     error_message: str | None = None
+    failed_step: str | None = None
+    retry_count: int | None = None
 
 
 @dataclass(slots=True, frozen=True)

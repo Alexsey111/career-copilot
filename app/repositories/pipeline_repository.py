@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.tracing import enrich_execution_event_payload
 from app.domain.pipeline_models import (
     CareerCopilotRun,
     PipelineExecutionStep,
@@ -35,11 +36,29 @@ class PipelineRepository(Protocol):
     async def create_execution(
         self,
         user_id: UUID,
+        execution_id: UUID | None = None,
+        document_id: Optional[UUID] = None,
         vacancy_id: Optional[UUID] = None,
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
+        idempotency_key: str | None = None,
+        retry_count: int = 0,
+        failed_step: str | None = None,
+        last_error: str | None = None,
+        commit: bool = True,
     ) -> CareerCopilotRun:
         """Create a new pipeline execution record."""
+        ...
+
+    @abstractmethod
+    async def get_execution_by_idempotency_key(
+        self,
+        user_id: UUID,
+        document_id: UUID,
+        vacancy_id: UUID,
+        idempotency_key: str,
+    ) -> Optional[CareerCopilotRun]:
+        """Find an existing execution for an idempotent request."""
         ...
 
     @abstractmethod
@@ -65,6 +84,9 @@ class PipelineRepository(Protocol):
         execution_duration_ms: Optional[int] = None,
         evaluation_duration_ms: Optional[int] = None,
         mutation_duration_ms: Optional[int] = None,
+        retry_count: Optional[int] = None,
+        failed_step: Optional[str] = None,
+        last_error: Optional[str] = None,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         artifacts: Optional[dict[str, Any]] = None,
@@ -149,16 +171,29 @@ class SQLAlchemyAsyncPipelineRepository:
     async def create_execution(
         self,
         user_id: UUID,
+        execution_id: UUID | None = None,
+        document_id: Optional[UUID] = None,
         vacancy_id: Optional[UUID] = None,
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
+        idempotency_key: str | None = None,
+        retry_count: int = 0,
+        failed_step: str | None = None,
+        last_error: str | None = None,
+        commit: bool = True,
     ) -> CareerCopilotRun:
         """Create a new pipeline execution record."""
         execution = PipelineExecutionModel(
+            id=execution_id or uuid4(),
             user_id=user_id,
+            document_id=document_id,
             vacancy_id=vacancy_id,
             profile_id=profile_id,
             pipeline_version=pipeline_version,
+            idempotency_key=idempotency_key,
+            retry_count=retry_count,
+            failed_step=failed_step,
+            last_error=last_error,
             status="pending",
         )
         self._session.add(execution)
@@ -169,16 +204,22 @@ class SQLAlchemyAsyncPipelineRepository:
             execution_id=execution.id,
             event_type="pipeline_started",
             severity="info",
-            payload_json={"pipeline_version": pipeline_version},
+            payload_json=enrich_execution_event_payload(
+                execution.id,
+                {"pipeline_version": pipeline_version},
+            ),
         )
         self._session.add(event)
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
 
         return CareerCopilotRun(
             id=str(execution.id),
             user_id=str(execution.user_id),
+            document_id=str(execution.document_id) if execution.document_id else None,
             vacancy_id=str(execution.vacancy_id) if execution.vacancy_id else None,
             profile_id=str(execution.profile_id) if execution.profile_id else None,
+            idempotency_key=execution.idempotency_key,
             status=PipelineStatus.PENDING,
             review_required=execution.review_required,
             review_completed=execution.review_completed,
@@ -187,6 +228,9 @@ class SQLAlchemyAsyncPipelineRepository:
             execution_duration_ms=execution.execution_duration_ms,
             evaluation_duration_ms=execution.evaluation_duration_ms,
             mutation_duration_ms=execution.mutation_duration_ms,
+            retry_count=execution.retry_count,
+            failed_step=execution.failed_step,
+            last_error=execution.last_error,
             created_at=execution.created_at,
             updated_at=execution.updated_at,
         )
@@ -200,6 +244,25 @@ class SQLAlchemyAsyncPipelineRepository:
         if not execution:
             return None
 
+        return self._map_to_career_copilot_run(execution)
+
+    async def get_execution_by_idempotency_key(
+        self,
+        user_id: UUID,
+        document_id: UUID,
+        vacancy_id: UUID,
+        idempotency_key: str,
+    ) -> Optional[CareerCopilotRun]:
+        stmt = select(PipelineExecutionModel).where(
+            PipelineExecutionModel.user_id == user_id,
+            PipelineExecutionModel.document_id == document_id,
+            PipelineExecutionModel.vacancy_id == vacancy_id,
+            PipelineExecutionModel.idempotency_key == idempotency_key,
+        )
+        result = await self._session.execute(stmt)
+        execution = result.scalar_one_or_none()
+        if not execution:
+            return None
         return self._map_to_career_copilot_run(execution)
 
     async def get_execution_with_steps_and_events(self, execution_id: UUID) -> Optional[PipelineExecutionSummary]:
@@ -244,6 +307,9 @@ class SQLAlchemyAsyncPipelineRepository:
         execution_duration_ms: Optional[int] = None,
         evaluation_duration_ms: Optional[int] = None,
         mutation_duration_ms: Optional[int] = None,
+        retry_count: Optional[int] = None,
+        failed_step: Optional[str] = None,
+        last_error: Optional[str] = None,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         artifacts: Optional[dict[str, Any]] = None,
@@ -251,6 +317,7 @@ class SQLAlchemyAsyncPipelineRepository:
         resume_document_id: Optional[UUID] = None,
         evaluation_snapshot_id: Optional[UUID] = None,
         review_id: Optional[UUID] = None,
+        commit: bool = True,
     ) -> None:
         """Update execution metadata."""
         stmt = select(PipelineExecutionModel).where(PipelineExecutionModel.id == execution_id)
@@ -286,6 +353,12 @@ class SQLAlchemyAsyncPipelineRepository:
             execution.evaluation_duration_ms = evaluation_duration_ms
         if mutation_duration_ms is not None:
             execution.mutation_duration_ms = mutation_duration_ms
+        if retry_count is not None:
+            execution.retry_count = retry_count
+        if failed_step is not None:
+            execution.failed_step = failed_step
+        if last_error is not None:
+            execution.last_error = last_error
         if error_code is not None:
             execution.error_code = error_code
         if error_message is not None:
@@ -301,7 +374,8 @@ class SQLAlchemyAsyncPipelineRepository:
         if review_id is not None:
             execution.review_id = review_id
 
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
 
     async def create_step(
         self,
@@ -348,6 +422,7 @@ class SQLAlchemyAsyncPipelineRepository:
         output_artifact_ids: Optional[list[str]] = None,
         error_message: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
+        commit: bool = True,
     ) -> None:
         """Update step status and metadata."""
         stmt = select(PipelineExecutionStepModel).where(PipelineExecutionStepModel.id == step_id)
@@ -372,7 +447,8 @@ class SQLAlchemyAsyncPipelineRepository:
         if metadata is not None:
             step.metadata_json = metadata
 
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
 
     async def create_event(
         self,
@@ -381,17 +457,19 @@ class SQLAlchemyAsyncPipelineRepository:
         payload: Optional[dict[str, Any]] = None,
         step_id: Optional[UUID] = None,
         severity: EventSeverity = EventSeverity.INFO,
+        commit: bool = True,
     ) -> PipelineEvent:
         """Record a pipeline event."""
         event = PipelineEventModel(
             execution_id=execution_id,
             event_type=event_type.value,
             step_id=step_id,
-            payload_json=payload or {},
+            payload_json=enrich_execution_event_payload(execution_id, payload),
             severity=severity.value,
         )
         self._session.add(event)
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
 
         return PipelineEvent(
             id=str(event.id),
@@ -451,11 +529,13 @@ class SQLAlchemyAsyncPipelineRepository:
         return CareerCopilotRun(
             id=str(execution.id),
             user_id=str(execution.user_id),
+            document_id=str(execution.document_id) if execution.document_id else None,
             vacancy_id=str(execution.vacancy_id) if execution.vacancy_id else None,
             profile_id=str(execution.profile_id) if execution.profile_id else None,
             resume_document_id=str(execution.resume_document_id) if execution.resume_document_id else None,
             evaluation_snapshot_id=str(execution.evaluation_snapshot_id) if execution.evaluation_snapshot_id else None,
             review_id=str(execution.review_id) if execution.review_id else None,
+            idempotency_key=execution.idempotency_key,
             status=status,
             review_required=execution.review_required,
             review_completed=execution.review_completed,
@@ -467,6 +547,9 @@ class SQLAlchemyAsyncPipelineRepository:
             execution_duration_ms=execution.execution_duration_ms,
             evaluation_duration_ms=execution.evaluation_duration_ms,
             mutation_duration_ms=execution.mutation_duration_ms,
+            retry_count=execution.retry_count,
+            failed_step=execution.failed_step,
+            last_error=execution.last_error,
             error_code=execution.error_code,
             error_message=execution.error_message,
             artifacts=execution.artifacts_json,
@@ -522,25 +605,54 @@ class InMemoryPipelineRepository:
     async def create_execution(
         self,
         user_id: UUID,
+        execution_id: UUID | None = None,
+        document_id: Optional[UUID] = None,
         vacancy_id: Optional[UUID] = None,
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
+        idempotency_key: str | None = None,
+        retry_count: int = 0,
+        failed_step: str | None = None,
+        last_error: str | None = None,
+        commit: bool = True,
     ) -> CareerCopilotRun:
         """Create a new pipeline execution record."""
-        execution_id = str(uuid4())
+        execution_id = str(execution_id or uuid4())
         execution = CareerCopilotRun(
             id=execution_id,
             user_id=str(user_id),
+            document_id=str(document_id) if document_id else None,
             vacancy_id=str(vacancy_id) if vacancy_id else None,
             profile_id=str(profile_id) if profile_id else None,
             pipeline_version=pipeline_version,
+            idempotency_key=idempotency_key,
             status=PipelineStatus.PENDING,
             failed_at=None,
+            retry_count=retry_count,
+            failed_step=failed_step,
+            last_error=last_error,
         )
         self._executions[execution_id] = execution
         self._steps[execution_id] = []
         self._events[execution_id] = []
         return execution
+
+    async def get_execution_by_idempotency_key(
+        self,
+        user_id: UUID,
+        document_id: UUID,
+        vacancy_id: UUID,
+        idempotency_key: str,
+    ) -> Optional[CareerCopilotRun]:
+        for execution in self._executions.values():
+            if (
+                execution.user_id == str(user_id)
+                and execution.document_id == str(document_id)
+                and execution.vacancy_id == str(vacancy_id)
+                and execution.idempotency_key == idempotency_key
+            ):
+                return execution
+        return None
 
     async def get_execution(self, execution_id: UUID) -> Optional[CareerCopilotRun]:
         """Retrieve a pipeline execution by ID."""
@@ -568,6 +680,9 @@ class InMemoryPipelineRepository:
         started_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         failed_at: Optional[datetime] = None,
+        retry_count: Optional[int] = None,
+        failed_step: Optional[str] = None,
+        last_error: Optional[str] = None,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         artifacts: Optional[dict[str, Any]] = None,
@@ -575,6 +690,7 @@ class InMemoryPipelineRepository:
         resume_document_id: Optional[UUID] = None,
         evaluation_snapshot_id: Optional[UUID] = None,
         review_id: Optional[UUID] = None,
+        commit: bool = True,
     ) -> None:
         """Update pipeline execution."""
         execution = self._executions.get(str(execution_id))
@@ -589,6 +705,12 @@ class InMemoryPipelineRepository:
             execution.completed_at = completed_at
         if failed_at is not None:
             execution.failed_at = failed_at
+        if retry_count is not None:
+            execution.retry_count = retry_count
+        if failed_step is not None:
+            execution.failed_step = failed_step
+        if last_error is not None:
+            execution.last_error = last_error
         if error_code is not None:
             execution.error_code = error_code
         if error_message is not None:
@@ -631,6 +753,7 @@ class InMemoryPipelineRepository:
         output_artifact_ids: Optional[list[str]] = None,
         error_message: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
+        commit: bool = True,
     ) -> None:
         """Update step status and metadata."""
         for execution_steps in self._steps.values():
@@ -659,6 +782,7 @@ class InMemoryPipelineRepository:
         payload: Optional[dict[str, Any]] = None,
         step_id: Optional[UUID] = None,
         severity: EventSeverity = EventSeverity.INFO,
+        commit: bool = True,
     ) -> PipelineEvent:
         """Record a pipeline event."""
         event_id = str(uuid4())
@@ -667,7 +791,7 @@ class InMemoryPipelineRepository:
             execution_id=str(execution_id),
             event_type=event_type,
             step_id=str(step_id) if step_id else None,
-            payload=payload or {},
+            payload=enrich_execution_event_payload(execution_id, payload),
             severity=severity,
         )
         self._events[str(execution_id)].append(event)

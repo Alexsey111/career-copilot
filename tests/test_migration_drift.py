@@ -62,7 +62,7 @@ def test_alembic_head_matches_orm_metadata(monkeypatch: pytest.MonkeyPatch):
 
         missing: list[str] = []
 
-        for table in Base.metadata.sorted_tables:
+        for table in Base.metadata.tables.values():
             db_columns = {column["name"] for column in inspector.get_columns(table.name)}
             orm_columns = set(table.columns.keys())
 

@@ -25,6 +25,7 @@ class DocumentVersionRepository:
         is_active: bool,
         content_json: dict,
         rendered_text: str | None,
+        source_recommendation_id: UUID | None = None,
     ) -> DocumentVersion:
         document = DocumentVersion(
             user_id=user_id,
@@ -37,6 +38,7 @@ class DocumentVersionRepository:
             is_active=is_active,
             content_json=content_json,
             rendered_text=rendered_text,
+            source_recommendation_id=source_recommendation_id,
         )
         session.add(document)
         await session.flush()

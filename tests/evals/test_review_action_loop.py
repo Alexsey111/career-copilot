@@ -14,6 +14,7 @@ from app.services.review_action_loop import (
     RecommendationImpactMeasurement,
     RecommendationExecutionStatus,
     ImpactReport,
+    RecommendationExecutor,
     format_impact_message,
 )
 
@@ -287,3 +288,21 @@ class TestUserImpactSummary:
         assert summary["total_recommendations_completed"] == 2
         assert summary["total_readiness_improvement"] == 0.20
         assert summary["average_improvement_per_recommendation"] == 0.10
+
+
+class TestRecommendationExecutor:
+    """Tests for recommendation-to-mutation linkage helpers."""
+
+    def test_parse_recommendation_uuid_returns_uuid_for_persisted_recommendation(self) -> None:
+        """Test persisted recommendation IDs are preserved as UUIDs."""
+        recommendation_id = uuid4()
+
+        result = RecommendationExecutor._parse_recommendation_uuid(str(recommendation_id))
+
+        assert result == recommendation_id
+
+    def test_parse_recommendation_uuid_ignores_legacy_task_id(self) -> None:
+        """Test legacy task identifiers do not become FK values."""
+        result = RecommendationExecutor._parse_recommendation_uuid("rec-123")
+
+        assert result is None

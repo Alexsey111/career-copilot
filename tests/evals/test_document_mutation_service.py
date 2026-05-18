@@ -168,3 +168,31 @@ class TestDocumentMutationService:
         result = service._apply_patch(base, changes)
 
         assert result == base
+
+    @pytest.mark.asyncio
+    async def test_add_mutation_metadata_includes_source_recommendation_id(self) -> None:
+        """Test mutation audit metadata links back to source recommendation."""
+        service = DocumentMutationService(document_repository=None)  # type: ignore
+
+        from app.models import DocumentVersion
+
+        recommendation_id = uuid4()
+        doc = DocumentVersion(
+            id=uuid4(),
+            user_id=uuid4(),
+            document_kind="resume",
+            version_label="v1",
+            review_status="draft",
+            is_active=True,
+            content_json={},
+        )
+
+        await service._add_mutation_metadata(
+            doc,
+            {"section": "summary", "operation": "append", "value": "Impact"},
+            "Applied recommendation",
+            source_recommendation_id=recommendation_id,
+        )
+
+        mutation_record = doc.content_json["mutation_history"][-1]
+        assert mutation_record["source_recommendation_id"] == str(recommendation_id)

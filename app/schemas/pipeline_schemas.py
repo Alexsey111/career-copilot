@@ -62,13 +62,25 @@ class PipelineExecutionCreate(BaseModel):
     document_id: UUID
     vacancy_id: UUID
     profile_id: Optional[UUID] = None
+    idempotency_key: Optional[str] = None
     pipeline_version: str = Field(default="v1.0", description="Version of the pipeline")
     calibration_version: Optional[str] = None
+
+
+class PipelineRunQueuedResponse(BaseModel):
+    execution_id: UUID
+    job_id: str
+    status: str = "queued"
+    queued: bool = True
+    idempotency_key: Optional[str] = None
+    correlation_id: Optional[str] = None
+    queued_at: datetime
 
 
 class PipelineExecutionResponse(BaseModel):
     id: UUID
     user_id: UUID
+    document_id: Optional[UUID] = None
     vacancy_id: Optional[UUID] = None
     profile_id: Optional[UUID] = None
     status: PipelineStatusEnum
@@ -76,12 +88,16 @@ class PipelineExecutionResponse(BaseModel):
     review_completed: bool = False
     pipeline_version: Optional[str] = None
     calibration_version: Optional[str] = None
+    idempotency_key: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     failed_at: Optional[datetime] = None
     execution_duration_ms: Optional[int] = None
     evaluation_duration_ms: Optional[int] = None
     mutation_duration_ms: Optional[int] = None
+    retry_count: int = 0
+    failed_step: Optional[str] = None
+    last_error: Optional[str] = None
     resume_document_id: Optional[UUID] = None
     evaluation_snapshot_id: Optional[UUID] = None
     review_id: Optional[UUID] = None
@@ -147,6 +163,16 @@ class ExecutionEventTimelineItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ExecutionTimelineItem(BaseModel):
+    type: str
+    timestamp: datetime
+    score: Optional[float] = None
+    trace_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PipelineExecutionSummaryResponse(BaseModel):
     execution: PipelineExecutionResponse
     steps: list[PipelineExecutionStepResponse] = Field(default_factory=list)
@@ -183,6 +209,9 @@ class ExecutionUpdateRequest(BaseModel):
     execution_duration_ms: Optional[int] = None
     evaluation_duration_ms: Optional[int] = None
     mutation_duration_ms: Optional[int] = None
+    retry_count: Optional[int] = None
+    failed_step: Optional[str] = None
+    last_error: Optional[str] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     artifacts_json: Optional[dict[str, Any]] = None

@@ -47,6 +47,7 @@ class DocumentMutationService:
         user_id: UUID,
         version_label: str | None = None,
         change_reason: str | None = None,
+        source_recommendation_id: UUID | None = None,
     ) -> DocumentVersion:
         """
         Применяет изменения к документу, создавая новую версию.
@@ -58,6 +59,7 @@ class DocumentMutationService:
             user_id: ID пользователя (для валидации доступа)
             version_label: Опциональная метка версии
             change_reason: Причина изменений (для аудита)
+            source_recommendation_id: ID рекомендации, если изменения применяются из рекомендации
 
         Returns:
             Новая версия документа
@@ -96,10 +98,16 @@ class DocumentMutationService:
             is_active=True,
             content_json=new_content,
             rendered_text=source_document.rendered_text,
+            source_recommendation_id=source_recommendation_id,
         )
 
         # 4. Добавляем metadata об изменениях
-        await self._add_mutation_metadata(new_document, changes, change_reason)
+        await self._add_mutation_metadata(
+            new_document,
+            changes,
+            change_reason,
+            source_recommendation_id=source_recommendation_id,
+        )
         await session.flush()
 
         return new_document
@@ -109,7 +117,7 @@ class DocumentMutationService:
         session: AsyncSession,
         *,
         document_id: UUID,
-        recommendation_id: str,
+        recommendation_id: UUID,
         changes: dict[str, Any],
         user_id: UUID,
     ) -> DocumentVersion:
@@ -121,14 +129,14 @@ class DocumentMutationService:
         Args:
             session: Database session
             document_id: ID документа для изменения
-            recommendation_id: ID рекомендации
+            recommendation_id: UUID рекомендации
             changes: Изменения для применения
             user_id: ID пользователя
 
         Returns:
             Новая версия документа
         """
-        version_label = f"rec-{recommendation_id[:8]}"
+        version_label = f"rec-{str(recommendation_id)[:8]}"
         change_reason = f"Applied recommendation: {recommendation_id}"
 
         return await self.apply_changes(
@@ -138,6 +146,7 @@ class DocumentMutationService:
             user_id=user_id,
             version_label=version_label,
             change_reason=change_reason,
+            source_recommendation_id=recommendation_id,
         )
 
     def _apply_patch(
@@ -222,6 +231,8 @@ class DocumentMutationService:
         document: DocumentVersion,
         changes: dict[str, Any],
         change_reason: str | None,
+        *,
+        source_recommendation_id: UUID | None = None,
     ) -> None:
         """Добавляет metadata об изменениях в контент документа."""
         if "mutation_history" not in document.content_json:
@@ -231,6 +242,9 @@ class DocumentMutationService:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "changes": changes,
             "reason": change_reason,
+            "source_recommendation_id": (
+                str(source_recommendation_id) if source_recommendation_id else None
+            ),
         }
 
         document.content_json["mutation_history"].append(mutation_record)

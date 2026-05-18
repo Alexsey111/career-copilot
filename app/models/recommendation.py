@@ -5,12 +5,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Enum as SQLEnum, Float, ForeignKey, Index, String, Text
 from sqlalchemy import Uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.entities import DocumentVersion
 
 
 class RecommendationLifecycleStatus(str, Enum):
@@ -75,5 +79,12 @@ class Recommendation(Base):
         Index("ix_recommendations_execution_status", "execution_id", "status"),
         Index("ix_recommendations_document_status", "document_id", "status"),
         Index("ix_recommendations_created_at", "created_at"),
+    )
+
+    # Relationship to the document(s) derived from this recommendation
+    derived_document_versions: Mapped[list["DocumentVersion"]] = relationship(
+        back_populates="source_recommendation",
+        foreign_keys="DocumentVersion.source_recommendation_id",
+        cascade="all, delete-orphan",
     )
 

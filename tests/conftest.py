@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
@@ -90,21 +91,33 @@ TestSessionLocal = async_sessionmaker(
 )
 
 
-async def reset_database() -> None:
-    async with test_engine.begin() as conn:
-        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        await conn.execute(text("CREATE SCHEMA public"))
+def reset_database() -> None:
+    ensure_test_database_exists(TEST_DATABASE_URL)
 
 
 async def truncate_database() -> None:
     async with test_engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(table.delete())
+        result = await conn.execute(
+            text(
+                "SELECT tablename "
+                "FROM pg_tables "
+                "WHERE schemaname = 'public' "
+                "AND tablename <> 'alembic_version' "
+                "ORDER BY tablename"
+            )
+        )
+        table_names = [row[0] for row in result.fetchall()]
+        if not table_names:
+            return
+
+        quoted_tables = ", ".join(f'"{name}"' for name in table_names)
+        await conn.execute(text(f"TRUNCATE TABLE {quoted_tables} RESTART IDENTITY CASCADE"))
 
 
 @pytest_asyncio.fixture(scope="session")
 async def prepare_test_db():
-    await reset_database()
+    await test_engine.dispose()
+    reset_database()
 
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     os.environ["SYNC_DATABASE_URL"] = TEST_DATABASE_URL
@@ -114,8 +127,6 @@ async def prepare_test_db():
     command.upgrade(alembic_cfg, "head")
 
     yield
-
-    await reset_database()
 
     await test_engine.dispose()
 
@@ -132,8 +143,9 @@ async def db_session(prepare_test_db):
 
 @pytest_asyncio.fixture
 async def test_user(db_session: AsyncSession) -> User:
+    unique_email = f"test-{uuid4().hex}@local.test"
     user = User(
-        email="test@local.test",
+        email=unique_email,
         password_hash="test-password-hash",
         auth_provider="test",
     )

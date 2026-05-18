@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.execution_event_payloads import serialize_execution_event_payload
+from app.core.tracing import enrich_execution_event_payload
 from app.models import PipelineExecutionEvent
 
 
@@ -28,7 +28,7 @@ class PipelineExecutionEventRepository:
         event = PipelineExecutionEvent(
             execution_id=execution_id,
             event_type=event_type,
-            payload_json=serialize_execution_event_payload(payload_json),
+            payload_json=enrich_execution_event_payload(execution_id, payload_json),
             created_at=created_at or datetime.now(timezone.utc),
         )
         session.add(event)
