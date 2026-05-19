@@ -302,7 +302,6 @@ class CoverLetterContent(StrictBaseModel):
 
 class InterviewQuestion(StrictBaseModel):
     """Один вопрос из question_set_json."""
-    # Legacy поля (опциональные для обратной совместимости)
     question_id: str | None = None
     question_text: str | None = None
     question_type: str | None = None
@@ -314,6 +313,8 @@ class InterviewQuestion(StrictBaseModel):
     prompt: str | None = None
     answer_format: str | None = None
     rubric: list[str] = Field(default_factory=list)
+    competency_key: str | None = None
+    competency_name: str | None = None
     requirement_text: str | None = None
     keyword: str | None = None
     scope: RequirementScope | None = None
@@ -323,8 +324,7 @@ class InterviewQuestion(StrictBaseModel):
 
 class InterviewAnswer(StrictBaseModel):
     """Один ответ из answers_json."""
-    # Legacy поля (опциональные)
-    question_id: str | None = None
+    question_id: str
     answer_text: str = ""
     score: float | None = Field(default=None, ge=0, le=1)
     feedback: list[str] = Field(default_factory=list)
@@ -347,6 +347,7 @@ class InterviewScore(StrictBaseModel):
     unanswered_count: int | None = None
     warning_count: int | None = None
     readiness_score: int | None = None
+    competency_readiness: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class InterviewSessionSchema(StrictBaseModel):

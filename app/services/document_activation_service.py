@@ -22,6 +22,34 @@ class DocumentActivationService:
             document_version_repository or DocumentVersionRepository()
         )
 
+    def _validate_activation_allowed(self, document) -> None:
+        content = document.content_json or {}
+        sections = content.get("sections", {})
+        review = content.get("review", {})
+        evaluation = content.get("evaluation", {})
+
+        unresolved_claims = sections.get("claims_needing_confirmation", [])
+        critical_failures = evaluation.get("critical_failures", [])
+
+        if unresolved_claims:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="document has unresolved claims requiring confirmation",
+            )
+
+        if critical_failures:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="document has unresolved critical evaluation failures",
+            )
+
+        latest_status = review.get("latest_status")
+        if latest_status and latest_status != "approved":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="document review is not approved",
+            )
+
     async def activate_document(
         self,
         session: AsyncSession,
@@ -46,6 +74,8 @@ class DocumentActivationService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="only approved documents can be activated",
             )
+
+        self._validate_activation_allowed(document)
 
         await self.document_version_repository.deactivate_same_scope(
             session,

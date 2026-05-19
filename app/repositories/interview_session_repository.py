@@ -98,6 +98,18 @@ class InterviewSessionRepository:
             readiness_score = score.get("readiness_score")
             if readiness_score is not None:
                 readiness_score = int(readiness_score)
+            competency_readiness = score.get("competency_readiness", [])
+            if not isinstance(competency_readiness, list):
+                competency_readiness = []
+            weak_competencies = [
+                item
+                for item in competency_readiness
+                if item.get("readiness_score", 100) < 75
+            ]
+            weak_competencies = sorted(
+                weak_competencies,
+                key=lambda item: item.get("readiness_score", 100),
+            )[:3]
 
             items.append(
                 {
@@ -113,6 +125,8 @@ class InterviewSessionRepository:
                     "unanswered_count": int(score.get("unanswered_count") or 0),
                     "warning_count": int(score.get("warning_count") or 0),
                     "readiness_score": readiness_score,
+                    "competency_readiness": competency_readiness,
+                    "weak_competencies": weak_competencies,
                     "created_at": interview_session.created_at,
                     "updated_at": interview_session.updated_at,
                 }
@@ -160,3 +174,22 @@ class InterviewSessionRepository:
         await session.flush()
         await session.refresh(attempt)
         return attempt
+
+    async def list_attempts_by_question_ids(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+        question_ids: list[str],
+    ) -> list[InterviewAnswerAttempt]:
+        if not question_ids:
+            return []
+
+        stmt = (
+            select(InterviewAnswerAttempt)
+            .where(InterviewAnswerAttempt.session_id == session_id)
+            .where(InterviewAnswerAttempt.question_id.in_(question_ids))
+            .order_by(InterviewAnswerAttempt.created_at.asc())
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())

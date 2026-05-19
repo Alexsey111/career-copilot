@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,12 +14,14 @@ from app.db.session import get_db_session
 from app.models import User
 from app.models.entities import InterviewAnswerAttempt
 from app.schemas.interview import (
+    InterviewCompetencyDetailResponse,
     InterviewAnswerEvaluateRequest,
     InterviewAnswerEvaluateResponse,
     InterviewAnswerImproveRequest,
     InterviewAnswerImproveResponse,
     InterviewAttemptProgressResponse,
     InterviewAnswersUpdateRequest,
+    InterviewQuestionAttemptCreateRequest,
     InterviewSessionCreateRequest,
     InterviewSessionListItem,
     InterviewSessionRead,
@@ -96,76 +98,28 @@ async def get_interview_session(
     return _to_read_model(interview_session)
 
 
-@router.post("/sessions/{session_id}/generate", response_model=InterviewSessionRead)
-async def generate_interview_questions(
+@router.get(
+    "/sessions/{session_id}/competencies/{competency_key}",
+    response_model=InterviewCompetencyDetailResponse,
+)
+async def get_interview_competency_detail(
     session_id: UUID,
+    competency_key: str,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-) -> InterviewSessionRead:
-    """
-    Генерирует вопросы для собеседования на основе strengths и gaps из анализа вакансии.
-    
-    Ключевая идея: gap → прямой вопрос "Как вы работаете над этим пробелом?"
-    """
+) -> InterviewCompetencyDetailResponse:
     service = InterviewPreparationService()
-    
-    # Получаем сессию
     interview_session = await service.get_session(
         session,
         session_id=session_id,
         user_id=current_user.id,
     )
-
-    # Получаем анализ вакансии для strengths/gaps
-    vacancy_analysis = await service.vacancy_analysis_repository.get_latest_for_vacancy(
+    detail = await service.build_competency_detail(
         session,
-        interview_session.vacancy_id,
-        user_id=current_user.id,
+        interview_session=interview_session,
+        competency_key=competency_key,
     )
-    
-    if vacancy_analysis is None:
-        from fastapi import HTTPException, status
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="vacancy analysis not found; run vacancy analysis first",
-        )
-    
-    # Получаем профиль для достижений
-    profile = await service.candidate_profile_repository.get_with_related_by_user_id(
-        session,
-        current_user.id,
-    )
-    
-    if profile is None:
-        from fastapi import HTTPException, status
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="candidate profile not found; run profile extraction first",
-        )
-    
-    # Извлекаем strengths и gaps как списки строк
-    strengths = [item.get("keyword", "") for item in vacancy_analysis.strengths_json if item.get("keyword")]
-    gaps = [item.get("keyword", "") for item in vacancy_analysis.gaps_json if item.get("keyword")]
-    achievements = [item.title for item in profile.achievements if item.title]
-    
-    # Генерируем вопросы с expected_answer
-    question_set = service._build_questions(
-        strengths=strengths,
-        gaps=gaps,
-        achievements=achievements,
-    )
-    
-    # Сохраняем обновлённый question_set
-    interview_session = await service.interview_session_repository.update_question_set(
-        session,
-        interview_session,
-        question_set_json=question_set,
-        status="generated",
-    )
-    
-    await session.commit()
-    await session.refresh(interview_session)
-    return _to_read_model(interview_session)
+    return InterviewCompetencyDetailResponse(**detail)
 
 
 def _to_read_model(interview_session) -> InterviewSessionRead:
@@ -186,35 +140,29 @@ def _to_read_model(interview_session) -> InterviewSessionRead:
 @router.post(
     "/sessions/{session_id}/evaluate",
     response_model=InterviewAnswerEvaluateResponse,
-)
+    )
 async def evaluate_interview_answer(
     session_id: UUID,
     payload: InterviewAnswerEvaluateRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> InterviewAnswerEvaluateResponse:
-    """
-    Оценивает ответ на вопрос собеседования (детерминированно, без AI).
-    
-    Критерии:
-    - Длина ответа (>20 слов)
-    - Наличие цифр/метрик
-    - Глаголы действия (built, implemented, designed, led)
-    - Структура STAR (situation/result)
-    """
     service = InterviewPreparationService()
     repo = InterviewSessionRepository()
     
-    # Проверяем доступ к сессии
-    await service.get_session(
+    interview_session = await service.get_session(
         session,
         session_id=session_id,
         user_id=current_user.id,
     )
-    
-    # Оценка ответа
-    evaluation = service._evaluate_answer_basic(
-        question=payload.question_text,
+
+    question = service.get_question_by_id(
+        question_set=interview_session.question_set_json or [],
+        question_id=payload.question_id,
+    )
+
+    evaluation = service.evaluate_answer(
+        question=question.get("prompt") or question.get("question_text") or "",
         answer=payload.answer_text,
     )
     
@@ -225,16 +173,97 @@ async def evaluate_interview_answer(
     await repo.create_attempt(
         session=session,
         session_id=session_id,
-        question_id=payload.question_id or payload.question_text[:50],
+        question_id=payload.question_id,
         answer_text=payload.answer_text,
         score=evaluation["score"],
         feedback_json=validated_feedback.model_dump(),
     )
+    await session.commit()
     
     return InterviewAnswerEvaluateResponse(
         score=evaluation["score"],
         feedback=evaluation["feedback"],
     )
+
+
+@router.post(
+    "/sessions/{session_id}/questions/{question_id}/attempts",
+    response_model=InterviewSessionRead,
+)
+async def create_interview_question_attempt(
+    session_id: UUID,
+    question_id: str,
+    payload: InterviewQuestionAttemptCreateRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewSessionRead:
+    service = InterviewPreparationService()
+    repo = InterviewSessionRepository()
+
+    interview_session = await service.get_session(
+        session,
+        session_id=session_id,
+        user_id=current_user.id,
+    )
+    question_set = interview_session.question_set_json or []
+    question = service.get_question_by_id(
+        question_set=question_set,
+        question_id=question_id,
+    )
+
+    evaluation = service.evaluate_answer(
+        question=question.get("prompt") or question.get("question_text") or "",
+        answer=payload.answer_text,
+    )
+    validated_feedback = AttemptFeedbackSchema(feedback=evaluation["feedback"])
+
+    await repo.create_attempt(
+        session=session,
+        session_id=session_id,
+        question_id=question_id,
+        answer_text=payload.answer_text,
+        score=evaluation["score"],
+        feedback_json=validated_feedback.model_dump(),
+    )
+
+    if not payload.update_session_answer:
+        await session.commit()
+        await session.refresh(interview_session)
+        return _to_read_model(interview_session)
+
+    updated_answers_by_question_id: dict[str, dict[str, str | int]] = {}
+    for existing_answer in interview_session.answers_json or []:
+        existing_question_id = existing_answer.get("question_id")
+        if not existing_question_id:
+            continue
+        updated_answers_by_question_id[str(existing_question_id)] = {
+            "question_id": str(existing_question_id),
+            "question_index": int(existing_answer.get("question_index") or 0),
+            "answer_text": str(existing_answer.get("answer_text") or ""),
+        }
+
+    question_index = next(
+        index
+        for index, item in enumerate(question_set)
+        if item.get("question_id") == question_id
+    )
+    updated_answers_by_question_id[question_id] = {
+        "question_id": question_id,
+        "question_index": question_index,
+        "answer_text": payload.answer_text,
+    }
+
+    updated_answers = sorted(
+        updated_answers_by_question_id.values(),
+        key=lambda item: int(item["question_index"]),
+    )
+    updated_session = await service.save_answers(
+        session,
+        session_id=session_id,
+        user_id=current_user.id,
+        answers=updated_answers,
+    )
+    return _to_read_model(updated_session)
 
 
 @router.post(
@@ -246,13 +275,14 @@ async def coach_interview_answer(
     payload: InterviewAnswerImproveRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
+    orchestrator: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> InterviewAnswerImproveResponse:
     """
     AI-улучшает ответ на вопрос собеседования.
     
     Сначала выполняется детерминированная оценка, затем AI даёт улучшения.
     """
-    service = InterviewPreparationService()
+    service = InterviewPreparationService(ai_orchestrator=orchestrator)
     
     # Проверяем доступ к сессии
     await service.get_session(
@@ -262,7 +292,7 @@ async def coach_interview_answer(
     )
     
     # 1. Детерминированная оценка
-    evaluation = service._evaluate_answer_basic(
+    evaluation = service.evaluate_answer(
         question=payload.question_text,
         answer=payload.answer_text,
     )

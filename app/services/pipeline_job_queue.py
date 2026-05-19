@@ -13,6 +13,8 @@ from app.core.config import get_settings
 from app.core.tracing import get_trace_context, new_correlation_id
 
 QUEUE_NAME = "pipeline:run:jobs"
+RETRY_QUEUE_NAME = "pipeline:run:retry:jobs"
+DEAD_LETTER_QUEUE_NAME = "pipeline:run:dead-letter"
 IDEMPOTENCY_TTL_SECONDS = 60 * 60 * 24
 
 
@@ -35,6 +37,7 @@ class RedisPipelineJobQueue:
     async def enqueue_pipeline_run(
         self,
         *,
+        execution_id: UUID | None = None,
         user_id: UUID,
         document_id: UUID,
         vacancy_id: UUID,
@@ -46,7 +49,7 @@ class RedisPipelineJobQueue:
         redis = self._redis_client or self._build_client()
         created_client = self._redis_client is None
 
-        execution_id = uuid4()
+        execution_id = execution_id or uuid4()
         queued_at = datetime.now(timezone.utc)
         resolved_correlation_id = correlation_id or get_trace_context().correlation_id or new_correlation_id()
         queue_key = (
@@ -106,6 +109,56 @@ class RedisPipelineJobQueue:
                 correlation_id=resolved_correlation_id,
                 queued_at=queued_at,
             )
+        finally:
+            if created_client:
+                await redis.aclose()
+
+    async def requeue_pipeline_run(
+        self,
+        *,
+        payload: dict,
+        delay_seconds: int,
+    ) -> None:
+        redis = self._redis_client or self._build_client()
+        created_client = self._redis_client is None
+
+        try:
+            run_at = datetime.now(timezone.utc).timestamp() + delay_seconds
+            await redis.zadd(
+                RETRY_QUEUE_NAME,
+                {json.dumps(payload): run_at},
+            )
+        finally:
+            if created_client:
+                await redis.aclose()
+
+    async def move_to_dead_letter(
+        self,
+        *,
+        payload: dict,
+        reason: str,
+    ) -> None:
+        redis = self._redis_client or self._build_client()
+        created_client = self._redis_client is None
+
+        try:
+            dead_letter_payload = {
+                **payload,
+                "dead_letter_reason": reason,
+                "dead_lettered_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await redis.lpush(DEAD_LETTER_QUEUE_NAME, json.dumps(dead_letter_payload))
+        finally:
+            if created_client:
+                await redis.aclose()
+
+    async def get_dead_letter_jobs(self, *, limit: int = 100) -> list[dict]:
+        redis = self._redis_client or self._build_client()
+        created_client = self._redis_client is None
+
+        try:
+            items = await redis.lrange(DEAD_LETTER_QUEUE_NAME, 0, max(limit - 1, 0))
+            return [json.loads(item) for item in items]
         finally:
             if created_client:
                 await redis.aclose()

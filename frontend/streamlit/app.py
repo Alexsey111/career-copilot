@@ -2317,6 +2317,13 @@ def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None
                     if item.get("readiness_score") is not None
                     else "—"
                 ),
+                "Слабые зоны": ", ".join(
+                    competency.get(
+                        "competency_name",
+                        competency.get("competency_key", "—"),
+                    )
+                    for competency in (item.get("weak_competencies") or [])
+                ) or "—",
                 "Обновлено": format_optional_datetime(item.get("updated_at")),
             }
         )
@@ -2449,6 +2456,7 @@ def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None
             if answer_text.strip():
                 answers_payload.append(
                     {
+                        "question_id": question.get("question_id"),
                         "question_index": question_index,
                         "answer_text": answer_text.strip(),
                     }
@@ -2522,6 +2530,50 @@ def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None
 
         if question_count > 0:
             st.progress(max(0.0, min(1.0, answered_score_count / question_count)))
+
+        competency_readiness = score.get("competency_readiness") or []
+
+        if competency_readiness:
+            st.markdown("### Готовность по компетенциям")
+
+            for competency in competency_readiness:
+                competency_name = (
+                    competency.get("competency_name")
+                    or competency.get("competency_key")
+                    or "Компетенция"
+                )
+
+                readiness = competency.get("readiness_score")
+                answered = competency.get("answered_count", 0)
+                total = competency.get("question_count", 0)
+                warnings = competency.get("warning_count", 0)
+
+                with st.container(border=True):
+                    col_a, col_b, col_c = st.columns(3)
+
+                    with col_a:
+                        st.markdown(f"**{competency_name}**")
+
+                    with col_b:
+                        st.metric(
+                            "Готовность",
+                            f"{readiness} / 100"
+                            if readiness is not None
+                            else "—",
+                        )
+
+                    with col_c:
+                        st.metric(
+                            "Ответов",
+                            f"{answered} / {total}",
+                        )
+
+                    if warnings > 0:
+                        st.warning(
+                            f"Есть предупреждения по ответам: {warnings}"
+                        )
+                    elif total > 0 and answered == total:
+                        st.success("Компетенция полностью покрыта ответами")
 
     feedback_items = feedback.get("items") or []
     if feedback_items:

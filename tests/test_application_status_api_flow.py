@@ -92,12 +92,13 @@ async def _generate_and_approve_resume(client, vacancy_id: str) -> str:
 async def _create_application(client) -> str:
     await _prepare_profile(client)
     vacancy_id = await _create_analyzed_vacancy(client)
-    await _generate_and_approve_resume(client, vacancy_id)
+    resume_document_id = await _generate_and_approve_resume(client, vacancy_id)
 
     application_response = await client.post(
         f"{API_PREFIX}/applications",
         json={
             "vacancy_id": vacancy_id,
+            "resume_document_id": resume_document_id,
             "notes": "initial draft",
         },
     )
@@ -118,11 +119,11 @@ async def test_application_status_api_accepts_valid_flow(client) -> None:
     assert ready_response.status_code == 200, ready_response.text
     assert ready_response.json()["status"] == "ready"
 
-    submitted_response = await client.patch(
-        f"{API_PREFIX}/applications/{application_id}/status",
+    submitted_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
         json={
-            "status": "applied",
-            "notes": "Submitted manually on HH",
+            "source": "manual",
+            "external_link": "https://example.com/apply/hh",
         },
     )
     assert submitted_response.status_code == 200, submitted_response.text
@@ -178,11 +179,10 @@ async def test_application_status_api_rejects_final_to_submitted(client) -> None
     )
     assert ready_response.status_code == 200, ready_response.text
 
-    submitted_response = await client.patch(
-        f"{API_PREFIX}/applications/{application_id}/status",
+    submitted_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
         json={
-            "status": "applied",
-            "notes": "Submitted manually",
+            "source": "manual",
         },
     )
     assert submitted_response.status_code == 200, submitted_response.text
@@ -206,7 +206,33 @@ async def test_application_status_api_rejects_final_to_submitted(client) -> None
         },
     )
 
-    assert invalid_response.status_code == 400, invalid_response.text
+    assert invalid_response.status_code == 409, invalid_response.text
     assert invalid_response.json()["detail"] == (
-        "invalid application status transition: rejected -> applied"
+        "use POST /applications/{application_id}/submit to submit applications"
+    )
+
+
+async def test_application_status_api_rejects_direct_patch_to_applied(client) -> None:
+    application_id = await _create_application(client)
+
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "Ready for submission",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+
+    response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "applied",
+            "notes": "Try submit via patch",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        "use POST /applications/{application_id}/submit to submit applications"
     )

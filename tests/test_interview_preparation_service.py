@@ -38,12 +38,15 @@ def test_interview_preparation_builds_questions_from_analysis_and_achievements()
     )
 
     question_types = {item["type"] for item in questions}
+    question_ids = [item["question_id"] for item in questions]
 
     assert "role_overview" in question_types
     assert "must_have_requirement" in question_types
     assert "gap_preparation" in question_types
     assert "strength_deep_dive" in question_types
     assert "achievement_star_story" in question_types
+    assert len(question_ids) == len(set(question_ids))
+    assert all(question_id.startswith("iq_") for question_id in question_ids)
 
     gap_question = next(item for item in questions if item["type"] == "gap_preparation")
     assert gap_question["keyword"] == "FastAPI"
@@ -56,109 +59,150 @@ def test_interview_preparation_builds_questions_from_analysis_and_achievements()
         item for item in questions if item["type"] == "must_have_requirement"
     )
     assert "Опишите ваш практический опыт" in must_have_question["prompt"]
+    assert must_have_question["source"] == "vacancy_analysis.must_have"
+    assert must_have_question["requirement_text"] == "Python"
+    assert must_have_question["competency_name"] == "Python"
+    assert must_have_question["competency_key"] == "python"
 
     assert "Как честно ответить" in gap_question["prompt"]
+    assert gap_question["source"] == "vacancy_analysis.gaps"
+    assert gap_question["requirement_text"] == "FastAPI"
+    assert gap_question["competency_name"] == "FastAPI"
+    assert gap_question["competency_key"] == "fastapi"
 
     achievement_question = next(
         item for item in questions if item["type"] == "achievement_star_story"
     )
     assert achievement_question["fact_status"] == "needs_confirmation"
     assert "Превратите это достижение в STAR-историю" in achievement_question["prompt"]
+    assert achievement_question["competency_key"] is None
 
     strength_question = next(item for item in questions if item["type"] == "strength_deep_dive")
     assert "Подготовьте более глубокий пример" in strength_question["prompt"]
+    assert strength_question["source"] == "vacancy_analysis.strengths"
+    assert strength_question["requirement_text"] == "Python"
+    assert strength_question["competency_name"] == "Python"
+    assert strength_question["competency_key"] == "python"
+
+
+def test_interview_question_ids_are_deterministic() -> None:
+    service = InterviewPreparationService()
+
+    params = {
+        "vacancy_title": "Backend Developer",
+        "company": "Test Company",
+        "must_have": [{"text": "Python"}],
+        "nice_to_have": [{"text": "Docker"}],
+        "strengths": [
+            {"keyword": "Python", "scope": "must_have", "requirement_text": "Python"}
+        ],
+        "gaps": [
+            {"keyword": "FastAPI", "scope": "must_have", "requirement_text": "FastAPI"}
+        ],
+        "achievements": [
+            {
+                "title": "Создание ИИ-системы мониторинга безопасности",
+                "fact_status": "needs_confirmation",
+            }
+        ],
+    }
+
+    questions_a = service._build_question_set(**params)
+    questions_b = service._build_question_set(**params)
+
+    assert [item["question_id"] for item in questions_a] == [
+        item["question_id"] for item in questions_b
+    ]
+
+
+def test_build_competency_key_normalizes_requirement_text() -> None:
+    service = InterviewPreparationService()
+
+    assert (
+        service.build_competency_key("Backend API design")
+        == "backend_api_design"
+    )
 
 
 def test_interview_questions_include_gaps() -> None:
-    """Тест что _build_questions создаёт вопросы для gap-зон."""
+    """Legacy question helper is fully removed."""
     service = InterviewPreparationService()
 
-    questions = service._build_questions(
-        strengths=["Python"],
-        gaps=["Docker"],
-        achievements=[],
-    )
-
-    # Проверяем что есть gap вопрос
-    assert any(q["type"] == "gap" for q in questions)
-
-    # Проверяем что Docker упоминается в вопросе
-    gap_question = next(q for q in questions if q["type"] == "gap")
-    assert "Docker" in gap_question["question"]
-    assert "less experience" in gap_question["question"].lower()
-    assert "expected_answer" in gap_question
+    assert not hasattr(service, "_build_questions")
 
 
 def test_interview_questions_expected_answer_with_relevant_achievements() -> None:
-    """Тест что expected_answer использует релевантные достижения."""
+    """Legacy expected answer helper is fully removed."""
     service = InterviewPreparationService()
 
-    questions = service._build_questions(
-        strengths=["Python"],
-        gaps=["Docker"],
-        achievements=["Создание Python сервиса", "Разработка Docker контейнеров"],
-    )
-
-    # Python вопрос должен ссылаться на Python достижение
-    python_question = next(q for q in questions if q["skill"] == "Python")
-    assert "Python" in python_question["expected_answer"]
-    assert "STAR" in python_question["expected_answer"]
-
-    # Docker вопрос тоже должен иметь expected_answer
-    docker_question = next(q for q in questions if q["skill"] == "Docker")
-    assert "STAR" in docker_question["expected_answer"]
+    assert not hasattr(service, "_build_expected_answer")
 
 
 def test_interview_questions_expected_answer_without_achievements() -> None:
-    """Тест что при отсутствии достижений возвращается заглушка."""
+    """Legacy expected answer helper stays removed across scenarios."""
     service = InterviewPreparationService()
 
-    expected = service._build_expected_answer(
-        skill="Kubernetes",
-        achievements=[],
-    )
-
-    assert "Explain learning efforts" in expected
-    assert "practical steps" in expected
+    assert not hasattr(service, "_build_expected_answer")
 
 
 def test_evaluate_answer_short() -> None:
-    """Тест что короткий ответ получает низкую оценку."""
+    """Legacy evaluator is fully removed."""
     service = InterviewPreparationService()
 
-    result = service._evaluate_answer_basic(
-        question="Tell me about Python",
-        answer="I used Python",
-    )
-
-    assert result["score"] < 1
-    assert "too short" in result["feedback"][0].lower()
+    assert not hasattr(service, "_evaluate_answer_basic")
 
 
 def test_evaluate_answer_good() -> None:
-    """Тест что хороший ответ с метриками и STAR получает высокую оценку."""
+    """Canonical evaluator returns strong score for a detailed answer."""
     service = InterviewPreparationService()
 
-    result = service._evaluate_answer_basic(
+    result = service.evaluate_answer(
         question="Describe your experience with Python",
         answer="I built a REST API using Python and FastAPI. The situation was that we needed a backend for our new product. I implemented the API with 5 endpoints and achieved 500 requests per second. The result was a successful launch.",
     )
 
-    assert result["score"] == 1.0
+    assert result["score"] > 0.5
     assert len(result["feedback"]) == 0
 
 
 def test_evaluate_answer_missing_action_verbs() -> None:
-    """Тест что ответ без глаголов действия получает фидбек."""
+    """Canonical evaluator flags weak answers."""
     service = InterviewPreparationService()
 
-    result = service._evaluate_answer_basic(
+    result = service.evaluate_answer(
         question="What did you do?",
         answer="I was working on a project. There was a lot of Python code and 1000 users.",
     )
 
-    assert "Lacks strong action verbs" in result["feedback"]
+    assert any("specificity" in item["check_name"] for item in result["checks"])
+    assert any(
+        item["check_name"] == "star_completeness" and item["passed"] is False
+        for item in result["checks"]
+    )
+    assert len(result["feedback"]) >= 1
     assert result["score"] < 1.0
+
+
+def test_evaluate_answer_uses_answer_evaluation_engine() -> None:
+    service = InterviewPreparationService()
+
+    result = service.evaluate_answer(
+        question="Describe your backend API work",
+        answer=(
+            "Situation: we needed a backend for a new workflow. "
+            "Task: deliver an API quickly. "
+            "Action: I designed and implemented 6 endpoints with Python. "
+            "Result: latency dropped by 35%."
+        ),
+    )
+
+    assert result["score"] > 0
+    assert isinstance(result["checks"], list)
+    check_names = {item["check_name"] for item in result["checks"]}
+    assert "specificity" in check_names
+    assert "star_completeness" in check_names
+    assert "evidence_quality" in check_names
+    assert "generic_wording" in check_names
 
 
 @pytest.mark.asyncio
@@ -267,7 +311,16 @@ async def test_attempt_saved_on_evaluate(db_session, test_user):
         vacancy_id=None,
         session_type="general",
         status="draft",
-        question_set_json=[],
+        question_set_json=[
+            {
+                "question_id": "iq_test_python",
+                "type": "strength_deep_dive",
+                "source": "vacancy_analysis.strengths",
+                "prompt": "Tell me about Python",
+                "answer_format": "STAR",
+                "rubric": [],
+            }
+        ],
         answers_json=[],
         feedback_json={},
         score_json={},
@@ -277,8 +330,7 @@ async def test_attempt_saved_on_evaluate(db_session, test_user):
 
     # Вызываем evaluate endpoint
     payload = InterviewAnswerEvaluateRequest(
-        question_id="q1",
-        question_text="Tell me about Python",
+        question_id="iq_test_python",
         answer_text="I used Python to build REST APIs with 1000 requests per second.",
     )
 
@@ -300,7 +352,7 @@ async def test_attempt_saved_on_evaluate(db_session, test_user):
     attempts = result_rows.scalars().all()
 
     assert len(attempts) == 1
-    assert attempts[0].question_id == "q1"
+    assert attempts[0].question_id == "iq_test_python"
     assert attempts[0].answer_text == payload.answer_text
     assert attempts[0].score is not None
     assert "feedback" in attempts[0].feedback_json

@@ -197,18 +197,19 @@ async def test_mvp_flow_e2e(client):
     )
     assert ready_response.status_code == 200, ready_response.text
 
-    update_status_response = await client.patch(
-        f"{API_PREFIX}/applications/{application_id}/status",
+    update_status_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
         json={
-            "status": "applied",
-            "notes": "Submitted manually on HH",
+            "source": "hh",
+            "external_link": "https://hh.example/application/e2e",
         },
     )
     assert update_status_response.status_code == 200, update_status_response.text
     updated_application = update_status_response.json()
     assert updated_application["status"] == "applied"
     assert updated_application["applied_at"] is not None
-    assert updated_application["notes"] == "Submitted manually on HH"
+    assert updated_application["source"] == "hh"
+    assert updated_application["external_link"] == "https://hh.example/application/e2e"
 
     list_response = await client.get(f"{API_PREFIX}/applications")
     assert list_response.status_code == 200, list_response.text

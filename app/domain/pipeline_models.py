@@ -71,6 +71,10 @@ class CareerCopilotRun:
     review_id: Optional[str] = None
     review_session_id: Optional[str] = None
     idempotency_key: Optional[str] = None
+    parent_execution_id: Optional[str] = None
+    lineage_kind: Optional[str] = None
+    lineage_reason: Optional[str] = None
+    lineage_metadata: dict[str, Any] = field(default_factory=dict)
 
     # Execution metadata
     status: PipelineStatus = PipelineStatus.PENDING

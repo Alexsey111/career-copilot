@@ -7,10 +7,10 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, func, Text
+from sqlalchemy import case, select, func, Text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.entities import PipelineExecution
+from app.models.entities import PipelineExecution, PipelineExecutionStep
 
 
 @dataclass
@@ -44,6 +44,31 @@ class PipelineFailureMetrics:
     failed_count: int
     failure_rate: float
     top_failure_codes: list[tuple[str, int]]
+
+
+@dataclass
+class ExecutionRuntimeAggregate:
+    """Operational aggregate for pipeline execution runtime state."""
+    running_count: int
+    completed_count: int
+    failed_count: int
+    cancelled_count: int
+    retry_total: int
+    avg_execution_duration_ms: float
+    avg_evaluation_duration_ms: float
+    avg_mutation_duration_ms: float
+
+
+@dataclass
+class PhaseRuntimeAggregate:
+    """Aggregated runtime metrics for a tracked pipeline phase."""
+    step_name: str
+    total_count: int
+    completed_count: int
+    failed_count: int
+    avg_duration_ms: float
+    max_duration_ms: float
+    retry_count: int
 
 
 class PipelineExecutionRepository:
@@ -180,6 +205,109 @@ class PipelineExecutionRepository:
 
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_runtime_aggregate(
+        self,
+        session: AsyncSession,
+    ) -> ExecutionRuntimeAggregate:
+        """Get operational runtime aggregate for pipeline executions."""
+        stmt = select(
+            func.coalesce(
+                func.sum(case((PipelineExecution.status == "running", 1), else_=0)),
+                0,
+            ).label("running_count"),
+            func.coalesce(
+                func.sum(case((PipelineExecution.status == "completed", 1), else_=0)),
+                0,
+            ).label("completed_count"),
+            func.coalesce(
+                func.sum(case((PipelineExecution.status == "failed", 1), else_=0)),
+                0,
+            ).label("failed_count"),
+            func.coalesce(
+                func.sum(case((PipelineExecution.status == "cancelled", 1), else_=0)),
+                0,
+            ).label("cancelled_count"),
+            func.coalesce(func.sum(PipelineExecution.retry_count), 0).label("retry_total"),
+            func.coalesce(func.avg(PipelineExecution.execution_duration_ms), 0.0).label(
+                "avg_execution_duration_ms"
+            ),
+            func.coalesce(func.avg(PipelineExecution.evaluation_duration_ms), 0.0).label(
+                "avg_evaluation_duration_ms"
+            ),
+            func.coalesce(func.avg(PipelineExecution.mutation_duration_ms), 0.0).label(
+                "avg_mutation_duration_ms"
+            ),
+        )
+
+        result = await session.execute(stmt)
+        row = result.one()
+
+        return ExecutionRuntimeAggregate(
+            running_count=int(row.running_count or 0),
+            completed_count=int(row.completed_count or 0),
+            failed_count=int(row.failed_count or 0),
+            cancelled_count=int(row.cancelled_count or 0),
+            retry_total=int(row.retry_total or 0),
+            avg_execution_duration_ms=float(row.avg_execution_duration_ms or 0.0),
+            avg_evaluation_duration_ms=float(row.avg_evaluation_duration_ms or 0.0),
+            avg_mutation_duration_ms=float(row.avg_mutation_duration_ms or 0.0),
+        )
+
+    async def get_phase_runtime_aggregates(
+        self,
+        session: AsyncSession,
+        *,
+        limit: int = 100,
+    ) -> list[PhaseRuntimeAggregate]:
+        """Get phase-level runtime aggregates from tracked execution steps."""
+        stmt = (
+            select(
+                PipelineExecutionStep.step_name.label("step_name"),
+                func.count(PipelineExecutionStep.id).label("total_count"),
+                func.coalesce(
+                    func.sum(case((PipelineExecutionStep.status == "completed", 1), else_=0)),
+                    0,
+                ).label("completed_count"),
+                func.coalesce(
+                    func.sum(case((PipelineExecutionStep.status == "failed", 1), else_=0)),
+                    0,
+                ).label("failed_count"),
+                func.coalesce(func.avg(PipelineExecutionStep.duration_ms), 0.0).label(
+                    "avg_duration_ms"
+                ),
+                func.coalesce(func.max(PipelineExecutionStep.duration_ms), 0.0).label(
+                    "max_duration_ms"
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (PipelineExecutionStep.status == "failed", PipelineExecution.retry_count),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("retry_count"),
+            )
+            .join(PipelineExecution, PipelineExecution.id == PipelineExecutionStep.execution_id)
+            .group_by(PipelineExecutionStep.step_name)
+            .order_by(func.coalesce(func.avg(PipelineExecutionStep.duration_ms), 0.0).desc())
+            .limit(limit)
+        )
+
+        result = await session.execute(stmt)
+        return [
+            PhaseRuntimeAggregate(
+                step_name=str(row.step_name),
+                total_count=int(row.total_count or 0),
+                completed_count=int(row.completed_count or 0),
+                failed_count=int(row.failed_count or 0),
+                avg_duration_ms=float(row.avg_duration_ms or 0.0),
+                max_duration_ms=float(row.max_duration_ms or 0.0),
+                retry_count=int(row.retry_count or 0),
+            )
+            for row in result.all()
+        ]
 
     async def get_duration_metrics(
         self,

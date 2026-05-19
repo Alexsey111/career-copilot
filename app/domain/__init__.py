@@ -14,6 +14,7 @@ from app.domain.execution_metrics import (
 )
 from app.domain.execution_events import ExecutionEventType
 from app.domain.execution_event_payloads import (
+    ExecutionCancelledPayload,
     ExecutionCompletedPayload,
     ExecutionFailedPayload,
     ExecutionStartedPayload,
@@ -53,6 +54,7 @@ __all__ = [
     "ReviewRequiredPayload",
     "ReviewCompletedPayload",
     "ExecutionCompletedPayload",
+    "ExecutionCancelledPayload",
     "ExecutionFailedPayload",
     "EvaluationFailedPayload",
     "StepStartedPayload",

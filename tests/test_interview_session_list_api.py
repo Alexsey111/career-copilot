@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from app.repositories.interview_session_repository import InterviewSessionRepository
+from app.models.entities import InterviewSession
 
 
 pytestmark = pytest.mark.asyncio
@@ -89,10 +91,12 @@ async def test_interview_session_list_returns_dashboard_fields(client) -> None:
         json={
             "answers": [
                 {
+                    "question_id": created["question_set"][0]["question_id"],
                     "question_index": 0,
                     "answer_text": "I am interested in this role because it matches my Python background.",
                 },
                 {
+                    "question_id": created["question_set"][1]["question_id"],
                     "question_index": 1,
                     "answer_text": (
                         "Ситуация: я работал над Python-проектом. "
@@ -126,5 +130,101 @@ async def test_interview_session_list_returns_dashboard_fields(client) -> None:
     assert item["unanswered_count"] == item["question_count"] - 2
     assert item["warning_count"] >= 0
     assert item["readiness_score"] is not None
+    assert isinstance(item["competency_readiness"], list)
+    assert len(item["competency_readiness"]) >= 1
+    assert isinstance(item["weak_competencies"], list)
     assert item["created_at"] is not None
     assert item["updated_at"] is not None
+
+
+async def test_interview_session_list_defaults_empty_competency_readiness_for_old_score_json(
+    db_session,
+    test_user,
+) -> None:
+    repository = InterviewSessionRepository()
+    session = InterviewSession(
+        user_id=test_user.id,
+        vacancy_id=None,
+        session_type="general",
+        status="draft",
+        question_set_json=[],
+        answers_json=[],
+        feedback_json={},
+        score_json={"readiness_score": 64},
+    )
+    db_session.add(session)
+    await db_session.commit()
+
+    items = await repository.list_dashboard_by_user_id(db_session, test_user.id)
+    item = next(result for result in items if result["id"] == session.id)
+
+    assert item["readiness_score"] == 64
+    assert item["competency_readiness"] == []
+    assert item["weak_competencies"] == []
+
+
+async def test_interview_session_list_returns_top_three_weak_competencies_sorted(
+    db_session,
+    test_user,
+) -> None:
+    repository = InterviewSessionRepository()
+    session = InterviewSession(
+        user_id=test_user.id,
+        vacancy_id=None,
+        session_type="general",
+        status="answered",
+        question_set_json=[],
+        answers_json=[],
+        feedback_json={},
+        score_json={
+            "readiness_score": 68,
+            "competency_readiness": [
+                {
+                    "competency_key": "postgresql_alembic",
+                    "competency_name": "PostgreSQL/Alembic",
+                    "readiness_score": 74,
+                },
+                {
+                    "competency_key": "backend_api_design",
+                    "competency_name": "Backend API design",
+                    "readiness_score": 55,
+                },
+                {
+                    "competency_key": "async_runtime",
+                    "competency_name": "Async runtime",
+                    "readiness_score": 62,
+                },
+                {
+                    "competency_key": "gap_handling",
+                    "competency_name": "Gap handling",
+                    "readiness_score": 60,
+                },
+                {
+                    "competency_key": "communication",
+                    "competency_name": "Communication",
+                    "readiness_score": 80,
+                },
+            ],
+        },
+    )
+    db_session.add(session)
+    await db_session.commit()
+
+    items = await repository.list_dashboard_by_user_id(db_session, test_user.id)
+    item = next(result for result in items if result["id"] == session.id)
+
+    assert item["readiness_score"] == 68
+    assert [entry["competency_key"] for entry in item["weak_competencies"]] == [
+        "backend_api_design",
+        "gap_handling",
+        "async_runtime",
+    ]
+    assert [entry["readiness_score"] for entry in item["weak_competencies"]] == [
+        55,
+        60,
+        62,
+    ]
+    assert len(item["weak_competencies"]) == 3
+    assert all(
+        entry["readiness_score"] < 75 for entry in item["weak_competencies"]
+    )

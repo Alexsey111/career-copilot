@@ -15,6 +15,7 @@ class InterviewSessionCreateRequest(BaseModel):
 
 
 class InterviewAnswerItem(BaseModel):
+    question_id: str = Field(min_length=1, max_length=100)
     question_index: int = Field(ge=0)
     answer_text: str = Field(default="", max_length=5000)
 
@@ -49,19 +50,33 @@ class InterviewSessionListItem(BaseModel):
     unanswered_count: int
     warning_count: int
     readiness_score: int | None
+    competency_readiness: list[dict[str, Any]] = Field(default_factory=list)
+    weak_competencies: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
 
 class InterviewAnswerEvaluateRequest(BaseModel):
-    question_id: str | None = None
-    question_text: str
+    question_id: str = Field(min_length=1, max_length=100)
     answer_text: str
 
 
 class InterviewAnswerEvaluateResponse(BaseModel):
     score: float
     feedback: list[str]
+
+
+class InterviewCompetencyDetailResponse(BaseModel):
+    competency: dict[str, Any]
+    questions: list[dict[str, Any]]
+    answers: list[dict[str, Any]]
+    feedback_items: list[dict[str, Any]]
+    attempts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class InterviewQuestionAttemptCreateRequest(BaseModel):
+    answer_text: str = Field(min_length=1, max_length=5000)
+    update_session_answer: bool = True
 
 
 class InterviewAnswerImproveRequest(BaseModel):

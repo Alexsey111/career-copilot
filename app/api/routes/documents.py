@@ -25,6 +25,7 @@ from app.schemas.document import (
     DocumentActivateResponse,
     DocumentDiffResponse,
     DocumentHistoryResponse,
+    DocumentReadinessResponse,
     DocumentReviewRequest,
     DocumentReviewResponse,
     DocumentRollbackResponse,
@@ -44,6 +45,7 @@ from app.services.document_diff_service import DocumentDiffService
 from app.services.cover_letter_generation_service import CoverLetterGenerationService
 from app.services.document_review_service import DocumentReviewService
 from app.services.resume_generation_service import ResumeGenerationService
+from app.services.readiness_gate_service import ReadinessGateService
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -335,6 +337,33 @@ async def get_document(
         rendered_text=document.rendered_text,
         created_at=document.created_at,
         updated_at=document.updated_at,
+    )
+
+
+@router.get("/{document_id}/readiness", response_model=DocumentReadinessResponse)
+async def get_document_readiness(
+    document_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentReadinessResponse:
+    repo = DocumentVersionRepository()
+    document = await repo.get_by_id(
+        session,
+        document_id,
+        user_id=current_user.id,
+    )
+    if document is None or document.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="document not found",
+        )
+
+    readiness = ReadinessGateService().evaluate_document_readiness(document)
+    return DocumentReadinessResponse(
+        ready=readiness.ready,
+        blockers=readiness.blockers,
+        warnings=readiness.warnings,
+        score=readiness.score,
     )
 
 

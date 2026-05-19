@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,8 +28,12 @@ from app.services.readiness_evaluation_service import ReadinessEvaluationService
 from app.services.readiness_feature_extraction_service import ReadinessFeatureExtractionService
 from app.services.recommendation_task_service import RecommendationTaskService
 from app.core.tracing import get_trace_context, set_trace_context
+from app.domain.failure_models import classify_failure, is_retryable_failure
+from app.domain.pipeline_errors import PipelineCancelledError
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class CareerPipelineOrchestrator:
@@ -122,16 +127,22 @@ class CareerPipelineOrchestrator:
         mutation_completed_at = None
         try:
             async with session.begin():
-                before_evaluation, before_snapshot_id = await evaluation_service.evaluate_document(
-                    session,
-                    document_id=document_id,
-                    user_id=user_id,
+                current_step = "initial_evaluation"
+                before_evaluation, before_snapshot_id = await self._run_tracked_step(
+                    pipeline_service=pipeline_service,
+                    session=session,
+                    execution_id=UUID(execution.id),
+                    step_name="initial_evaluation",
+                    fn=lambda: evaluation_service.evaluate_document(
+                        session,
+                        document_id=document_id,
+                        user_id=user_id,
+                    ),
+                    output_artifact_ids=lambda result: [str(result[1])],
                 )
                 before_completed_at = datetime.now(timezone.utc)
                 before_score = self._evaluation_to_score(before_evaluation)
-                before_tasks = recommendation_service.prioritize_tasks(
-                    recommendation_service.generate_tasks_from_readiness(before_score)
-                )
+
                 await pipeline_service.record_evaluation_completed(
                     execution_id=UUID(execution.id),
                     evaluation_summary={
@@ -149,37 +160,54 @@ class CareerPipelineOrchestrator:
                     session=session,
                 )
 
-                primary_task = before_tasks[0] if before_tasks else self._build_fallback_task(before_score)
-                recommendation_records = await recommendation_repo.create_recommendations(
-                    session,
+                current_step = "recommendation_generation"
+                before_tasks, primary_task, recommendation_records = await self._run_tracked_step(
+                    pipeline_service=pipeline_service,
+                    session=session,
                     execution_id=UUID(execution.id),
-                    document_id=document_id,
-                    recommendations=[
-                        self._recommendation_payload(task)
-                        for task in before_tasks
-                    ] or [
-                        self._recommendation_payload(primary_task)
-                    ],
+                    step_name="recommendation_generation",
+                    fn=lambda: self._generate_and_persist_recommendations(
+                        recommendation_service=recommendation_service,
+                        recommendation_repo=recommendation_repo,
+                        session=session,
+                        execution_id=UUID(execution.id),
+                        document_id=document_id,
+                        readiness_score=before_score,
+                    ),
+                    output_artifact_ids=lambda result: [str(record.id) for record in result[2]],
                 )
                 primary_recommendation = recommendation_records[0]
                 changes = self._build_changes_from_task(primary_task, before_evaluation)
 
                 current_step = "mutation"
-                mutation_started_at = datetime.now(timezone.utc)
-                mutated_document = await mutation_service.apply_recommendation(
+                mutation_started_at, mutated_document, mutation_completed_at = await self._run_tracked_step(
+                    pipeline_service=pipeline_service,
                     session=session,
-                    document_id=document_id,
-                    recommendation_id=primary_recommendation.id,
-                    changes=changes,
-                    user_id=user_id,
+                    execution_id=UUID(execution.id),
+                    step_name="mutation",
+                    fn=lambda: self._apply_mutation(
+                        mutation_service=mutation_service,
+                        session=session,
+                        document_id=document_id,
+                        recommendation_id=primary_recommendation.id,
+                        changes=changes,
+                        user_id=user_id,
+                    ),
+                    output_artifact_ids=lambda result: [str(result[1].id)],
                 )
-                mutation_completed_at = datetime.now(timezone.utc)
 
                 current_step = "after_evaluation"
-                after_evaluation, after_snapshot_id = await evaluation_service.evaluate_document(
-                    session,
-                    document_id=mutated_document.id,
-                    user_id=user_id,
+                after_evaluation, after_snapshot_id = await self._run_tracked_step(
+                    pipeline_service=pipeline_service,
+                    session=session,
+                    execution_id=UUID(execution.id),
+                    step_name="after_evaluation",
+                    fn=lambda: evaluation_service.evaluate_document(
+                        session,
+                        document_id=mutated_document.id,
+                        user_id=user_id,
+                    ),
+                    output_artifact_ids=lambda result: [str(result[1])],
                 )
                 after_completed_at = datetime.now(timezone.utc)
                 after_score = self._evaluation_to_score(after_evaluation)
@@ -187,50 +215,62 @@ class CareerPipelineOrchestrator:
                     recommendation_service.generate_tasks_from_readiness(after_score)
                 )
 
-                current_step = "impact"
-                impact_measurement = await impact_service.measure_impact(
+                current_step = "impact_measurement"
+                impact_measurement = await self._run_tracked_step(
+                    pipeline_service=pipeline_service,
                     session=session,
-                    recommendation_id=str(primary_recommendation.id),
-                    recommendation_type=primary_task.task_type.value,
-                    target_achievement_id=primary_task.target_achievement_id,
-                    changes=changes,
-                    before_evaluation=before_evaluation,
-                    after_evaluation=after_evaluation,
-                    before_snapshot_id=before_snapshot_id,
-                    after_snapshot_id=after_snapshot_id,
-                    document_id=mutated_document.id,
-                    started_at=mutation_started_at,
-                    completed_at=after_completed_at,
+                    execution_id=UUID(execution.id),
+                    step_name="impact_measurement",
+                    fn=lambda: impact_service.measure_impact(
+                        session=session,
+                        recommendation_id=str(primary_recommendation.id),
+                        recommendation_type=primary_task.task_type.value,
+                        target_achievement_id=primary_task.target_achievement_id,
+                        changes=changes,
+                        before_evaluation=before_evaluation,
+                        after_evaluation=after_evaluation,
+                        before_snapshot_id=before_snapshot_id,
+                        after_snapshot_id=after_snapshot_id,
+                        document_id=mutated_document.id,
+                        started_at=mutation_started_at,
+                        completed_at=after_completed_at,
+                    ),
+                    output_artifact_ids=lambda result: [result.recommendation_id],
                 )
 
                 current_step = "recommendation_applied"
-                await recommendation_repo.mark_applied(
-                    session,
-                    recommendation_id=primary_recommendation.id,
-                    applied_at=after_completed_at,
-                )
-
-                review_required, review_reason = self._needs_review(after_evaluation, after_tasks)
-
-            if review_required:
-                current_step = "review"
-                review_session = await review_service.start_review(
-                    session,
-                    document_id=mutated_document.id,
-                    user_id=user_id,
-                    review_required=True,
-                    review_reason=review_reason,
-                    pipeline_execution_id=UUID(execution.id),
-                    metadata={
-                        "primary_task": self._task_payload(primary_task),
-                        "readiness_before": self._evaluation_payload(before_evaluation),
-                        "readiness_after": self._evaluation_payload(after_evaluation),
-                    },
-                )
-                await pipeline_service.record_review_required(
-                    execution_id=UUID(execution.id),
-                    review_reason=review_reason,
+                await self._run_tracked_step(
+                    pipeline_service=pipeline_service,
                     session=session,
+                    execution_id=UUID(execution.id),
+                    step_name="recommendation_applied",
+                    fn=lambda: recommendation_repo.mark_applied(
+                        session,
+                        recommendation_id=primary_recommendation.id,
+                        applied_at=after_completed_at,
+                    ),
+                    output_artifact_ids=[str(primary_recommendation.id)],
+                )
+
+                current_step = "review_gate"
+                review_required, review_reason, review_session = await self._run_tracked_step(
+                    pipeline_service=pipeline_service,
+                    session=session,
+                    execution_id=UUID(execution.id),
+                    step_name="review_gate",
+                    fn=lambda: self._run_review_gate(
+                        review_service=review_service,
+                        pipeline_service=pipeline_service,
+                        session=session,
+                        mutated_document_id=mutated_document.id,
+                        user_id=user_id,
+                        pipeline_execution_id=UUID(execution.id),
+                        primary_task=primary_task,
+                        before_evaluation=before_evaluation,
+                        after_evaluation=after_evaluation,
+                        after_tasks=after_tasks,
+                    ),
+                    output_artifact_ids=lambda result: [str(result[2].id)] if result[2] is not None else None,
                 )
 
             artifacts = {
@@ -260,16 +300,23 @@ class CareerPipelineOrchestrator:
             }
 
             current_step = "completion"
-            await pipeline_service.complete_execution(
-                execution_id=UUID(execution.id),
-                artifacts=artifacts,
-                metrics=metrics,
-                resume_document_id=mutated_document.id,
-                review_required=review_required,
-                review_completed=False,
-                evaluation_duration_ms=int((before_completed_at - before_started_at).total_seconds() * 1000),
-                mutation_duration_ms=int((mutation_completed_at - mutation_started_at).total_seconds() * 1000),
+            await self._run_tracked_step(
+                pipeline_service=pipeline_service,
                 session=session,
+                execution_id=UUID(execution.id),
+                step_name="completion",
+                fn=lambda: pipeline_service.complete_execution(
+                    execution_id=UUID(execution.id),
+                    artifacts=artifacts,
+                    metrics=metrics,
+                    resume_document_id=mutated_document.id,
+                    review_required=review_required,
+                    review_completed=False,
+                    evaluation_duration_ms=int((before_completed_at - before_started_at).total_seconds() * 1000),
+                    mutation_duration_ms=int((mutation_completed_at - mutation_started_at).total_seconds() * 1000),
+                    session=session,
+                ),
+                output_artifact_ids=[str(mutated_document.id)],
             )
             await session.commit()
 
@@ -284,11 +331,21 @@ class CareerPipelineOrchestrator:
 
             return await pipeline_repo.get_execution(UUID(execution.id)) or execution
 
+        except PipelineCancelledError:
+            await session.rollback()
+            logger.info(
+                "Career pipeline cancelled",
+                extra={"execution_id": str(execution.id)},
+            )
+            return await pipeline_repo.get_execution(UUID(execution.id)) or execution
+
         except Exception as exc:
             await session.rollback()
             error_message = str(exc)
             failed_step = current_step or "evaluation"
             retry_count = (execution.retry_count or 0) + 1
+            failure_category = classify_failure(exc)
+            retryable = is_retryable_failure(failure_category)
 
             await pipeline_service.fail_execution(
                 execution_id=UUID(execution.id),
@@ -297,6 +354,8 @@ class CareerPipelineOrchestrator:
                 failed_step=failed_step,
                 last_error=error_message,
                 retry_count=retry_count,
+                failure_category=failure_category.value,
+                retryable=retryable,
                 session=session,
             )
             await session.commit()
@@ -308,6 +367,131 @@ class CareerPipelineOrchestrator:
                 },
             )
             raise
+
+    async def _run_tracked_step(
+        self,
+        *,
+        pipeline_service: PipelineExecutionService,
+        session: AsyncSession,
+        execution_id: UUID,
+        step_name: str,
+        fn: Callable[[], Awaitable[T]],
+        output_artifact_ids: list[str] | Callable[[T], list[str] | None] | None = None,
+    ) -> T:
+        if await pipeline_service.is_cancelled(execution_id):
+            raise PipelineCancelledError(f"Pipeline execution {execution_id} was cancelled")
+
+        step = await pipeline_service.start_step(
+            execution_id=execution_id,
+            step_name=step_name,
+            session=session,
+        )
+        try:
+            result = await fn()
+            resolved_output_artifact_ids = (
+                output_artifact_ids(result)
+                if callable(output_artifact_ids)
+                else output_artifact_ids
+            )
+            await pipeline_service.complete_step(
+                step_id=UUID(str(step.id)),
+                output_artifact_ids=resolved_output_artifact_ids,
+                session=session,
+            )
+            return result
+        except Exception as exc:
+            await pipeline_service.fail_step(
+                step_id=UUID(str(step.id)),
+                error_message=str(exc),
+                session=session,
+            )
+            raise
+
+    async def _generate_and_persist_recommendations(
+        self,
+        *,
+        recommendation_service: RecommendationTaskService,
+        recommendation_repo: RecommendationRepository,
+        session: AsyncSession,
+        execution_id: UUID,
+        document_id: UUID,
+        readiness_score: ReadinessScore,
+    ) -> tuple[list[RecommendationTask], RecommendationTask, list[Any]]:
+        tasks = recommendation_service.prioritize_tasks(
+            recommendation_service.generate_tasks_from_readiness(readiness_score)
+        )
+        primary_task = tasks[0] if tasks else self._build_fallback_task(readiness_score)
+        recommendation_records = await recommendation_repo.create_recommendations(
+            session,
+            execution_id=execution_id,
+            document_id=document_id,
+            recommendations=[
+                self._recommendation_payload(task)
+                for task in tasks
+            ] or [
+                self._recommendation_payload(primary_task)
+            ],
+        )
+        return tasks, primary_task, recommendation_records
+
+    async def _apply_mutation(
+        self,
+        *,
+        mutation_service: DocumentMutationService,
+        session: AsyncSession,
+        document_id: UUID,
+        recommendation_id: UUID,
+        changes: dict[str, Any],
+        user_id: UUID,
+    ) -> tuple[datetime, Any, datetime]:
+        started_at = datetime.now(timezone.utc)
+        mutated_document = await mutation_service.apply_recommendation(
+            session=session,
+            document_id=document_id,
+            recommendation_id=recommendation_id,
+            changes=changes,
+            user_id=user_id,
+        )
+        completed_at = datetime.now(timezone.utc)
+        return started_at, mutated_document, completed_at
+
+    async def _run_review_gate(
+        self,
+        *,
+        review_service: DocumentReviewService,
+        pipeline_service: PipelineExecutionService,
+        session: AsyncSession,
+        mutated_document_id: UUID,
+        user_id: UUID,
+        pipeline_execution_id: UUID,
+        primary_task: RecommendationTask,
+        before_evaluation: Any,
+        after_evaluation: Any,
+        after_tasks: list[RecommendationTask],
+    ) -> tuple[bool, str, Any | None]:
+        review_required, review_reason = self._needs_review(after_evaluation, after_tasks)
+        if not review_required:
+            return review_required, review_reason, None
+
+        review_session = await review_service.start_review(
+            session,
+            document_id=mutated_document_id,
+            user_id=user_id,
+            review_required=True,
+            review_reason=review_reason,
+            pipeline_execution_id=pipeline_execution_id,
+            metadata={
+                "primary_task": self._task_payload(primary_task),
+                "readiness_before": self._evaluation_payload(before_evaluation),
+                "readiness_after": self._evaluation_payload(after_evaluation),
+            },
+        )
+        await pipeline_service.record_review_required(
+            execution_id=pipeline_execution_id,
+            review_reason=review_reason,
+            session=session,
+        )
+        return review_required, review_reason, review_session
 
     def _evaluation_to_score(self, evaluation) -> ReadinessScore:
         return ReadinessScore(

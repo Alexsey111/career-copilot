@@ -101,12 +101,13 @@ async def _create_application(client) -> str:
 
     vacancy_id = await _create_analyzed_vacancy(client)
 
-    await _generate_and_approve_resume(client, vacancy_id)
+    resume_document_id = await _generate_and_approve_resume(client, vacancy_id)
 
     response = await client.post(
         f"{API_PREFIX}/applications",
         json={
             "vacancy_id": vacancy_id,
+            "resume_document_id": resume_document_id,
             "notes": "initial application",
         },
     )
@@ -149,11 +150,11 @@ async def test_application_status_history_tracks_transitions(client) -> None:
     )
     assert ready_response.status_code == 200, ready_response.text
 
-    submitted_response = await client.patch(
-        f"{API_PREFIX}/applications/{application_id}/status",
+    submitted_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
         json={
-            "status": "applied",
-            "notes": "submitted on hh",
+            "source": "hh",
+            "external_link": "https://hh.example/application/1",
         },
     )
 
@@ -188,7 +189,7 @@ async def test_application_status_history_tracks_transitions(client) -> None:
 
     assert timeline[2]["previous_status"] == "ready"
     assert timeline[2]["new_status"] == "applied"
-    assert timeline[2]["notes"] == "submitted on hh"
+    assert timeline[2]["notes"] is None
 
     assert timeline[3]["previous_status"] == "applied"
     assert timeline[3]["new_status"] == "interview"
@@ -207,11 +208,11 @@ async def test_application_applied_at_set_only_once(client) -> None:
     )
     assert ready_response.status_code == 200, ready_response.text
 
-    submitted_response = await client.patch(
-        f"{API_PREFIX}/applications/{application_id}/status",
+    submitted_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
         json={
-            "status": "applied",
-            "notes": "submitted first time",
+            "source": "manual",
+            "external_link": "https://example.com/submitted-once",
         },
     )
 
@@ -244,25 +245,24 @@ async def test_application_same_status_update_creates_history_entry(client) -> N
     )
     assert ready_response.status_code == 200, ready_response.text
 
-    submitted_response = await client.patch(
+    repeated_ready_response = await client.patch(
         f"{API_PREFIX}/applications/{application_id}/status",
         json={
-            "status": "applied",
-            "notes": "initial submit",
+            "status": "ready",
+            "notes": "updated ready notes only",
+        },
+    )
+
+    assert repeated_ready_response.status_code == 200, repeated_ready_response.text
+
+    submitted_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
+        json={
+            "source": "manual",
         },
     )
 
     assert submitted_response.status_code == 200, submitted_response.text
-
-    repeated_response = await client.patch(
-        f"{API_PREFIX}/applications/{application_id}/status",
-        json={
-            "status": "applied",
-            "notes": "updated notes only",
-        },
-    )
-
-    assert repeated_response.status_code == 200, repeated_response.text
 
     timeline_response = await client.get(
         f"{API_PREFIX}/applications/{application_id}/timeline",
@@ -279,9 +279,9 @@ async def test_application_same_status_update_creates_history_entry(client) -> N
     assert timeline[1]["notes"] == "ready for submission"
 
     assert timeline[2]["previous_status"] == "ready"
-    assert timeline[2]["new_status"] == "applied"
-    assert timeline[2]["notes"] == "initial submit"
+    assert timeline[2]["new_status"] == "ready"
+    assert timeline[2]["notes"] == "updated ready notes only"
 
-    assert timeline[3]["previous_status"] == "applied"
+    assert timeline[3]["previous_status"] == "ready"
     assert timeline[3]["new_status"] == "applied"
-    assert timeline[3]["notes"] == "updated notes only"
+    assert timeline[3]["notes"] is None

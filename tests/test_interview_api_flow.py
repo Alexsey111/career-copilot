@@ -98,6 +98,15 @@ async def test_interview_session_api_creates_and_reads_preparation_session(clien
     assert "gap_preparation" in question_types
     assert "strength_deep_dive" in question_types
     assert "achievement_star_story" in question_types
+    assert all(item["question_id"].startswith("iq_") for item in created["question_set"])
+    assert all("rubric" in item for item in created["question_set"])
+    assert all("answer_format" in item for item in created["question_set"])
+    assert all("source" in item for item in created["question_set"])
+
+    gap_question = next(item for item in created["question_set"] if item["type"] == "gap_preparation")
+    assert gap_question["answer_format"] == "honest_gap_response"
+    assert gap_question["source"] == "vacancy_analysis.gaps"
+    assert gap_question["rubric"]
 
     read_response = await client.get(
         f"{API_PREFIX}/interviews/sessions/{session_id}",
@@ -136,3 +145,22 @@ async def test_interview_session_api_requires_vacancy_analysis(client) -> None:
 
     assert response.status_code == 400, response.text
     assert response.json()["detail"] == "vacancy analysis not found; run vacancy analysis first"
+
+
+async def test_interview_generate_endpoint_is_not_available(client) -> None:
+    await _prepare_profile(client)
+    vacancy_id = await _create_analyzed_vacancy(client)
+
+    create_response = await client.post(
+        f"{API_PREFIX}/interviews/sessions",
+        json={
+            "vacancy_id": vacancy_id,
+            "session_type": "vacancy",
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+    session_id = create_response.json()["id"]
+
+    response = await client.post(f"{API_PREFIX}/interviews/sessions/{session_id}/generate")
+
+    assert response.status_code == 404, response.text

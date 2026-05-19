@@ -13,10 +13,13 @@ class InterviewQuestionDraft:
     prompt: str
     answer_format: str
     rubric: list[str]
+    competency_key: str | None = None
+    competency_name: str | None = None
     keyword: str | None = None
     requirement_text: str | None = None
     achievement_title: str | None = None
     fact_status: str | None = None
+    question_id: str | None = None
 
 
 @dataclass(slots=True)

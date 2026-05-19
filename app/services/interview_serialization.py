@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+import hashlib
+import json
 from typing import Any
 
 from app.domain.interview_models import (
@@ -29,9 +31,38 @@ def to_jsonable(value: Any) -> Any:
 
 def serialize_question(
     question: InterviewQuestionDraft,
+    *,
+    index: int | None = None,
 ) -> dict:
     """Сериализация InterviewQuestionDraft в JSON-совместимый dict."""
-    return to_jsonable(question)
+    payload = to_jsonable(question)
+    if payload.get("question_id"):
+        return payload
+
+    identity_payload = {
+        "index": index,
+        "type": payload.get("type"),
+        "source": payload.get("source"),
+        "prompt": payload.get("prompt"),
+        "answer_format": payload.get("answer_format"),
+        "rubric": payload.get("rubric", []),
+        "competency_key": payload.get("competency_key"),
+        "competency_name": payload.get("competency_name"),
+        "keyword": payload.get("keyword"),
+        "requirement_text": payload.get("requirement_text"),
+        "achievement_title": payload.get("achievement_title"),
+        "fact_status": payload.get("fact_status"),
+    }
+    serialized_identity = json.dumps(
+        identity_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    payload["question_id"] = "iq_" + hashlib.sha1(
+        serialized_identity.encode("utf-8")
+    ).hexdigest()[:16]
+    return payload
 
 
 def serialize_feedback(

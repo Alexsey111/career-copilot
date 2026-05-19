@@ -134,6 +134,13 @@ class DocumentDiffResponse(StrictBaseModel):
     diff: str
 
 
+class DocumentReadinessResponse(StrictBaseModel):
+    ready: bool
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    score: float | None = None
+
+
 class DocumentActivateResponse(StrictBaseModel):
     document_id: UUID
     document_kind: DocumentKind

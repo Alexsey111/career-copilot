@@ -12,3 +12,4 @@ class ExecutionEventType(str, Enum):
     REVIEW_COMPLETED = "review_completed"
     EXECUTION_COMPLETED = "execution_completed"
     EXECUTION_FAILED = "execution_failed"
+    EXECUTION_CANCELLED = "execution_cancelled"

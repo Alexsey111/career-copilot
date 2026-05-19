@@ -37,7 +37,7 @@ async def _prepare_profile(client) -> None:
     assert achievements_response.status_code == 200, achievements_response.text
 
 
-async def _create_interview_session(client) -> str:
+async def _create_interview_session(client) -> dict:
     await _prepare_profile(client)
 
     vacancy_response = await client.post(
@@ -76,21 +76,25 @@ async def _create_interview_session(client) -> str:
     )
     assert create_response.status_code == 200, create_response.text
 
-    return create_response.json()["id"]
+    return create_response.json()
 
 
 async def test_interview_answers_api_saves_answers_and_feedback(client) -> None:
-    session_id = await _create_interview_session(client)
+    created_session = await _create_interview_session(client)
+    session_id = created_session["id"]
+    question_set = created_session["question_set"]
 
     response = await client.patch(
         f"{API_PREFIX}/interviews/sessions/{session_id}/answers",
         json={
             "answers": [
                 {
+                    "question_id": question_set[0]["question_id"],
                     "question_index": 0,
                     "answer_text": "I am interested in this role because it matches my Python background.",
                 },
                 {
+                    "question_id": question_set[1]["question_id"],
                     "question_index": 1,
                     "answer_text": "I used Python in a practical project.",
                 },
@@ -103,8 +107,10 @@ async def test_interview_answers_api_saves_answers_and_feedback(client) -> None:
 
     assert payload["status"] == "answered"
     assert len(payload["answers"]) == 2
+    assert payload["answers"][0]["question_id"] == question_set[0]["question_id"]
     assert payload["feedback"]["feedback_version"] == "deterministic_v1"
-    assert payload["score"]["score_version"] == "deterministic_v2"
+    assert payload["score"]["score_version"] == "deterministic_v3"
+    assert isinstance(payload["score"]["competency_readiness"], list)
     assert payload["score"]["question_count"] >= 2
     assert payload["score"]["answered_count"] == 2
     assert payload["score"]["unanswered_count"] == payload["score"]["question_count"] - 2
@@ -121,13 +127,16 @@ async def test_interview_answers_api_saves_answers_and_feedback(client) -> None:
 
 
 async def test_interview_answers_api_rejects_invalid_question_index(client) -> None:
-    session_id = await _create_interview_session(client)
+    created_session = await _create_interview_session(client)
+    session_id = created_session["id"]
+    question_set = created_session["question_set"]
 
     response = await client.patch(
         f"{API_PREFIX}/interviews/sessions/{session_id}/answers",
         json={
             "answers": [
                 {
+                    "question_id": question_set[0]["question_id"],
                     "question_index": 999,
                     "answer_text": "Bad index",
                 }
@@ -137,3 +146,25 @@ async def test_interview_answers_api_rejects_invalid_question_index(client) -> N
 
     assert response.status_code == 400, response.text
     assert response.json()["detail"] == "question_index out of range: 999"
+
+
+async def test_interview_answers_api_rejects_question_id_mismatch(client) -> None:
+    created_session = await _create_interview_session(client)
+    session_id = created_session["id"]
+    question_set = created_session["question_set"]
+
+    response = await client.patch(
+        f"{API_PREFIX}/interviews/sessions/{session_id}/answers",
+        json={
+            "answers": [
+                {
+                    "question_id": question_set[1]["question_id"],
+                    "question_index": 0,
+                    "answer_text": "Wrong binding",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "question_id does not match question_index: 0"

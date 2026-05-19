@@ -21,7 +21,6 @@ from app.domain.pipeline_models import (
     PipelineExecutionSummary,
     StepStatus,
 )
-from app.models.entities import PipelineEvent as PipelineEventModel
 from app.models.entities import (
     PipelineExecution as PipelineExecutionModel,
     PipelineExecutionStep as PipelineExecutionStepModel,
@@ -41,10 +40,15 @@ class PipelineRepository(Protocol):
         vacancy_id: Optional[UUID] = None,
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
+        calibration_version: str | None = None,
         idempotency_key: str | None = None,
         retry_count: int = 0,
         failed_step: str | None = None,
         last_error: str | None = None,
+        parent_execution_id: UUID | None = None,
+        lineage_kind: str | None = None,
+        lineage_reason: str | None = None,
+        lineage_metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> CareerCopilotRun:
         """Create a new pipeline execution record."""
@@ -161,6 +165,11 @@ class PipelineRepository(Protocol):
         """Get pipeline executions for a vacancy."""
         ...
 
+    @abstractmethod
+    async def get_child_executions(self, parent_execution_id: UUID) -> list[CareerCopilotRun]:
+        """Get child executions for a parent execution."""
+        ...
+
 
 class SQLAlchemyAsyncPipelineRepository:
     """SQLAlchemy async implementation for pipeline execution tracking."""
@@ -176,10 +185,15 @@ class SQLAlchemyAsyncPipelineRepository:
         vacancy_id: Optional[UUID] = None,
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
+        calibration_version: str | None = None,
         idempotency_key: str | None = None,
         retry_count: int = 0,
         failed_step: str | None = None,
         last_error: str | None = None,
+        parent_execution_id: UUID | None = None,
+        lineage_kind: str | None = None,
+        lineage_reason: str | None = None,
+        lineage_metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> CareerCopilotRun:
         """Create a new pipeline execution record."""
@@ -190,10 +204,15 @@ class SQLAlchemyAsyncPipelineRepository:
             vacancy_id=vacancy_id,
             profile_id=profile_id,
             pipeline_version=pipeline_version,
+            calibration_version=calibration_version,
             idempotency_key=idempotency_key,
             retry_count=retry_count,
             failed_step=failed_step,
             last_error=last_error,
+            parent_execution_id=parent_execution_id,
+            lineage_kind=lineage_kind,
+            lineage_reason=lineage_reason,
+            lineage_metadata_json=lineage_metadata or {},
             status="pending",
         )
         self._session.add(execution)
@@ -220,11 +239,16 @@ class SQLAlchemyAsyncPipelineRepository:
             vacancy_id=str(execution.vacancy_id) if execution.vacancy_id else None,
             profile_id=str(execution.profile_id) if execution.profile_id else None,
             idempotency_key=execution.idempotency_key,
+            parent_execution_id=str(execution.parent_execution_id) if execution.parent_execution_id else None,
+            lineage_kind=execution.lineage_kind,
+            lineage_reason=execution.lineage_reason,
+            lineage_metadata=execution.lineage_metadata_json,
             status=PipelineStatus.PENDING,
             review_required=execution.review_required,
             review_completed=execution.review_completed,
             failed_at=execution.failed_at,
             pipeline_version=pipeline_version,
+            calibration_version=calibration_version,
             execution_duration_ms=execution.execution_duration_ms,
             evaluation_duration_ms=execution.evaluation_duration_ms,
             mutation_duration_ms=execution.mutation_duration_ms,
@@ -521,6 +545,50 @@ class SQLAlchemyAsyncPipelineRepository:
 
         return [self._map_to_career_copilot_run(exec) for exec in executions]
 
+    async def get_child_executions(self, parent_execution_id: UUID) -> list[CareerCopilotRun]:
+        stmt = (
+            select(PipelineExecutionModel)
+            .where(PipelineExecutionModel.parent_execution_id == parent_execution_id)
+            .order_by(PipelineExecutionModel.created_at.asc())
+        )
+
+        result = await self._session.execute(stmt)
+        executions = result.scalars().all()
+
+        return [self._map_to_career_copilot_run(exec) for exec in executions]
+
+    async def get_stuck_executions(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 100,
+    ) -> list[CareerCopilotRun]:
+        running_statuses = [
+            PipelineStatus.RUNNING.value,
+            PipelineStatus.PROFILE_LOADING.value,
+            PipelineStatus.VACANCY_ANALYSIS.value,
+            PipelineStatus.ACHIEVEMENT_RETRIEVAL.value,
+            PipelineStatus.COVERAGE_MAPPING.value,
+            PipelineStatus.DOCUMENT_GENERATION.value,
+            PipelineStatus.DOCUMENT_EVALUATION.value,
+            PipelineStatus.READINESS_SCORING.value,
+        ]
+
+        stmt = (
+            select(PipelineExecutionModel)
+            .where(PipelineExecutionModel.status.in_(running_statuses))
+            .where(PipelineExecutionModel.started_at.isnot(None))
+            .where(PipelineExecutionModel.started_at < older_than)
+            .order_by(PipelineExecutionModel.started_at.asc())
+            .limit(limit)
+        )
+
+        result = await self._session.execute(stmt)
+        return [
+            self._map_to_career_copilot_run(execution)
+            for execution in result.scalars().all()
+        ]
+
     @staticmethod
     def _map_to_career_copilot_run(execution: PipelineExecutionModel) -> CareerCopilotRun:
         """Map SQLAlchemy model to domain model."""
@@ -536,6 +604,10 @@ class SQLAlchemyAsyncPipelineRepository:
             evaluation_snapshot_id=str(execution.evaluation_snapshot_id) if execution.evaluation_snapshot_id else None,
             review_id=str(execution.review_id) if execution.review_id else None,
             idempotency_key=execution.idempotency_key,
+            parent_execution_id=str(execution.parent_execution_id) if execution.parent_execution_id else None,
+            lineage_kind=execution.lineage_kind,
+            lineage_reason=execution.lineage_reason,
+            lineage_metadata=execution.lineage_metadata_json,
             status=status,
             review_required=execution.review_required,
             review_completed=execution.review_completed,
@@ -610,10 +682,15 @@ class InMemoryPipelineRepository:
         vacancy_id: Optional[UUID] = None,
         profile_id: Optional[UUID] = None,
         pipeline_version: str = "v1.0",
+        calibration_version: str | None = None,
         idempotency_key: str | None = None,
         retry_count: int = 0,
         failed_step: str | None = None,
         last_error: str | None = None,
+        parent_execution_id: UUID | None = None,
+        lineage_kind: str | None = None,
+        lineage_reason: str | None = None,
+        lineage_metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> CareerCopilotRun:
         """Create a new pipeline execution record."""
@@ -625,7 +702,12 @@ class InMemoryPipelineRepository:
             vacancy_id=str(vacancy_id) if vacancy_id else None,
             profile_id=str(profile_id) if profile_id else None,
             pipeline_version=pipeline_version,
+            calibration_version=calibration_version,
             idempotency_key=idempotency_key,
+            parent_execution_id=str(parent_execution_id) if parent_execution_id else None,
+            lineage_kind=lineage_kind,
+            lineage_reason=lineage_reason,
+            lineage_metadata=lineage_metadata or {},
             status=PipelineStatus.PENDING,
             failed_at=None,
             retry_count=retry_count,
@@ -827,6 +909,39 @@ class InMemoryPipelineRepository:
             if exec.vacancy_id == str(vacancy_id)
         ]
         return executions[offset:offset + limit]
+
+    async def get_child_executions(self, parent_execution_id: UUID) -> list[CareerCopilotRun]:
+        executions = [
+            exec for exec in self._executions.values()
+            if exec.parent_execution_id == str(parent_execution_id)
+        ]
+        executions.sort(key=lambda execution: execution.created_at)
+        return executions
+
+    async def get_stuck_executions(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 100,
+    ) -> list[CareerCopilotRun]:
+        running_statuses = {
+            PipelineStatus.RUNNING,
+            PipelineStatus.PROFILE_LOADING,
+            PipelineStatus.VACANCY_ANALYSIS,
+            PipelineStatus.ACHIEVEMENT_RETRIEVAL,
+            PipelineStatus.COVERAGE_MAPPING,
+            PipelineStatus.DOCUMENT_GENERATION,
+            PipelineStatus.DOCUMENT_EVALUATION,
+            PipelineStatus.READINESS_SCORING,
+        }
+        executions = [
+            execution for execution in self._executions.values()
+            if execution.status in running_statuses
+            and execution.started_at is not None
+            and execution.started_at < older_than
+        ]
+        executions.sort(key=lambda execution: execution.started_at or datetime.max.replace(tzinfo=timezone.utc))
+        return executions[:limit]
 
 
 

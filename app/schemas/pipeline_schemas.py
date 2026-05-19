@@ -101,6 +101,10 @@ class PipelineExecutionResponse(BaseModel):
     resume_document_id: Optional[UUID] = None
     evaluation_snapshot_id: Optional[UUID] = None
     review_id: Optional[UUID] = None
+    parent_execution_id: Optional[UUID] = None
+    lineage_kind: Optional[str] = None
+    lineage_reason: Optional[str] = None
+    lineage_metadata_json: dict[str, Any] = Field(default_factory=dict)
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     artifacts_json: dict[str, Any] = Field(default_factory=dict)
@@ -171,6 +175,64 @@ class ExecutionTimelineItem(BaseModel):
     correlation_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ExecutionRuntimeSnapshotResponse(BaseModel):
+    running_count: int
+    completed_count: int
+    failed_count: int
+    cancelled_count: int
+    retry_total: int
+    stuck_count: int
+    avg_execution_duration_ms: float
+    avg_evaluation_duration_ms: float
+    avg_mutation_duration_ms: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExecutionResumeRequest(BaseModel):
+    reason: str | None = None
+    resume_from_phase: str | None = None
+
+
+class ExecutionResumeResponse(BaseModel):
+    parent_execution_id: UUID
+    child_execution_id: UUID
+    lineage_kind: str
+    status: str = "queued"
+
+
+class ExecutionFamilyResponse(BaseModel):
+    parent: PipelineExecutionResponse | None = None
+    current: PipelineExecutionResponse
+    children: list[PipelineExecutionResponse] = Field(default_factory=list)
+
+
+class ExecutionLineageGraphResponse(BaseModel):
+    execution_id: UUID
+    parent_execution_id: UUID | None = None
+    children: list[UUID] = Field(default_factory=list)
+    inherited_artifacts: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeadLetterJobResponse(BaseModel):
+    execution_id: Optional[str] = None
+    retry_count: Optional[int] = None
+    failure_category: Optional[str] = None
+    dead_letter_reason: Optional[str] = None
+    dead_lettered_at: Optional[datetime] = None
+
+
+class PhaseAnalyticsItem(BaseModel):
+    step_name: str
+    total_count: int
+    completed_count: int
+    failed_count: int
+    avg_duration_ms: float
+    max_duration_ms: float
+    retry_count: int
+    failure_rate: float
 
 
 class PipelineExecutionSummaryResponse(BaseModel):

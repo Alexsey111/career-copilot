@@ -20,6 +20,7 @@ from app.domain.pipeline_models import (
     StepStatus,
 )
 from app.domain.execution_event_payloads import (
+    ExecutionCancelledPayload,
     ExecutionCompletedPayload,
     ExecutionFailedPayload,
     ExecutionStartedPayload,
@@ -189,6 +190,10 @@ class PipelineExecutionService:
         pipeline_version: str = "v1.0",
         calibration_version: Optional[str] = None,
         idempotency_key: str | None = None,
+        parent_execution_id: UUID | None = None,
+        lineage_kind: str | None = None,
+        lineage_reason: str | None = None,
+        lineage_metadata: dict[str, Any] | None = None,
         session: AsyncSession | None = None,
     ) -> CareerCopilotRun:
         """Start a new pipeline execution."""
@@ -226,6 +231,10 @@ class PipelineExecutionService:
             profile_id=profile_id,
             pipeline_version=pipeline_version,
             idempotency_key=idempotency_key,
+            parent_execution_id=parent_execution_id,
+            lineage_kind=lineage_kind,
+            lineage_reason=lineage_reason,
+            lineage_metadata=lineage_metadata,
             commit=session is None,
         )
 
@@ -306,6 +315,8 @@ class PipelineExecutionService:
         failed_step: str | None = None,
         last_error: str | None = None,
         retry_count: int | None = None,
+        failure_category: str | None = None,
+        retryable: bool | None = None,
         artifacts: Optional[dict[str, Any]] = None,
         metrics: Optional[dict[str, Any]] = None,
         session: AsyncSession | None = None,
@@ -325,6 +336,15 @@ class PipelineExecutionService:
             next_retry_count = (execution.retry_count or 0) + 1
 
         failure_text = last_error or error_message
+        failure_metrics = {
+            **(metrics or {}),
+            "failure": {
+                "category": failure_category,
+                "retryable": retryable,
+                "retry_count": next_retry_count,
+                "failed_step": failed_step,
+            },
+        }
 
         await self._record_execution_event(
             session,
@@ -337,6 +357,8 @@ class PipelineExecutionService:
                 error_message=failure_text,
                 failed_step=failed_step,
                 retry_count=next_retry_count,
+                failure_category=failure_category,
+                retryable=retryable,
             ),
         )
 
@@ -350,8 +372,55 @@ class PipelineExecutionService:
             error_code=error_code,
             error_message=failure_text,
             artifacts=artifacts,
-            metrics=metrics,
+            metrics=failure_metrics,
             commit=session is None,
+        )
+
+    async def cancel_execution(
+        self,
+        execution_id: UUID,
+        reason: str | None = None,
+        session: AsyncSession | None = None,
+    ) -> None:
+        execution = await self._repository.get_execution(execution_id)
+        if execution is None:
+            raise ValueError(f"Execution {execution_id} not found")
+
+        cancellable_statuses = {
+            PipelineStatus.PENDING,
+            PipelineStatus.RUNNING,
+            PipelineStatus.PROFILE_LOADING,
+            PipelineStatus.VACANCY_ANALYSIS,
+            PipelineStatus.ACHIEVEMENT_RETRIEVAL,
+            PipelineStatus.COVERAGE_MAPPING,
+            PipelineStatus.DOCUMENT_GENERATION,
+            PipelineStatus.DOCUMENT_EVALUATION,
+            PipelineStatus.READINESS_SCORING,
+        }
+
+        if execution.status not in cancellable_statuses:
+            raise ValueError(f"Execution cannot be cancelled from status: {execution.status.value}")
+
+        await self._repository.update_execution(
+            execution_id=execution_id,
+            status=PipelineStatus.CANCELLED,
+            completed_at=datetime.now(timezone.utc),
+            error_message=reason,
+            metrics={
+                **(execution.metrics or {}),
+                "cancellation": {
+                    "reason": reason,
+                    "cancelled_from_status": execution.status.value,
+                },
+            },
+            commit=session is None,
+        )
+
+        await self._record_execution_event(
+            session,
+            execution_id=execution_id,
+            event_type=ExecutionEventType.EXECUTION_CANCELLED,
+            payload=ExecutionCancelledPayload(reason=reason),
         )
 
     async def update_pipeline_status(
@@ -738,3 +807,20 @@ class PipelineExecutionService:
     ) -> list[CareerCopilotRun]:
         """Get pipeline executions for a vacancy."""
         return await self._repository.get_executions_for_vacancy(vacancy_id, limit, offset)
+
+    async def get_stuck_executions(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 100,
+    ) -> list[CareerCopilotRun]:
+        """Get running-like executions older than a threshold timestamp."""
+        return await self._repository.get_stuck_executions(
+            older_than=older_than,
+            limit=limit,
+        )
+
+    async def is_cancelled(self, execution_id: UUID) -> bool:
+        """Return whether an execution was cancelled."""
+        execution = await self._repository.get_execution(execution_id)
+        return execution is not None and execution.status == PipelineStatus.CANCELLED

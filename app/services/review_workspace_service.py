@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -14,8 +15,10 @@ from app.domain.review_models import (
     ReviewWorkspace,
     WarningSeverity,
 )
+from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
 from app.repositories.document_version_repository import DocumentVersionRepository
 from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
+from app.repositories.review_workflow_repository import ReviewWorkflowRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 
 logger = logging.getLogger(__name__)
@@ -29,10 +32,25 @@ class ReviewWorkspaceService:
         document_repo: DocumentVersionRepository | None = None,
         pipeline_repo: SQLAlchemyAsyncPipelineRepository | None = None,
         vacancy_analysis_repo: VacancyAnalysisRepository | None = None,
+        review_workflow_repo: ReviewWorkflowRepository | None = None,
+        achievement_repo: CandidateAchievementRepository | None = None,
     ):
         self.document_repo = document_repo or DocumentVersionRepository()
         self.pipeline_repo = pipeline_repo or SQLAlchemyAsyncPipelineRepository(None)
         self.vacancy_analysis_repo = vacancy_analysis_repo or VacancyAnalysisRepository()
+        self.review_workflow_repo = review_workflow_repo or ReviewWorkflowRepository()
+        self.achievement_repo = achievement_repo or CandidateAchievementRepository()
+
+    @staticmethod
+    def parse_workspace_id(workspace_id: str) -> tuple[UUID, UUID, UUID | None]:
+        parts = workspace_id.split("_")
+        if len(parts) < 3 or parts[0] != "ws":
+            raise ValueError("Invalid workspace ID format")
+
+        document_id = UUID(parts[1])
+        user_id = UUID(parts[2])
+        pipeline_execution_id = UUID(parts[3]) if len(parts) > 3 else None
+        return document_id, user_id, pipeline_execution_id
 
     async def build_review_workspace(
         self,
@@ -203,3 +221,100 @@ class ReviewWorkspaceService:
         )
         # In real implementation, persist workspace status
         # For now, this is a placeholder
+
+    async def record_review_action(
+        self,
+        *,
+        session,
+        workspace_id: str,
+        action_type: str,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        reviewer_id: UUID | None = None,
+    ):
+        document_id, user_id, pipeline_execution_id = self.parse_workspace_id(workspace_id)
+        action_payload = payload or {}
+        supported_actions = {
+            "approve_claim",
+            "reject_claim",
+            "edit_section",
+            "approve_document",
+            "reject_document",
+        }
+        if action_type not in supported_actions:
+            raise ValueError(f"Unsupported review action: {action_type}")
+
+        if target_type == "claim" and target_id and action_type in {"approve_claim", "reject_claim"}:
+            fact_status = "confirmed" if action_type == "approve_claim" else "rejected"
+            achievement = await self.achievement_repo.get_by_id_for_user(
+                session,
+                achievement_id=UUID(target_id),
+                user_id=user_id,
+            )
+            if achievement is None:
+                raise ValueError("Claim target not found")
+
+            achievement.fact_status = fact_status
+            if action_payload.get("evidence_note") is not None:
+                achievement.evidence_note = str(action_payload["evidence_note"]).strip() or None
+            await session.flush()
+
+        review_session = await self.review_workflow_repo.get_open_session(
+            session,
+            document_id=document_id,
+            user_id=user_id,
+        )
+        if review_session is None:
+            review_session = await self.review_workflow_repo.create_session(
+                session,
+                session_id=f"review_{workspace_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                document_id=document_id,
+                user_id=user_id,
+                started_at=datetime.now(timezone.utc),
+                review_required=True,
+                status="review_required",
+                pipeline_execution_id=pipeline_execution_id,
+                reviewer_id=reviewer_id,
+                review_reason=action_payload.get("reason"),
+                metadata={"workspace_id": workspace_id},
+            )
+
+        if reviewer_id is not None and review_session.reviewer_id is None:
+            review_session.reviewer_id = reviewer_id
+            await session.flush()
+
+        action = await self.review_workflow_repo.record_action(
+            session,
+            review_session_id=review_session.id,
+            action_type=action_type,
+            target_type=target_type,
+            target_id=target_id,
+            action_payload=action_payload,
+        )
+
+        if action_type in {"approve_document", "reject_document"}:
+            outcome_status = "approved" if action_type == "approve_document" else "rejected"
+            await self.review_workflow_repo.record_outcome(
+                session,
+                review_session_id=review_session.id,
+                outcome_status=outcome_status,
+                approved=action_type == "approve_document",
+                outcome_payload={
+                    "workspace_id": workspace_id,
+                    "action_type": action_type,
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    **action_payload,
+                },
+            )
+            await self.review_workflow_repo.complete_session(
+                session,
+                review_session_id=review_session.id,
+                completed_at=datetime.now(timezone.utc),
+                final_status=outcome_status,
+                reviewer_id=reviewer_id,
+            )
+            return action, "completed"
+
+        return action, "recorded"

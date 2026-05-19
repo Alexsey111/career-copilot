@@ -2,25 +2,28 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+import re
 from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.interview_models import (
+    InterviewFeedbackDraft,
+    InterviewQuestionDraft,
+    InterviewScoreDraft,
+)
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.interview_session_repository import InterviewSessionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.schemas.json_contracts import InterviewSessionSchema
-from app.domain.interview_models import (
-    InterviewQuestionDraft,
-    InterviewFeedbackDraft,
-    InterviewScoreDraft,
-)
+from app.services.answer_evaluation_engine import AnswerEvaluationEngine
 from app.services.interview_serialization import (
-    serialize_question,
     serialize_feedback,
+    serialize_question,
     serialize_score,
 )
 
@@ -102,7 +105,6 @@ class InterviewPreparationService:
             ],
         )
 
-        # Валидация JSON-контракта перед сохранением
         validated = InterviewSessionSchema(question_set=question_set)
         question_set = [q.model_dump() for q in validated.question_set]
 
@@ -153,6 +155,98 @@ class InterviewPreparationService:
             user_id,
         )
 
+    def get_question_by_id(self, *, question_set: list[dict], question_id: str) -> dict:
+        question = next(
+            (
+                item
+                for item in question_set
+                if item.get("question_id") == question_id
+            ),
+            None,
+        )
+        if question is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="question_id not found in interview session",
+            )
+        return question
+
+    async def build_competency_detail(
+        self,
+        session: AsyncSession,
+        *,
+        interview_session,
+        competency_key: str,
+    ) -> dict[str, Any]:
+        question_set = interview_session.question_set_json or []
+        answers = interview_session.answers_json or []
+        feedback_items = (interview_session.feedback_json or {}).get("items") or []
+        competency_readiness = (
+            (interview_session.score_json or {}).get("competency_readiness") or []
+        )
+
+        questions = [
+            question
+            for question in question_set
+            if question.get("competency_key") == competency_key
+        ]
+        question_ids = [
+            str(question.get("question_id"))
+            for question in questions
+            if question.get("question_id")
+        ]
+
+        filtered_answers = [
+            answer
+            for answer in answers
+            if answer.get("question_id") in question_ids
+        ]
+        filtered_feedback_items = [
+            item
+            for item in feedback_items
+            if item.get("question_id") in question_ids
+        ]
+        attempts = await self.interview_session_repository.list_attempts_by_question_ids(
+            session,
+            session_id=interview_session.id,
+            question_ids=question_ids,
+        )
+
+        competency = next(
+            (
+                item
+                for item in competency_readiness
+                if item.get("competency_key") == competency_key
+            ),
+            None,
+        )
+        if competency is None:
+            first_question = questions[0] if questions else {}
+            competency = {
+                "competency_key": competency_key,
+                "competency_name": first_question.get("competency_name")
+                or first_question.get("requirement_text")
+                or competency_key,
+            }
+
+        return {
+            "competency": competency,
+            "questions": questions,
+            "answers": filtered_answers,
+            "feedback_items": filtered_feedback_items,
+            "attempts": [
+                {
+                    "id": str(attempt.id),
+                    "question_id": attempt.question_id,
+                    "answer_text": attempt.answer_text,
+                    "score": attempt.score,
+                    "feedback_json": attempt.feedback_json,
+                    "created_at": attempt.created_at.isoformat(),
+                }
+                for attempt in attempts
+            ],
+        }
+
     async def save_answers(
         self,
         session: AsyncSession,
@@ -177,10 +271,9 @@ class InterviewPreparationService:
         )
         score_json = self._build_score(
             feedback_json,
-            total_question_count=len(interview_session.question_set_json),
+            question_set=interview_session.question_set_json,
         )
 
-        # Валидация JSON-контракта перед сохранением
         validated = InterviewSessionSchema(
             answers=normalized_answers,
             feedback=feedback_json,
@@ -227,10 +320,23 @@ class InterviewPreparationService:
 
             seen_indexes.add(question_index)
             question = question_set[question_index]
+            expected_question_id = str(question.get("question_id") or "").strip()
+            provided_question_id = str(item["question_id"]).strip()
+
+            if not expected_question_id or provided_question_id != expected_question_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "question_id does not match question_index: "
+                        f"{question_index}"
+                    ),
+                )
+
             answer_text = str(item.get("answer_text", "")).strip()
 
             normalized.append(
                 {
+                    "question_id": expected_question_id,
                     "question_index": question_index,
                     "question_type": question.get("type"),
                     "answer_format": question.get("answer_format"),
@@ -288,6 +394,7 @@ class InterviewPreparationService:
 
             items.append(
                 {
+                    "question_id": question.get("question_id"),
                     "question_index": question_index,
                     "question_type": question.get("type"),
                     "warnings": warnings,
@@ -296,36 +403,81 @@ class InterviewPreparationService:
                 }
             )
 
-        validated = InterviewSessionSchema(
-            feedback={
-                "feedback_version": "deterministic_v1",
-                "items": items,
-            }
-        )
+        feedback_draft = InterviewFeedbackDraft()
+        serialized_feedback = serialize_feedback(feedback_draft)
+        serialized_feedback["feedback_version"] = "deterministic_v1"
+        serialized_feedback["items"] = items
+
+        validated = InterviewSessionSchema(feedback=serialized_feedback)
         return validated.feedback
 
     def _build_score(
         self,
         feedback_json: dict,
         *,
-        total_question_count: int | None = None,
+        question_set: list[dict],
     ) -> dict:
         items = feedback_json.get("items", [])
         answered_count = sum(1 for item in items if item.get("answer_length", 0) > 0)
         warning_count = sum(len(item.get("warnings", [])) for item in items)
-
-        question_count = (
-            total_question_count if total_question_count is not None else len(items)
-        )
+        question_count = len(question_set)
         unanswered_count = max(0, question_count - answered_count)
 
         if question_count == 0:
             readiness_score = None
         else:
-            raw_score = 100
-            raw_score -= warning_count * 15
-            raw_score -= unanswered_count * 8
-            readiness_score = max(0, min(100, raw_score))
+            readiness_score = self._calculate_readiness_score(
+                warning_count=warning_count,
+                unanswered_count=unanswered_count,
+            )
+
+        feedback_by_question_id = {
+            item.get("question_id"): item
+            for item in items
+            if item.get("question_id")
+        }
+        competency_buckets: dict[str, dict[str, Any]] = {}
+
+        for question in question_set:
+            competency_key = question.get("competency_key")
+            if not competency_key:
+                continue
+
+            bucket = competency_buckets.setdefault(
+                competency_key,
+                {
+                    "competency_key": competency_key,
+                    "competency_name": question.get("competency_name")
+                    or question.get("requirement_text")
+                    or competency_key,
+                    "question_count": 0,
+                    "answered_count": 0,
+                    "warning_count": 0,
+                },
+            )
+            bucket["question_count"] += 1
+
+            feedback_item = feedback_by_question_id.get(question.get("question_id"))
+            if feedback_item and feedback_item.get("answer_length", 0) > 0:
+                bucket["answered_count"] += 1
+            if feedback_item:
+                bucket["warning_count"] += len(feedback_item.get("warnings", []))
+
+        competency_readiness: list[dict[str, Any]] = []
+        for bucket in competency_buckets.values():
+            competency_unanswered_count = max(
+                0,
+                bucket["question_count"] - bucket["answered_count"],
+            )
+            competency_readiness.append(
+                {
+                    **bucket,
+                    "readiness_score": self._calculate_readiness_score(
+                        warning_count=bucket["warning_count"],
+                        unanswered_count=competency_unanswered_count,
+                    ),
+                }
+            )
 
         score_draft = InterviewScoreDraft(
             overall=None,
@@ -333,20 +485,31 @@ class InterviewPreparationService:
             readiness_score=readiness_score,
         )
 
-        # Serialize and wrap in schema
         serialized = serialize_score(score_draft)
-        
+
         validated = InterviewSessionSchema(
             score={
-                "score_version": "deterministic_v2",
+                "score_version": "deterministic_v3",
                 "question_count": question_count,
                 "answered_count": answered_count,
                 "unanswered_count": unanswered_count,
                 "warning_count": warning_count,
+                "competency_readiness": competency_readiness,
                 **serialized,
             }
         )
         return validated.score.model_dump()
+
+    @staticmethod
+    def _calculate_readiness_score(
+        *,
+        warning_count: int,
+        unanswered_count: int,
+    ) -> int:
+        raw_score = 100
+        raw_score -= warning_count * 15
+        raw_score -= unanswered_count * 8
+        return max(0, min(100, raw_score))
 
     def _count_star_markers(self, answer_lower: str) -> int:
         markers = [
@@ -378,10 +541,7 @@ class InterviewPreparationService:
         return [phrase for phrase in risky_phrases if phrase in answer_lower]
 
     def _contains_unverified_metric(self, answer_text: str) -> bool:
-        if "%" in answer_text:
-            return True
-
-        return False
+        return "%" in answer_text
 
     def _word_count(self, text: str) -> int:
         return len(text.split())
@@ -390,22 +550,18 @@ class InterviewPreparationService:
         orig_words = self._word_count(original)
         enh_words = self._word_count(enhanced)
 
-        # Если улучшенный ответ более чем в 5 раз длиннее - подозрительно
         if enh_words > orig_words * 5:
             return False
 
         return True
 
+    @staticmethod
+    def build_competency_key(text: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "_", text.strip().lower())
+        normalized = normalized.strip("_")
+        return normalized or "general_competency"
+
     def compute_progress(self, attempts: list) -> dict:
-        """
-        Вычисляет прогресс по попыткам ответа.
-        
-        Args:
-            attempts: список попыток (InterviewAnswerAttempt)
-        
-        Returns:
-            dict с first_score, last_score, improvement
-        """
         if not attempts:
             return {
                 "first_score": None,
@@ -414,7 +570,7 @@ class InterviewPreparationService:
             }
 
         scores = [a.score for a in attempts if a.score is not None]
-        
+
         if not scores:
             return {
                 "first_score": None,
@@ -430,22 +586,12 @@ class InterviewPreparationService:
 
     @staticmethod
     def build_attempt_diff(prev: str, current: str) -> dict:
-        """
-        Сравнивает два ответа и показывает добавленные/удалённые ключевые слова.
-        
-        Args:
-            prev: текст предыдущего ответа
-            current: текста текущего ответа
-        
-        Returns:
-            dict с added_keywords и removed_keywords
-        """
         prev_words = set(prev.lower().split())
         curr_words = set(current.lower().split())
-        
+
         added = list(curr_words - prev_words)
         removed = list(prev_words - curr_words)
-        
+
         return {
             "added_keywords": added[:10],
             "removed_keywords": removed[:10],
@@ -453,77 +599,37 @@ class InterviewPreparationService:
 
     @staticmethod
     def build_attempt_insight(prev_attempt, current_attempt) -> dict:
-        """
-        Формирует insight о прогрессе между двумя попытками.
-        
-        Args:
-            prev_attempt: предыдущая попытка (InterviewAnswerAttempt)
-            current_attempt: текущая попытка (InterviewAnswerAttempt)
-        
-        Returns:
-            dict с improved, score_delta, diff
-        """
         diff = InterviewPreparationService.build_attempt_diff(
             prev_attempt.answer_text or "",
-            current_attempt.answer_text or ""
+            current_attempt.answer_text or "",
         )
 
         improved = (current_attempt.score or 0) > (prev_attempt.score or 0)
         score_delta = (current_attempt.score or 0) - (prev_attempt.score or 0)
-        
+
         return {
             "improved": improved,
             "score_delta": score_delta,
             "diff": diff,
         }
 
-    def _evaluate_answer_basic(
+    def evaluate_answer(
         self,
         *,
         question: str,
         answer: str,
     ) -> dict:
-        """
-        Базовая детерминированная оценка ответа (без AI).
-        
-        Критерии:
-        1. Длина (proxy на глубину)
-        2. Наличие конкретики (цифры)
-        3. Наличие глаголов действия
-        4. Структура STAR
-        """
-        score = 0
-        feedback = []
-
-        # 1. Длина (proxy на глубину)
-        if len(answer.split()) > 20:
-            score += 1
-        else:
-            feedback.append("Answer is too short")
-
-        # 2. Наличие конкретики (очень грубо)
-        if any(word.isdigit() for word in answer.split()):
-            score += 1
-        else:
-            feedback.append("No measurable results mentioned")
-
-        # 3. Наличие глаголов действия
-        action_words = ["built", "implemented", "designed", "led"]
-        answer_lower = answer.lower()
-        if any(w in answer_lower for w in action_words):
-            score += 1
-        else:
-            feedback.append("Lacks strong action verbs")
-
-        # 4. Структура (очень MVP)
-        if "situation" in answer_lower or "result" in answer_lower:
-            score += 1
-        else:
-            feedback.append("STAR structure not clear")
+        engine = AnswerEvaluationEngine(
+            answer=answer,
+            expected_competency=question,
+        )
+        checks = engine.evaluate()
+        feedback = [check.message for check in checks if not check.passed]
 
         return {
-            "score": score / 4,
+            "score": engine.overall_score,
             "feedback": feedback,
+            "checks": [asdict(check) for check in checks],
         }
 
     async def coach_answer(
@@ -536,11 +642,6 @@ class InterviewPreparationService:
         evaluation: dict,
         language: str = "ru",
     ) -> dict:
-        """
-        AI-коуч: улучшает ответ с учётом детерминированной оценки.
-        
-        Использует safety guard для защиты от выдумок.
-        """
         if not self.ai_orchestrator:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -561,7 +662,6 @@ class InterviewPreparationService:
 
         improved = result["result"]["improved_answer"]
 
-        # reuse guard!
         if not self._is_safe_enhancement(answer, improved):
             return {
                 "improved_answer": answer,
@@ -580,11 +680,6 @@ class InterviewPreparationService:
         evaluation: dict,
         language: str = "ru",
     ) -> dict:
-        """
-        AI-улучшение ответа на вопрос собеседования.
-        
-        Использует детерминированную оценку как контекст для AI.
-        """
         if not self.ai_orchestrator:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -615,20 +710,6 @@ class InterviewPreparationService:
         session: AsyncSession,
         user_id: UUID,
     ):
-        """
-        Генерирует coaching-фидбек на основе сравнения двух попыток ответа.
-        
-        Args:
-            prev_attempt: предыдущая попытка (InterviewAnswerAttempt)
-            current_attempt: текущая попытка (InterviewAnswerAttempt)
-            diff: результат build_attempt_diff (added_keywords, removed_keywords)
-            orchestrator: AIOrchestrator
-            session: AsyncSession
-            user_id: UUID пользователя
-        
-        Returns:
-            dict с improvement, gap, next_step
-        """
         from app.ai.use_cases.interview_coach import coach_attempts
 
         result = await coach_attempts(
@@ -656,7 +737,6 @@ class InterviewPreparationService:
         company_part = company or "компании"
         questions: list[InterviewQuestionDraft] = []
 
-        # 1. Role overview
         questions.append(
             InterviewQuestionDraft(
                 type="role_overview",
@@ -674,16 +754,19 @@ class InterviewPreparationService:
             )
         )
 
-        # 2. Must-have requirements
         for item in must_have[:6]:
             requirement_text = item.get("text")
             if not requirement_text:
                 continue
 
+            competency_key = self.build_competency_key(requirement_text)
+
             questions.append(
                 InterviewQuestionDraft(
                     type="must_have_requirement",
                     source="vacancy_analysis.must_have",
+                    competency_key=competency_key,
+                    competency_name=requirement_text,
                     requirement_text=requirement_text,
                     prompt=(
                         f"Опишите ваш практический опыт по этому требованию: "
@@ -698,18 +781,21 @@ class InterviewPreparationService:
                 )
             )
 
-        # 3. Gap preparation
         for item in gaps[:5]:
             keyword = item.get("keyword")
-            scope = item.get("scope")
             requirement_text = item.get("requirement_text") or keyword
             if not keyword:
                 continue
+
+            competency_name = requirement_text or keyword
+            competency_key = self.build_competency_key(competency_name)
 
             questions.append(
                 InterviewQuestionDraft(
                     type="gap_preparation",
                     source="vacancy_analysis.gaps",
+                    competency_key=competency_key,
+                    competency_name=competency_name,
                     keyword=keyword,
                     requirement_text=requirement_text,
                     prompt=(
@@ -726,18 +812,21 @@ class InterviewPreparationService:
                 )
             )
 
-        # 4. Strength deep dive
         for item in strengths[:5]:
             keyword = item.get("keyword")
-            scope = item.get("scope")
             requirement_text = item.get("requirement_text") or keyword
             if not keyword:
                 continue
+
+            competency_name = requirement_text or keyword
+            competency_key = self.build_competency_key(competency_name)
 
             questions.append(
                 InterviewQuestionDraft(
                     type="strength_deep_dive",
                     source="vacancy_analysis.strengths",
+                    competency_key=competency_key,
+                    competency_name=competency_name,
                     keyword=keyword,
                     requirement_text=requirement_text,
                     prompt=(
@@ -753,7 +842,6 @@ class InterviewPreparationService:
                 )
             )
 
-        # 5. Achievement STAR story
         for item in achievements[:3]:
             title = item.get("title")
             fact_status = item.get("fact_status")
@@ -778,68 +866,9 @@ class InterviewPreparationService:
                 )
             )
 
-        # Serialize to JSON
-        serialized = [serialize_question(q) for q in questions[:15]]
-        
-        # Валидация JSON-контракта перед сохранением
+        serialized = [
+            serialize_question(q, index=index)
+            for index, q in enumerate(questions[:15])
+        ]
         validated = InterviewSessionSchema(question_set=serialized)
         return [q.model_dump() for q in validated.question_set]
-
-    def _build_questions(
-        self,
-        *,
-        strengths: list[str],
-        gaps: list[str],
-        achievements: list[str] | None = None,
-    ) -> list[dict]:
-        """
-        Строит список вопросов для собеседования.
-        
-        Ключевая идея: gap → прямой вопрос
-        Это то, что реально происходит на интервью.
-        """
-        achievements = achievements or []
-        questions = []
-
-        # Strength-based
-        for skill in strengths[:3]:
-            expected = self._build_expected_answer(
-                skill=skill,
-                achievements=achievements,
-            )
-            questions.append({
-                "type": "strength",
-                "skill": skill,
-                "question": f"Can you describe your experience with {skill}?",
-                "expected_answer": expected,
-            })
-
-        # Gap-based (самое ценное)
-        for gap in gaps[:3]:
-            expected = self._build_expected_answer(
-                skill=gap,
-                achievements=achievements,
-            )
-            questions.append({
-                "type": "gap",
-                "skill": gap,
-                "question": f"You have less experience with {gap}. How are you addressing this?",
-                "expected_answer": expected,
-            })
-
-        return questions
-
-    def _build_expected_answer(
-        self,
-        *,
-        skill: str,
-        achievements: list[str],
-    ) -> str:
-        relevant = [
-            a for a in achievements if skill.lower() in a.lower()
-        ]
-
-        if not relevant:
-            return "Explain learning efforts and practical steps taken."
-
-        return "Use STAR format: " + "; ".join(relevant[:2])

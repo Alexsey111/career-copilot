@@ -92,3 +92,18 @@ class ReviewWorkspaceUpdateRequest(BaseModel):
     status: ReviewStatus | None = None
     reviewer_id: str | None = None
     review_decision: ReviewDecision | None = None
+
+
+class ReviewActionRequest(BaseModel):
+    action_type: str
+    target_type: str | None = None
+    target_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    reviewer_id: UUID | None = None
+
+
+class ReviewActionResponse(BaseModel):
+    action_id: UUID
+    workspace_id: str
+    action_type: str
+    status: str

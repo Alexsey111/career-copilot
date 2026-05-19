@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
 from app.schemas.review_workspace import (
+    ReviewActionRequest,
+    ReviewActionResponse,
     ReviewWorkspaceResponse,
     ReviewWorkspaceSummary,
     ReviewWorkspaceUpdateRequest,
@@ -26,12 +28,14 @@ def get_review_workspace_service() -> ReviewWorkspaceService:
     """Dependency injection for review workspace service."""
     from app.repositories.document_version_repository import DocumentVersionRepository
     from app.repositories.pipeline_repository import SQLAlchemyAsyncPipelineRepository
+    from app.repositories.review_workflow_repository import ReviewWorkflowRepository
     from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 
     return ReviewWorkspaceService(
         document_repo=DocumentVersionRepository(),
         pipeline_repo=SQLAlchemyAsyncPipelineRepository(None),
         vacancy_analysis_repo=VacancyAnalysisRepository(),
+        review_workflow_repo=ReviewWorkflowRepository(),
     )
 
 
@@ -42,17 +46,9 @@ async def get_review_workspace(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get complete review workspace by ID."""
-    # For now, parse workspace_id to extract document_id and user_id
-    # In real implementation, workspace would be a separate entity
     try:
-        parts = workspace_id.split("_")
-        if len(parts) < 3 or parts[0] != "ws":
-            raise ValueError("Invalid workspace ID format")
-
-        document_id = UUID(parts[1])
-        user_id = UUID(parts[2])
-        pipeline_execution_id = UUID(parts[3]) if len(parts) > 3 else None
-    except (ValueError, IndexError):
+        document_id, user_id, pipeline_execution_id = service.parse_workspace_id(workspace_id)
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid workspace ID format",
@@ -150,6 +146,47 @@ async def update_review_workspace(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update review workspace: {str(e)}",
+        )
+
+
+@router.post("/{workspace_id}/actions", response_model=ReviewActionResponse)
+async def record_review_action(
+    workspace_id: str,
+    action: ReviewActionRequest,
+    service: ReviewWorkspaceService = Depends(get_review_workspace_service),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Persist a human review action for audit trail and workflow completion."""
+    try:
+        action_record, action_status = await service.record_review_action(
+            session=db,
+            workspace_id=workspace_id,
+            action_type=action.action_type,
+            target_type=action.target_type,
+            target_id=action.target_id,
+            payload=action.payload,
+            reviewer_id=action.reviewer_id,
+        )
+        await db.commit()
+        return ReviewActionResponse(
+            action_id=action_record.id,
+            workspace_id=workspace_id,
+            action_type=action_record.action_type,
+            status=action_status,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = (
+            status.HTTP_400_BAD_REQUEST
+            if detail == "Invalid workspace ID format" or detail.startswith("Unsupported review action:")
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except Exception as e:
+        logger.error(f"Failed to record review action: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to record review action: {str(e)}",
         )
 
 

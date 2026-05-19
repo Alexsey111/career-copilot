@@ -59,6 +59,13 @@ class ExecutionFailedPayload:
     error_message: str | None = None
     failed_step: str | None = None
     retry_count: int | None = None
+    failure_category: str | None = None
+    retryable: bool | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class ExecutionCancelledPayload:
+    reason: str | None = None
 
 
 @dataclass(slots=True, frozen=True)

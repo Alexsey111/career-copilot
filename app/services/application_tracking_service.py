@@ -22,6 +22,7 @@ from app.repositories.application_status_history_repository import (
 )
 from app.repositories.document_version_repository import DocumentVersionRepository
 from app.repositories.vacancy_repository import VacancyRepository
+from app.services.application_safety_service import ApplicationSafetyService
 
 APPLICATION_USER_VACANCY_UNIQUE_CONSTRAINT = "uq_application_records_user_vacancy"
 
@@ -53,6 +54,7 @@ class ApplicationTrackingService:
         application_event_repository: ApplicationEventRepository | None = None,
         vacancy_repository: VacancyRepository | None = None,
         document_version_repository: DocumentVersionRepository | None = None,
+        application_safety_service: ApplicationSafetyService | None = None,
     ) -> None:
         self.application_record_repository = (
             application_record_repository or ApplicationRecordRepository()
@@ -67,6 +69,9 @@ class ApplicationTrackingService:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.document_version_repository = (
             document_version_repository or DocumentVersionRepository()
+        )
+        self.application_safety_service = (
+            application_safety_service or ApplicationSafetyService()
         )
 
     async def create_application(
@@ -364,6 +369,26 @@ class ApplicationTrackingService:
                 detail="at least one document must be attached before submission",
             )
 
+        safety = await self.application_safety_service.can_apply(
+            session,
+            user_id=user_id,
+            vacancy_id=application.vacancy_id,
+        )
+
+        if not safety.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "application safety gate blocked submission",
+                    "blockers": safety.blockers,
+                    "warnings": safety.warnings,
+                    "document_id": (
+                        str(safety.document_id) if safety.document_id else None
+                    ),
+                    "score": safety.score,
+                },
+            )
+
         application.status = "applied"
         application.source = source
         application.external_link = external_link
@@ -405,6 +430,12 @@ class ApplicationTrackingService:
         )
 
         normalized_status = status_value.strip().lower()
+
+        if normalized_status == "applied":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="use POST /applications/{application_id}/submit to submit applications",
+            )
 
         if not is_valid_transition(application.status, normalized_status):
             raise HTTPException(

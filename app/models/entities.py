@@ -745,6 +745,16 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     input_params: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
+    parent_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("pipeline_executions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    lineage_kind: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    lineage_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lineage_metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
     resume_document_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("document_versions.id", ondelete="SET NULL"),
@@ -776,6 +786,15 @@ class PipelineExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     evaluation_snapshot: Mapped["VacancyAnalysis | None"] = relationship(back_populates="pipeline_executions")
     review: Mapped["DocumentReview | None"] = relationship(back_populates="pipeline_executions")
+    parent_execution: Mapped["PipelineExecution | None"] = relationship(
+        remote_side="PipelineExecution.id",
+        back_populates="child_executions",
+        foreign_keys=[parent_execution_id],
+    )
+    child_executions: Mapped[list["PipelineExecution"]] = relationship(
+        back_populates="parent_execution",
+        foreign_keys=[parent_execution_id],
+    )
 
     steps: Mapped[list["PipelineExecutionStep"]] = relationship(
         back_populates="execution",

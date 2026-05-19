@@ -16,6 +16,11 @@ class ApplicationCreateRequest(BaseModel):
     notes: str | None = None
 
 
+class ApplicationSubmitRequest(BaseModel):
+    source: str | None = None
+    external_link: str | None = None
+
+
 class ApplicationStatusUpdateRequest(BaseModel):
     status: str
     notes: str | None = None

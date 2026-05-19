@@ -16,6 +16,7 @@ from app.schemas.application import (
     ApplicationListItem,
     ApplicationRead,
     ApplicationStatusHistoryItem,
+    ApplicationSubmitRequest,
     ApplicationStatusUpdateRequest,
 )
 from app.services.application_tracking_service import ApplicationTrackingService
@@ -114,6 +115,29 @@ async def update_application_status(
             user_id=current_user.id,
             status_value=payload.status,
             notes=payload.notes,
+        )
+        await session.commit()
+        return ApplicationRead.model_validate(application)
+    except Exception:
+        await session.rollback()
+        raise
+
+
+@router.post("/{application_id}/submit", response_model=ApplicationRead)
+async def submit_application(
+    application_id: UUID,
+    payload: ApplicationSubmitRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApplicationRead:
+    service = ApplicationTrackingService()
+    try:
+        application = await service.submit_application(
+            session,
+            application_id=application_id,
+            user_id=current_user.id,
+            source=payload.source,
+            external_link=payload.external_link,
         )
         await session.commit()
         return ApplicationRead.model_validate(application)
