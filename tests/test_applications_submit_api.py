@@ -144,6 +144,47 @@ async def test_submit_ready_application_applies_when_safety_allows(client) -> No
     assert payload["applied_at"] is not None
 
 
+async def test_submit_ready_application_defaults_source_to_manual(client) -> None:
+    await _prepare_profile(client)
+    vacancy_id = await _create_analyzed_vacancy(client)
+    resume_document_id = await _generate_and_approve_resume(client, vacancy_id)
+
+    create_response = await client.post(
+        f"{API_PREFIX}/applications",
+        json={
+            "vacancy_id": vacancy_id,
+            "resume_document_id": resume_document_id,
+            "notes": "submit default source path",
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+    application_id = create_response.json()["id"]
+
+    await _mark_application_ready(client, application_id)
+
+    submit_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
+        json={"external_link": "https://example.com/apply/default-source"},
+    )
+
+    assert submit_response.status_code == 200, submit_response.text
+    payload = submit_response.json()
+    assert payload["status"] == "applied"
+    assert payload["source"] == "manual"
+
+    activity_response = await client.get(
+        f"{API_PREFIX}/applications/{application_id}/activity-log",
+    )
+    assert activity_response.status_code == 200, activity_response.text
+
+    applied_event = [
+        item
+        for item in activity_response.json()
+        if item["event_type"] == "application_applied"
+    ][0]
+    assert applied_event["meta_json"]["source"] == "manual"
+
+
 async def test_submit_ready_application_returns_409_when_safety_blocks(
     client,
     db_session,

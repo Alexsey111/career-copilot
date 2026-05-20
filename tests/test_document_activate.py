@@ -570,6 +570,180 @@ async def test_get_document_readiness_returns_404_for_missing_document(client):
 
     assert readiness_response.status_code == 404, readiness_response.text
     assert readiness_response.json()["detail"] == "document not found"
+
+
+async def test_get_document_review_summary_returns_sections_and_readiness(client, db_session):
+    upload_response = await client.post(
+        f"{API_PREFIX}/files/upload",
+        data={"file_kind": "resume"},
+        files={"file": ("resume.txt", b"Python FastAPI", "text/plain")},
+    )
+    source_file_id = upload_response.json()["id"]
+
+    import_response = await client.post(
+        f"{API_PREFIX}/profile/import-resume",
+        json={"source_file_id": source_file_id},
+    )
+    extraction_id = import_response.json()["extraction_id"]
+
+    await client.post(
+        f"{API_PREFIX}/profile/extract-structured",
+        json={"extraction_id": extraction_id},
+    )
+    await client.post(
+        f"{API_PREFIX}/profile/extract-achievements",
+        json={"extraction_id": extraction_id},
+    )
+
+    vacancy_response = await client.post(
+        f"{API_PREFIX}/vacancies/import",
+        json={
+            "source": "manual",
+            "title": "Backend Developer",
+            "company": "Test",
+            "location": "Remote",
+            "description_raw": "Python FastAPI PostgreSQL",
+        },
+    )
+    vacancy_id = vacancy_response.json()["vacancy_id"]
+    await client.post(f"{API_PREFIX}/vacancies/{vacancy_id}/analyze")
+
+    generate_response = await client.post(
+        f"{API_PREFIX}/documents/resumes/generate",
+        json={"vacancy_id": vacancy_id},
+    )
+    document_id = generate_response.json()["document_id"]
+
+    await client.patch(
+        f"{API_PREFIX}/documents/{document_id}/review",
+        json={
+            "review_status": "approved",
+            "review_comment": "approved",
+            "set_active_when_approved": False,
+        },
+    )
+    await client.post(f"{API_PREFIX}/documents/{document_id}/activate")
+
+    document = (
+        await db_session.execute(
+            select(DocumentVersion).where(DocumentVersion.id == UUID(document_id))
+        )
+    ).scalar_one()
+    content = dict(document.content_json or {})
+    content["sections"] = {
+        "claims_needing_confirmation": [],
+        "warnings": [{"code": "ats_plaintext_draft"}],
+        "selected_achievements": [{"title": "Shipped feature", "metric_text": "20%"}],
+        "matched_keywords": ["Python", "FastAPI"],
+        "missing_keywords": ["Redis"],
+        "selection_rationale": [{"item": "Python", "type": "skill", "reason": "vacancy_overlap"}],
+    }
+    content["evaluation"] = {"critical_failures": [], "coverage_gaps": []}
+    content["review"] = {"latest_status": "approved"}
+    content["readiness_score"] = {"overall_score": 0.91, "ats_score": 0.88}
+    document.content_json = content
+    await db_session.commit()
+
+    summary_response = await client.get(
+        f"{API_PREFIX}/documents/{document_id}/review-summary"
+    )
+
+    assert summary_response.status_code == 200, summary_response.text
+    payload = summary_response.json()
+    assert payload["document_id"] == document_id
+    assert payload["document_kind"] == "resume"
+    assert payload["review_status"] == "approved"
+    assert payload["is_active"] is True
+    assert payload["readiness"]["ready"] is True
+    assert payload["claims_needing_confirmation"] == []
+    assert payload["warnings"] == [{"code": "ats_plaintext_draft"}]
+    assert payload["selected_achievements"][0]["title"] == "Shipped feature"
+    assert "selected_evidence_ids" in payload
+    assert isinstance(payload["selected_evidence_ids"], list)
+    assert "selected_achievement_ids" in payload
+    assert isinstance(payload["selected_achievement_ids"], list)
+    assert "evidence_selection_reason" in payload
+    assert isinstance(payload["evidence_selection_reason"], list)
+    assert payload["matched_keywords"] == ["Python", "FastAPI"]
+    assert payload["missing_keywords"] == ["Redis"]
+    assert payload["selection_rationale"][0]["reason"] == "vacancy_overlap"
+    assert payload["rendered_text_preview"]
+
+
+async def test_review_document_rejects_approval_when_not_ready(client, db_session):
+    upload_response = await client.post(
+        f"{API_PREFIX}/files/upload",
+        data={"file_kind": "resume"},
+        files={"file": ("resume.txt", b"Python FastAPI", "text/plain")},
+    )
+    source_file_id = upload_response.json()["id"]
+
+    import_response = await client.post(
+        f"{API_PREFIX}/profile/import-resume",
+        json={"source_file_id": source_file_id},
+    )
+    extraction_id = import_response.json()["extraction_id"]
+
+    await client.post(
+        f"{API_PREFIX}/profile/extract-structured",
+        json={"extraction_id": extraction_id},
+    )
+    await client.post(
+        f"{API_PREFIX}/profile/extract-achievements",
+        json={"extraction_id": extraction_id},
+    )
+
+    vacancy_response = await client.post(
+        f"{API_PREFIX}/vacancies/import",
+        json={
+            "source": "manual",
+            "title": "Backend Developer",
+            "company": "Test",
+            "location": "Remote",
+            "description_raw": "Python FastAPI PostgreSQL",
+        },
+    )
+    vacancy_id = vacancy_response.json()["vacancy_id"]
+    await client.post(f"{API_PREFIX}/vacancies/{vacancy_id}/analyze")
+
+    generate_response = await client.post(
+        f"{API_PREFIX}/documents/resumes/generate",
+        json={"vacancy_id": vacancy_id},
+    )
+    document_id = generate_response.json()["document_id"]
+
+    document = (
+        await db_session.execute(
+            select(DocumentVersion).where(DocumentVersion.id == UUID(document_id))
+        )
+    ).scalar_one()
+    content = dict(document.content_json or {})
+    content["sections"] = {
+        "claims_needing_confirmation": [{"text": "Need proof"}],
+        "selected_achievements": [{"title": "Shipped feature", "metric_text": "20%"}],
+        "warnings": [],
+        "matched_keywords": ["Python"],
+        "missing_keywords": [],
+        "selection_rationale": [],
+    }
+    content["evaluation"] = {"critical_failures": [], "coverage_gaps": []}
+    document.content_json = content
+    await db_session.commit()
+
+    review_response = await client.patch(
+        f"{API_PREFIX}/documents/{document_id}/review",
+        json={
+            "review_status": "approved",
+            "review_comment": "approve while not ready",
+            "set_active_when_approved": False,
+        },
+    )
+
+    assert review_response.status_code == 409, review_response.text
+    detail = review_response.json()["detail"]
+    assert detail["message"] == "document is not ready for approval"
+    assert "document has unresolved claims requiring confirmation" in detail["readiness"]["blockers"]
+    assert detail["readiness"]["ready"] is False
 async def test_activate_deactivates_previous_active_document(client):
     upload_response = await client.post(
         f"{API_PREFIX}/files/upload",

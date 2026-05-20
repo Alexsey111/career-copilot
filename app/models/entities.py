@@ -77,6 +77,8 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     document_versions: Mapped[list["DocumentVersion"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     application_records: Mapped[list["ApplicationRecord"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     interview_sessions: Mapped[list["InterviewSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    evidence_snippets: Mapped[list["EvidenceSnippet"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    evidence_usages: Mapped[list["EvidenceUsage"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     ai_runs: Mapped[list["AIRun"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     refresh_sessions: Mapped[list["RefreshSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     document_reviews: Mapped[list["DocumentReview"]] = relationship(back_populates="reviewer", cascade="all, delete-orphan")
@@ -181,6 +183,65 @@ class CandidateAchievement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     profile: Mapped["CandidateProfile"] = relationship(back_populates="achievements")
     experience: Mapped["CandidateExperience | None"] = relationship(back_populates="achievements")
+
+
+class EvidenceSnippet(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "evidence_snippets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "fingerprint", name="uq_evidence_snippets_user_fingerprint"),
+        Index("ix_evidence_snippets_user_source", "user_id", "source_type"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    snippet_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="achievement")
+    skills_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    evidence_strength: Mapped[str] = mapped_column(String(20), nullable=False, default="weak")
+    fact_status: Mapped[str] = mapped_column(String(20), nullable=False, default="unverified")
+    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    used_in_documents_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    used_in_interviews_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    star_summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    user: Mapped["User"] = relationship(back_populates="evidence_snippets")
+    usages: Mapped[list["EvidenceUsage"]] = relationship(
+        back_populates="evidence_snippet",
+        cascade="all, delete-orphan",
+    )
+
+
+class EvidenceUsage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "evidence_usages"
+    __table_args__ = (
+        Index("ix_evidence_usages_snippet_usage", "evidence_snippet_id", "usage_type"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    evidence_snippet_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("evidence_snippets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    usage_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    user: Mapped["User"] = relationship(back_populates="evidence_usages")
+    evidence_snippet: Mapped["EvidenceSnippet"] = relationship(back_populates="usages")
 
 
 class SourceFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -521,6 +582,62 @@ class InterviewSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     answer_attempts: Mapped[list["InterviewAnswerAttempt"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
+    )
+
+
+class InterviewPrepSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "interview_prep_sessions"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vacancy_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("vacancies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("application_records.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    prep_status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="draft",
+    )
+    readiness_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    competency_map_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    question_set_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    evidence_links_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    weak_areas_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    readiness_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
     )
 
 

@@ -80,17 +80,70 @@ async def _create_resume(client, vacancy_id: str) -> str:
 
 @pytest.mark.asyncio
 async def test_document_diff_success(client, db_session, test_user):
-    """Тест что diff между двумя версиями возвращает unified diff."""
+    """Тест что diff между двумя версиями возвращает structured section diff."""
     from uuid import uuid4
-    from app.repositories.document_version_repository import DocumentVersionRepository
 
-    repo = DocumentVersionRepository()
-
-    # Создаём два документа напрямую через репозиторий
     from app.models.entities import DocumentVersion
 
-    # vacancy_id=None чтобы не создавать vacancy
     vacancy_id = None
+    base_content = {
+        "document_kind": "resume",
+        "sections": {
+            "skills": ["Python", "FastAPI", "Tableau"],
+            "matched_keywords": ["Python", "Tableau"],
+            "summary_bullets": [
+                "Built APIs and dashboards",
+            ],
+            "selected_achievements": [
+                {
+                    "id": str(uuid4()),
+                    "title": "Optimized CI/CD pipeline",
+                    "metric_text": "reduced deploy time by 20%",
+                    "fact_status": "confirmed",
+                }
+            ],
+            "claims_needing_confirmation": [],
+            "warnings": [],
+        },
+    }
+    target_content = {
+        "document_kind": "resume",
+        "sections": {
+            "skills": ["Python", "FastAPI", "Kubernetes"],
+            "matched_keywords": ["Python", "Kubernetes"],
+            "summary_bullets": [
+                "Built APIs and dashboards",
+                "Highlighted Kubernetes work",
+            ],
+            "selected_achievements": [
+                {
+                    "id": str(uuid4()),
+                    "title": "Optimized CI/CD pipeline",
+                    "metric_text": "reduced deploy time by 14%",
+                    "fact_status": "confirmed",
+                },
+                {
+                    "id": str(uuid4()),
+                    "title": "Reduced infra costs by 18%",
+                    "metric_text": "18% lower cost",
+                    "fact_status": "needs_confirmation",
+                },
+            ],
+            "claims_needing_confirmation": [
+                {
+                    "text": "Reduced infra costs by 18%",
+                    "fact_status": "needs_confirmation",
+                }
+            ],
+            "warnings": [
+                {
+                    "code": "claim_needs_confirmation",
+                    "message": "Added claim requiring confirmation",
+                    "severity": "warning",
+                }
+            ],
+        },
+    }
 
     document_a = DocumentVersion(
         id=uuid4(),
@@ -102,8 +155,8 @@ async def test_document_diff_success(client, db_session, test_user):
         version_label="resume_draft_v1",
         review_status="draft",
         is_active=True,
-        content_json={"document_kind": "resume"},
-        rendered_text="Line 1\nLine 2\nLine 3",
+        content_json=base_content,
+        rendered_text="Identical rendered text for both docs",
     )
     db_session.add(document_a)
 
@@ -117,13 +170,12 @@ async def test_document_diff_success(client, db_session, test_user):
         version_label="resume_enhanced_v1",
         review_status="draft",
         is_active=False,
-        content_json={"document_kind": "resume"},
-        rendered_text="Line 1\nLine 2 MODIFIED\nLine 3\nNew Line 4",
+        content_json=target_content,
+        rendered_text="Identical rendered text for both docs",
     )
     db_session.add(document_b)
     await db_session.flush()
 
-    # Запрашиваем diff
     diff_response = await client.get(
         f"{API_PREFIX}/documents/{document_a.id}/diff/{document_b.id}"
     )
@@ -131,12 +183,25 @@ async def test_document_diff_success(client, db_session, test_user):
     assert diff_response.status_code == 200
     diff_data = diff_response.json()
 
-    assert diff_data["document_id"] == str(document_a.id)
-    assert diff_data["other_document_id"] == str(document_b.id)
+    assert diff_data["base_document_id"] == str(document_a.id)
+    assert diff_data["target_document_id"] == str(document_b.id)
     assert diff_data["document_kind"] == "resume"
-    assert "---" in diff_data["diff"]
-    assert "+++" in diff_data["diff"]
-    assert "MODIFIED" in diff_data["diff"] or "- Line 2" in diff_data["diff"]
+
+    sections = {section["section"]: section for section in diff_data["sections"]}
+
+    assert sections["skills"]["added"] == ["Kubernetes"]
+    assert sections["skills"]["removed"] == ["Tableau"]
+    assert sections["matched_keywords"]["added"] == ["Kubernetes"]
+    assert sections["matched_keywords"]["removed"] == ["Tableau"]
+    assert sections["summary_bullets"]["added"] == ["Highlighted Kubernetes work"]
+    assert sections["selected_achievements"]["added"] == ["Reduced infra costs by 18%"]
+    assert sections["selected_achievements"]["changed"] == ["Optimized CI/CD pipeline"]
+    assert sections["claims_needing_confirmation"]["added"] == [
+        "Reduced infra costs by 18%"
+    ]
+    assert sections["warnings"]["added"] == [
+        "claim_needs_confirmation: Added claim requiring confirmation"
+    ]
 
 
 @pytest.mark.asyncio

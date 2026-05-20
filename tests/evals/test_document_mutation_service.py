@@ -1,8 +1,10 @@
 """Tests for DocumentMutationService."""
 
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from unittest.mock import AsyncMock
 
 from app.services.document_mutation_service import (
     DocumentMutationService,
@@ -196,3 +198,56 @@ class TestDocumentMutationService:
 
         mutation_record = doc.content_json["mutation_history"][-1]
         assert mutation_record["source_recommendation_id"] == str(recommendation_id)
+
+    @pytest.mark.asyncio
+    async def test_apply_changes_creates_inactive_draft_version(self) -> None:
+        """Test mutation drafts are created inactive."""
+
+        from app.models import DocumentVersion
+
+        source_document = DocumentVersion(
+            id=uuid4(),
+            user_id=uuid4(),
+            document_kind="resume",
+            version_label="v1",
+            review_status="approved",
+            is_active=True,
+            content_json={"sections": {"summary": "Original"}},
+            rendered_text="Original text",
+        )
+
+        class FakeRepository:
+            async def get_by_id(self, session, document_id, *, user_id):
+                return source_document
+
+            async def deactivate_same_scope(self, session, **kwargs):
+                return None
+
+            async def create(self, session, **kwargs):
+                return DocumentVersion(
+                    id=uuid4(),
+                    user_id=kwargs["user_id"],
+                    vacancy_id=kwargs["vacancy_id"],
+                    derived_from_id=kwargs["derived_from_id"],
+                    analysis_id=kwargs["analysis_id"],
+                    document_kind=kwargs["document_kind"],
+                    version_label=kwargs["version_label"],
+                    review_status=kwargs["review_status"],
+                    is_active=kwargs["is_active"],
+                    content_json=kwargs["content_json"],
+                    rendered_text=kwargs["rendered_text"],
+                )
+
+        service = DocumentMutationService(document_repository=FakeRepository())  # type: ignore
+        session = SimpleNamespace(flush=AsyncMock())
+
+        mutated = await service.apply_changes(
+            session,
+            document_id=source_document.id,
+            changes={"operations": [{"section": "sections", "operation": "merge", "extra": {"summary": "Updated"}}]},
+            user_id=source_document.user_id,
+        )
+
+        assert mutated.is_active is False
+        assert mutated.review_status == "draft"
+        assert session.flush.await_count == 1

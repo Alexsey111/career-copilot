@@ -99,6 +99,7 @@ async def test_mvp_flow_e2e(client):
     assert "rendered_text" not in resume
     assert "rendered_text_preview" in resume
     assert len(resume["rendered_text_preview"]) <= 1200
+    assert resume["created_at"]
 
     get_resume_response = await client.get(f"{API_PREFIX}/documents/{resume_document_id}")
     assert get_resume_response.status_code == 200, get_resume_response.text
@@ -124,6 +125,7 @@ async def test_mvp_flow_e2e(client):
     assert "rendered_text" not in cover_letter
     assert "rendered_text_preview" in cover_letter
     assert len(cover_letter["rendered_text_preview"]) <= 1200
+    assert cover_letter["created_at"]
 
     get_cover_letter_response = await client.get(
         f"{API_PREFIX}/documents/{cover_letter_document_id}"

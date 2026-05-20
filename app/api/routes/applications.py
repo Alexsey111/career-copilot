@@ -11,15 +11,19 @@ from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.schemas.application import (
+    ApplicationAnalyticsSummaryResponse,
     ApplicationCreateRequest,
     ApplicationDashboardItem,
     ApplicationEventItem,
     ApplicationDetailResponse,
+    ApplicationReminderItem,
     ApplicationWorkflowResponse,
     ApplicationStatusHistoryItem,
     ApplicationSubmitRequest,
     ApplicationStatusUpdateRequest,
 )
+from app.services.application_analytics_service import ApplicationAnalyticsService
+from app.services.application_reminder_service import ApplicationReminderService
 from app.services.application_tracking_service import ApplicationTrackingService
 
 
@@ -48,6 +52,38 @@ async def create_application(
     except Exception:
         await session.rollback()
         raise
+
+
+@router.get(
+    "/analytics/summary",
+    response_model=ApplicationAnalyticsSummaryResponse,
+)
+async def get_application_analytics_summary(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApplicationAnalyticsSummaryResponse:
+    service = ApplicationAnalyticsService()
+    summary = await service.get_summary(
+        session,
+        user_id=current_user.id,
+    )
+    return ApplicationAnalyticsSummaryResponse.model_validate(summary)
+
+
+@router.get(
+    "/reminders",
+    response_model=list[ApplicationReminderItem],
+)
+async def get_application_reminders(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[ApplicationReminderItem]:
+    service = ApplicationReminderService()
+    reminders = await service.get_reminders(
+        session,
+        user_id=current_user.id,
+    )
+    return [ApplicationReminderItem.model_validate(reminder) for reminder in reminders]
 
 
 @router.get("/{application_id}", response_model=ApplicationDetailResponse)

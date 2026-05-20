@@ -112,6 +112,9 @@ class DocumentActivationService:
         document.is_active = True
 
         await session.commit()
-        await session.refresh(document)
-
-        return document
+        refreshed_document = await self.document_version_repository.get_by_id(
+            session,
+            document.id,
+            user_id=user_id,
+        )
+        return refreshed_document or document

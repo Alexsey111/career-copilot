@@ -95,7 +95,7 @@ class DocumentMutationService:
             document_kind=source_document.document_kind,
             version_label=version_label or self._generate_version_label(source_document),
             review_status="draft",
-            is_active=True,
+            is_active=False,
             content_json=new_content,
             rendered_text=source_document.rendered_text,
             source_recommendation_id=source_recommendation_id,

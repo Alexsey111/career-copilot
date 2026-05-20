@@ -56,6 +56,15 @@ from app.services.document_mutation_service import (
     DocumentMutationService,
     DocumentMutationError,
 )
+from app.services.evidence_extraction_service import (
+    EvidenceExtractionService,
+)
+from app.services.evidence_selection_service import (
+    EvidenceSelectionService,
+)
+from app.services.evidence_strength_service import (
+    EvidenceStrengthService,
+)
 from app.services.impact_measurement_service import (
     ImpactMeasurementService,
 )
@@ -111,6 +120,10 @@ __all__ = [
     # Document Mutation
     "DocumentMutationService",
     "DocumentMutationError",
+    # Evidence
+    "EvidenceExtractionService",
+    "EvidenceSelectionService",
+    "EvidenceStrengthService",
     # Impact Measurement
     "ImpactMeasurementService",
 ]

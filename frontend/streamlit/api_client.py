@@ -116,6 +116,33 @@ class CareerCopilotApiClient:
         response.raise_for_status()
         return response.json()
 
+    def get_document_version(self, document_id: str, token: str | None = None) -> dict[str, Any]:
+        return self.get_json(f"/documents/{document_id}", token=token)
+
+    def get_active_document(
+        self,
+        *,
+        document_kind: str,
+        vacancy_id: str | None = None,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        path = f"/documents/active?document_kind={document_kind}"
+        if vacancy_id:
+            path = f"{path}&vacancy_id={vacancy_id}"
+        return self.get_json(path, token=token)
+
+    def get_document_diff(
+        self,
+        *,
+        base_document_id: str,
+        target_document_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.get_json(
+            f"/documents/{base_document_id}/diff/{target_document_id}",
+            token=token,
+        )
+
     def get_text(self, path: str, token: str | None = None) -> str:
         response = httpx.get(
             self._build_url(path),
@@ -154,6 +181,60 @@ class CareerCopilotApiClient:
         response.raise_for_status()
         return response.json()
 
+    def get_application_analytics_summary(self, token: str | None = None) -> dict[str, Any]:
+        return self.get_json("/applications/analytics/summary", token=token)
+
+    def get_application_reminders(self, token: str | None = None) -> list[Any]:
+        return self.get_json("/applications/reminders", token=token)
+
+    def get_document_review_summary(self, document_id: str, token: str | None = None) -> dict[str, Any]:
+        return self.get_json(f"/documents/{document_id}/review-summary", token=token)
+
+    def list_evidence_snippets(self, token: str | None = None) -> list[Any]:
+        return self.get_json("/evidence/snippets", token=token)
+
+    def get_evidence_snippet(
+        self,
+        snippet_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.get_json(f"/evidence/snippets/{snippet_id}", token=token)
+
+    def list_evidence_usages(self, token: str | None = None) -> list[Any]:
+        return self.get_json("/evidence/usages", token=token)
+
+    def get_evidence_insights(self, token: str | None = None) -> dict[str, Any]:
+        return self.get_json("/evidence/insights", token=token)
+
+    def list_interview_prep_sessions(self, token: str | None = None) -> list[Any]:
+        return self.get_json("/interview-prep/sessions", token=token)
+
+    def create_interview_prep_session(
+        self,
+        *,
+        application_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/interview-prep/sessions",
+            {"application_id": application_id},
+            token=token,
+        )
+
+    def get_interview_prep_session(
+        self,
+        session_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.get_json(f"/interview-prep/sessions/{session_id}", token=token)
+
+    def get_interview_prep_readiness(
+        self,
+        session_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.get_json(f"/interview-prep/sessions/{session_id}/readiness", token=token)
+
     def match_vacancy(self, vacancy_id: str, token: str | None = None) -> dict[str, Any]:
         """
         Запускает match-анализ вакансии с профилем текущего пользователя.
@@ -164,6 +245,12 @@ class CareerCopilotApiClient:
             {},  # пустой payload, user_id берётся из сессии на бэкенде
             token=token,
         )
+
+    def get_vacancy_fit(self, vacancy_id: str, token: str | None = None) -> dict[str, Any]:
+        return self.get_json(f"/vacancies/{vacancy_id}/fit", token=token)
+
+    def get_career_insights(self, token: str | None = None) -> dict[str, Any]:
+        return self.get_json("/career-insights/summary", token=token)
 
     def upload_file(
         self,

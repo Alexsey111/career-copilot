@@ -82,7 +82,10 @@ class ApplicationRecordRepository:
     ) -> list[ApplicationRecord]:
         stmt = (
             select(ApplicationRecord)
-            .options(selectinload(ApplicationRecord.vacancy))
+            .options(
+                selectinload(ApplicationRecord.vacancy),
+                selectinload(ApplicationRecord.status_history),
+            )
             .where(ApplicationRecord.user_id == user_id)
             .order_by(ApplicationRecord.created_at.desc())
         )

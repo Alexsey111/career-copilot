@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -14,6 +15,7 @@ from app.repositories.review_workflow_repository import ReviewWorkflowRepository
 from app.services.document_activation_service import (
     DocumentActivationService,
 )
+from app.services.readiness_gate_service import ReadinessGateService
 from app.domain.review_models import (
     ReviewStatus,
     ReviewerAction,
@@ -175,6 +177,7 @@ class DocumentReviewService:
                 detail=f"review_status must be one of: {sorted(ALLOWED_REVIEW_STATUSES)}",
             )
 
+        target_document_id = document_id
         document = await self.document_version_repository.get_by_id(
             session,
             document_id,
@@ -185,6 +188,27 @@ class DocumentReviewService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="document not found",
             )
+
+        if normalized_status == "approved":
+            approval_probe = SimpleNamespace(
+                content_json=document.content_json,
+                review_status="approved",
+                is_active=True,
+            )
+            readiness = ReadinessGateService().evaluate_document_readiness(approval_probe)
+            if not readiness.ready:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": "document is not ready for approval",
+                        "readiness": {
+                            "ready": readiness.ready,
+                            "blockers": readiness.blockers,
+                            "warnings": readiness.warnings,
+                            "score": readiness.score,
+                        },
+                    },
+                )
 
         # Mandatory review logic: если есть critical failures из eval
         if evaluation_report is not None:
@@ -257,8 +281,14 @@ class DocumentReviewService:
             document.is_active = False
 
         await session.commit()
-        await session.refresh(document)
-        return document
+        fresh_document = await self.document_version_repository.get_by_id(
+            session,
+            target_document_id,
+            user_id=user_id,
+        )
+        if fresh_document is None:
+            return document
+        return fresh_document
 
     async def submit_review_decisions(
         self,

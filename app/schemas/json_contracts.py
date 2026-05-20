@@ -141,7 +141,12 @@ class ContentMeta(StrictBaseModel):
     """
     source: ContentSource = "ai_generated"
     based_on_achievements: list[UUID] = Field(default_factory=list)
+    selected_achievement_ids: list[UUID] = Field(default_factory=list)
     based_on_analysis_id: UUID | None = None
+
+    selected_evidence_ids: list[UUID] = Field(default_factory=list)
+    evidence_selection_reason: list[dict[str, Any]] = Field(default_factory=list)
+
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     generation_prompt_version: str | None = None
     generated_at: str | None = None  # ISO timestamp
@@ -178,12 +183,6 @@ class AchievementItem(StrictBaseModel):
     metric_text: str | None = None
     fact_status: FactStatus = "confirmed"
     reason: str = "profile_core"
-
-
-class WarningItem(StrictBaseModel):
-    code: str
-    message: str
-    severity: str = "warning"
 
 
 class ClaimItem(StrictBaseModel):

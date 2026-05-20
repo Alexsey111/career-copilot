@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from app.schemas.json_contracts import StrictBaseModel
 
@@ -67,6 +67,49 @@ class VacancyAnalysisResponse(StrictBaseModel):
     match_score: int | None
     analysis_version: str
     created_at: datetime
+
+
+class VacancyFitEvidenceRead(StrictBaseModel):
+    evidence_id: UUID | None = None
+    title: str
+    reason: str
+    score: float | None = None
+    fact_status: str | None = None
+    evidence_strength: str | None = None
+    star_preview: dict[str, Any] = Field(default_factory=dict)
+    snippet_text: str | None = None
+
+
+class VacancyFitRequirementRead(StrictBaseModel):
+    requirement: str
+    scope: str
+    severity: str
+    coverage_level: str
+    reason: str
+    evidence_ids: list[UUID] = Field(default_factory=list)
+    supporting_evidence: list[VacancyFitEvidenceRead] = Field(default_factory=list)
+
+
+class VacancyFitCoverageRead(StrictBaseModel):
+    required: list[str] = Field(default_factory=list)
+    strong: list[VacancyFitRequirementRead] = Field(default_factory=list)
+    medium: list[VacancyFitRequirementRead] = Field(default_factory=list)
+    missing: list[VacancyFitRequirementRead] = Field(default_factory=list)
+
+
+class VacancyFitResponse(StrictBaseModel):
+    analysis_id: UUID | None = None
+    analysis_version: str | None = None
+    vacancy_id: UUID
+    overall_fit_score: int
+    skills_fit: int
+    evidence_fit: int
+    experience_fit: int
+    leadership_fit: int
+    gap_severity: str
+    readiness_recommendation: str
+    requirements: list[VacancyFitRequirementRead] = Field(default_factory=list)
+    evidence_coverage: VacancyFitCoverageRead
 
 
 class VacancyMatchResponse(StrictBaseModel):

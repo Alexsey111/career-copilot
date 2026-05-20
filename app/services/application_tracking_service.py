@@ -465,8 +465,9 @@ class ApplicationTrackingService:
                 },
             )
 
+        submission_source = source or "manual"
         application.status = "applied"
-        application.source = source
+        application.source = submission_source
         application.external_link = external_link
         application.applied_at = datetime.now(timezone.utc)
 
@@ -485,7 +486,7 @@ class ApplicationTrackingService:
             title="Application submitted manually",
             description="User confirmed manual submission",
             meta_json=build_application_applied_meta(
-                source=source or "manual",
+                source=submission_source,
                 external_link=external_link,
                 applied_at=application.applied_at,
             ),

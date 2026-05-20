@@ -54,3 +54,17 @@ class VacancyRepository:
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_by_user_id(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+    ) -> list[Vacancy]:
+        stmt = (
+            select(Vacancy)
+            .where(Vacancy.user_id == user_id)
+            .order_by(Vacancy.created_at.desc())
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())

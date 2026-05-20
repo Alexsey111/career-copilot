@@ -38,6 +38,27 @@ class ApplicationWorkflowResponse(BaseModel):
     is_final: bool = False
 
 
+class ApplicationAnalyticsSummaryResponse(BaseModel):
+    total_applications: int
+    count_by_status: dict[str, int]
+    created_per_day: dict[str, int]
+    applied_per_day: dict[str, int]
+    conversion_to_applied: float
+    offers_count: int
+    rejections_count: int
+    average_time_to_apply_hours: float | None
+
+
+class ApplicationReminderItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    application_id: UUID
+    reminder_type: str
+    title: str
+    description: str
+    days_since_event: int
+
+
 class ApplicationStatusHistoryItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

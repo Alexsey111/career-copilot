@@ -31,11 +31,14 @@ def build_resume_content(
     warnings: list[WarningItem],
     source: str,
     based_on_achievements: list[Any],
+    selected_achievement_ids: list[Any] | None = None,
     based_on_analysis_id: Any,
     confidence: float,
     generation_prompt_version: str | None,
     generated_at: str,
     trace: GenerationTrace | None = None,
+    selected_evidence_ids: list[Any] | None = None,
+    evidence_selection_reason: list[dict[str, Any]] | None = None,
 ) -> dict:
     payload = {
         "document_kind": "resume",
@@ -62,7 +65,10 @@ def build_resume_content(
         "meta": {
             "source": source,
             "based_on_achievements": based_on_achievements,
+            "selected_achievement_ids": to_jsonable(selected_achievement_ids or []),
             "based_on_analysis_id": based_on_analysis_id,
+            "selected_evidence_ids": to_jsonable(selected_evidence_ids or []),
+            "evidence_selection_reason": to_jsonable(evidence_selection_reason or []),
             "confidence": confidence,
             "generation_prompt_version": generation_prompt_version,
             "generated_at": generated_at,
@@ -96,11 +102,14 @@ def build_cover_letter_content(
     warnings: list[WarningItem],
     source: str,
     based_on_achievements: list[Any],
+    selected_achievement_ids: list[Any] | None = None,
     based_on_analysis_id: Any,
     confidence: float,
     generation_prompt_version: str | None,
     generated_at: str,
     trace: GenerationTrace | None = None,
+    selected_evidence_ids: list[Any] | None = None,
+    evidence_selection_reason: list[dict[str, Any]] | None = None,
 ) -> dict:
     payload = {
         "document_kind": "cover_letter",
@@ -125,7 +134,10 @@ def build_cover_letter_content(
         "meta": {
             "source": source,
             "based_on_achievements": based_on_achievements,
+            "selected_achievement_ids": to_jsonable(selected_achievement_ids or []),
             "based_on_analysis_id": based_on_analysis_id,
+            "selected_evidence_ids": to_jsonable(selected_evidence_ids or []),
+            "evidence_selection_reason": to_jsonable(evidence_selection_reason or []),
             "confidence": confidence,
             "generation_prompt_version": generation_prompt_version,
             "generated_at": generated_at,

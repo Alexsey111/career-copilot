@@ -1,6 +1,6 @@
 # Структура проекта
 
-Документ описывает актуальную структуру `career-copilot`, роли основных папок и границы слоев backend. Проект построен вокруг FastAPI backend, Streamlit frontend, SQLAlchemy/Alembic persistence, AI orchestration и набора сервисов для career pipeline: профиль, вакансии, документы, заявки, интервью, readiness/evaluation и review loop.
+Документ описывает актуальную структуру `career-copilot`, роли основных папок и границы слоев backend. Проект построен вокруг FastAPI backend, Streamlit frontend, SQLAlchemy/Alembic persistence, AI orchestration и набора сервисов для career pipeline: профиль, вакансии, документы, заявки, интервью, evidence provenance, vacancy intelligence, career strategy, readiness/evaluation и review loop.
 
 ## Общая архитектура
 
@@ -24,6 +24,7 @@ flowchart TD
 
     SERVICES --> WORKER[app/workers/pipeline_worker.py]
     SERVICES --> STORAGE[(local/object storage)]
+    SERVICES --> INSIGHTS[Vacancy Intelligence / Career Strategy]
 
     API --> CORE[app/core/*]
     API --> SECURITY[app/security/*]
@@ -103,9 +104,11 @@ app/api/
     ├── auth.py
     ├── documents.py
     ├── executions.py
+    ├── evidence.py
     ├── files.py
     ├── health.py
     ├── interviews.py
+    ├── career_insights.py
     ├── pipeline_async.py
     ├── pipeline_execution_routes.py
     ├── profile.py
@@ -118,10 +121,12 @@ app/api/
 - `routes/auth.py` обслуживает register/login/refresh/logout/password reset/session flow.
 - `routes/files.py` принимает upload файлов.
 - `routes/profile.py` отвечает за импорт резюме, структурирование профиля и achievement review.
-- `routes/vacancies.py` импортирует вакансии, запускает анализ и matching.
+- `routes/vacancies.py` импортирует вакансии, запускает анализ, matching и explainable vacancy fit.
 - `routes/documents.py` управляет генерацией, review, activation, rollback, diff и export документов.
 - `routes/applications.py` управляет откликами и статусными переходами.
 - `routes/interviews.py` управляет interview sessions, ответами, оценкой и coaching.
+- `routes/career_insights.py` собирает repeated gaps, evidence coverage trends и application pattern insights.
+- `routes/evidence.py` отдает evidence snippets, usage metadata и reviewable provenance.
 - `routes/pipeline_execution_routes.py`, `pipeline_async.py` и `executions.py` покрывают pipeline execution lifecycle, async запуск и события.
 - `routes/review_workspace_routes.py` обслуживает human-in-the-loop review workspace.
 - `routes/applications.py` также отдает workflow metadata, timeline и activity log для application pipeline UI.
@@ -254,6 +259,7 @@ app/schemas/
 ├── auth.py
 ├── base.py
 ├── common_types.py
+├── career_insights.py
 ├── document.py
 ├── interview.py
 ├── json_contracts.py
@@ -266,7 +272,7 @@ app/schemas/
 └── vacancy.py
 ```
 
-- `auth.py`, `application.py`, `document.py`, `interview.py`, `vacancy.py`, `source_file.py` описывают публичные API-контракты.
+- `auth.py`, `application.py`, `document.py`, `interview.py`, `vacancy.py`, `source_file.py`, `career_insights.py`, `evidence.py` описывают публичные API-контракты.
 - `application.py` содержит application detail, dashboard, workflow, timeline, status history и activity log contracts.
 - `profile_import.py`, `profile_structured.py`, `achievement_extract.py`, `resume_generation.py` покрывают profile/resume flows.
 - `pipeline_schemas.py` описывает pipeline execution responses.
@@ -289,6 +295,7 @@ app/services/
 ├── auth_service.py
 ├── career_copilot_orchestrator.py
 ├── career_pipeline_orchestrator.py
+├── career_insights_service.py
 ├── cover_letter_generation_service.py
 ├── coverage_evaluator.py
 ├── coverage_mapping_service.py
@@ -307,6 +314,7 @@ app/services/
 ├── evaluation_analytics_service.py
 ├── evaluation_tracking_service.py
 ├── evidence_quality_service.py
+├── evidence_coverage_service.py
 ├── impact_measurement_service.py
 ├── interview_preparation_service.py
 ├── interview_serialization.py
@@ -335,6 +343,8 @@ app/services/
 ├── source_file_service.py
 ├── star_extraction_service.py
 ├── storage_service.py
+├── gap_trend_service.py
+├── vacancy_fit_service.py
 ├── trace_serialization.py
 ├── trend_service.py
 ├── vacancy_analysis_service.py
@@ -346,6 +356,7 @@ app/services/
 - profile/source files: `source_file_service.py`, `storage_service.py`, `resume_parser_service.py`, `profile_import_service.py`, `profile_structuring_service.py`, `profile_builder_service.py`
 - achievements/evidence/retrieval/STAR: `achievement_extraction_service.py`, `achievement_retrieval_service.py`, `evidence_quality_service.py`, `star_extraction_service.py`
 - vacancies: `vacancy_import_service.py`, `vacancy_analysis_service.py`, `vacancy_text_extractors/`
+- vacancy intelligence / career strategy: `vacancy_fit_service.py`, `career_insights_service.py`, `gap_trend_service.py`, `evidence_coverage_service.py`
 - documents: `resume_generation_service.py`, `cover_letter_generation_service.py`, `resume_renderer.py`, `document_*`
 - applications: `application_tracking_service.py`, `impact_measurement_service.py`
 - interviews: `interview_preparation_service.py`, `answer_evaluation_engine.py`, `interview_serialization.py`
@@ -394,12 +405,21 @@ frontend/
 └── streamlit/
     ├── api_client.py
     ├── app.py
+    ├── components/
+    │   ├── career_strategy_workspace.py
+    │   ├── document_review_workspace.py
+    │   ├── evidence_workspace.py
+    │   └── interview_prep_workspace.py
     └── __init__.py
 ```
 
-- `app.py` содержит MVP UI flow: профиль, достижения, вакансии, документы, заявки, интервью и review.
+- `app.py` содержит MVP UI flow: профиль, достижения, вакансии, документы, заявки, интервью, evidence, vacancy intelligence и career strategy.
 - `app.py` также показывает workflow, status history и activity log для application dashboard.
 - `api_client.py` инкапсулирует backend API calls и export-запросы.
+- `components/document_review_workspace.py` показывает review summary, evidence provenance и activation flow.
+- `components/evidence_workspace.py` показывает evidence snippets, coverage и provenance.
+- `components/interview_prep_workspace.py` показывает interview prep sessions, supporting evidence и readiness.
+- `components/career_strategy_workspace.py` показывает repeated gaps, coverage trends и deterministic recommendations.
 
 ## `alembic/`
 
@@ -423,23 +443,36 @@ alembic/
 docs/
 ├── engineering/
 │   └── transaction-boundaries.md
+├── career_strategy.md
+├── demo_walkthrough.md
+├── document_review_workspace.md
 ├── document_mutation_service.md
 ├── evaluation_snapshot_migration.md
+├── evidence_layer.md
 ├── local-operational-routine.md
 ├── PipelineExecutionQuickStart.md
 ├── PipelineExecutionTracking.md
 ├── project-structure.md
+├── vacancy_intelligence.md
 ├── readiness_evaluation_integration.md
 ├── readiness_evaluation_service.md
+├── milestones/
+│   └── mvp_demo_readiness.md
 └── recommendation_categories.md
 ```
 
 - `project-structure.md` - этот документ.
+- `demo_walkthrough.md` - reproducible demo walkthrough для оператора.
+- `document_review_workspace.md` - contract для Document Review Workspace.
+- `evidence_layer.md` - evidence provenance, reviewability и supporting evidence.
+- `vacancy_intelligence.md` - explainable vacancy fit breakdown и readiness recommendation.
+- `career_strategy.md` - repeated gaps, evidence trends и deterministic recommendations.
 - `application_pipeline.md` - контракт application pipeline: статусы, submit boundary, workflow, timeline, event taxonomy и meta contract.
 - `local-operational-routine.md` - локальные эксплуатационные инструкции.
 - `PipelineExecution*.md` - документация execution tracking.
 - `readiness_*` и `recommendation_categories.md` - документация evaluation/readiness/recommendation областей.
 - `document_mutation_service.md` - документация mutation flow для документов.
+- `milestones/mvp_demo_readiness.md` - milestone note для demo readiness и guardrails.
 - `engineering/transaction-boundaries.md` - инженерные правила транзакционных границ.
 
 ## `scripts/`
@@ -454,13 +487,14 @@ scripts/
 ├── dev_db_reset.py
 ├── import_analyze_vacancy_utf8.py
 ├── list_recent_vacancy_analyses.py
+├── seed_demo.py
 ├── smoke_mvp_flow.py
 ├── test_orchestrator_break.py
 ├── test_orchestrator_manual.py
 └── verify_pdf_extraction_utf8.py
 ```
 
-- smoke/dev scripts помогают проверять MVP flow, состояние БД, AI runs, vacancy parsing и PDF/text extraction.
+- smoke/dev scripts помогают проверять MVP flow, состояние БД, AI runs, vacancy parsing, PDF/text extraction и reproducible demo seeding.
 
 ## `infra/`
 
@@ -496,6 +530,7 @@ tests/
 - AI tests для orchestrator, model override, prompt rendering и registry integrity.
 - Migration tests для drift checks.
 - E2E/smoke tests для MVP flow.
+- Demo/readiness tests for reproducible seeded flows and stable workspace rendering.
 - `tests/evals/` покрывает evaluation models/repositories/services, readiness scoring, coverage mapping, recommendations, review action loop, retry policy, progress tracking, snapshots, signals, retrieval и STAR models.
 
 ## Основные потоки данных

@@ -29,6 +29,7 @@ async def _get_document(
 async def test_generated_documents_content_json_contains_review_audit_fields(
     client,
     db_session: AsyncSession,
+    test_user,
 ) -> None:
     upload_response = await client.post(
         f"{API_PREFIX}/files/upload",
@@ -56,6 +57,28 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
         json={"extraction_id": extraction_id},
     )
     assert achievements_response.status_code == 200, achievements_response.text
+    achievements_payload = achievements_response.json()
+    achievements = achievements_payload.get("achievements") or []
+
+    assert achievements, "Expected extracted achievements to support provenance"
+    for achievement in achievements:
+        achievement_id = achievement.get("id")
+        assert achievement_id, "Expected achievement id"
+
+        review_response = await client.patch(
+            f"{API_PREFIX}/profile/achievements/{achievement_id}/review",
+            json={
+                "title": achievement.get("title"),
+                "situation": achievement.get("situation"),
+                "task": achievement.get("task"),
+                "action": achievement.get("action"),
+                "result": achievement.get("result"),
+                "metric_text": achievement.get("metric_text"),
+                "fact_status": "confirmed",
+                "evidence_note": achievement.get("evidence_note") or "Confirmed in test review flow.",
+            },
+        )
+        assert review_response.status_code == 200, review_response.text
 
     vacancy_response = await client.post(
         f"{API_PREFIX}/vacancies/import",
@@ -98,6 +121,17 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
     assert cover_letter_response.status_code == 200, cover_letter_response.text
     cover_letter_document_id = cover_letter_response.json()["document_id"]
 
+    evidence_response = await client.get(f"{API_PREFIX}/evidence/snippets")
+    assert evidence_response.status_code == 200, evidence_response.text
+    evidence_payload = evidence_response.json()
+    assert isinstance(evidence_payload, list)
+    evidence_ids = {
+        str(item.get("id") or "").strip()
+        for item in evidence_payload
+        if str(item.get("id") or "").strip()
+    }
+    assert evidence_ids
+
     resume_document = await _get_document(db_session, resume_document_id)
     cover_letter_document = await _get_document(db_session, cover_letter_document_id)
 
@@ -113,6 +147,20 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
     assert "selection_rationale" in resume_sections
     assert "warnings" in resume_sections
     assert "selected_achievements" in resume_sections
+
+    resume_meta = resume_content["meta"]
+    assert "selected_achievement_ids" in resume_meta
+    assert "selected_evidence_ids" in resume_meta
+    assert "evidence_selection_reason" in resume_meta
+    assert isinstance(resume_meta["selected_achievement_ids"], list)
+    assert isinstance(resume_meta["selected_evidence_ids"], list)
+    assert isinstance(resume_meta["evidence_selection_reason"], list)
+    assert resume_meta["selected_achievement_ids"]
+    assert resume_meta["selected_evidence_ids"]
+    assert set(resume_meta["selected_evidence_ids"]).issubset(evidence_ids)
+    assert set(resume_meta["selected_evidence_ids"]).isdisjoint(
+        set(resume_meta["selected_achievement_ids"])
+    )
 
     assert resume_sections["matched_requirements"]
     assert resume_sections["gap_requirements"]
@@ -136,6 +184,20 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
     assert "selected_achievements" in cover_letter_sections
     assert "claims_needing_confirmation" in cover_letter_sections
     assert "warnings" in cover_letter_sections
+
+    cover_letter_meta = cover_letter_content["meta"]
+    assert "selected_achievement_ids" in cover_letter_meta
+    assert "selected_evidence_ids" in cover_letter_meta
+    assert "evidence_selection_reason" in cover_letter_meta
+    assert isinstance(cover_letter_meta["selected_achievement_ids"], list)
+    assert isinstance(cover_letter_meta["selected_evidence_ids"], list)
+    assert isinstance(cover_letter_meta["evidence_selection_reason"], list)
+    assert cover_letter_meta["selected_achievement_ids"]
+    assert cover_letter_meta["selected_evidence_ids"]
+    assert set(cover_letter_meta["selected_evidence_ids"]).issubset(evidence_ids)
+    assert set(cover_letter_meta["selected_evidence_ids"]).isdisjoint(
+        set(cover_letter_meta["selected_achievement_ids"])
+    )
 
     assert cover_letter_sections["matched_requirements"]
     assert cover_letter_sections["gap_requirements"]

@@ -26,6 +26,7 @@ from app.schemas.document import (
     DocumentDiffResponse,
     DocumentHistoryResponse,
     DocumentReadinessResponse,
+    DocumentReviewSummaryResponse,
     DocumentReviewRequest,
     DocumentReviewResponse,
     DocumentRollbackResponse,
@@ -43,6 +44,7 @@ from app.services.document_rollback_service import (
 )
 from app.services.document_diff_service import DocumentDiffService
 from app.services.cover_letter_generation_service import CoverLetterGenerationService
+from app.services.document_review_summary_service import DocumentReviewSummaryService
 from app.services.document_review_service import DocumentReviewService
 from app.services.resume_generation_service import ResumeGenerationService
 from app.services.readiness_gate_service import ReadinessGateService
@@ -255,12 +257,35 @@ async def enhance_cover_letter(
         draft_text=payload.cover_letter_text,
     )
 
-    return CoverLetterEnhanceResponse(
-        document_id=document.id,
+    new_content = dict(document.content_json or {})
+    meta = dict(new_content.get("meta", {}))
+    meta["enhanced_from"] = str(document.id)
+    meta["diff_from_previous"] = {
+        "rendered_text_changed": enhanced_text != (document.rendered_text or ""),
+        "source_document_id": str(document.id),
+    }
+    new_content["meta"] = meta
+
+    new_document = await repo.create(
+        session,
+        user_id=current_user.id,
         vacancy_id=document.vacancy_id,
-        review_status=document.review_status,
-        version_label=document.version_label,
-        created_at=document.created_at,
+        derived_from_id=document.id,
+        analysis_id=document.analysis_id,
+        document_kind=document.document_kind,
+        version_label="cover_letter_enhanced_v1",
+        review_status="draft",
+        is_active=False,
+        content_json=new_content,
+        rendered_text=enhanced_text,
+    )
+
+    return CoverLetterEnhanceResponse(
+        document_id=new_document.id,
+        vacancy_id=new_document.vacancy_id,
+        review_status=new_document.review_status,
+        version_label=new_document.version_label,
+        created_at=new_document.created_at,
         enhanced_text=enhanced_text,
     )
 
@@ -364,6 +389,48 @@ async def get_document_readiness(
         blockers=readiness.blockers,
         warnings=readiness.warnings,
         score=readiness.score,
+    )
+
+
+@router.get("/{document_id}/review-summary", response_model=DocumentReviewSummaryResponse)
+async def get_document_review_summary(
+    document_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentReviewSummaryResponse:
+    repo = DocumentVersionRepository()
+    document = await repo.get_by_id(
+        session,
+        document_id,
+        user_id=current_user.id,
+    )
+    if document is None or document.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="document not found",
+        )
+
+    service = DocumentReviewSummaryService()
+    summary = service.build_summary(document)
+    preview = (document.rendered_text or "")[:1200] or None
+
+    return DocumentReviewSummaryResponse(
+        document_id=document.id,
+        document_kind=document.document_kind,
+        review_status=document.review_status,
+        is_active=document.is_active,
+        version_label=document.version_label,
+        readiness=DocumentReadinessResponse.model_validate(summary["readiness"]),
+        claims_needing_confirmation=summary["claims_needing_confirmation"],
+        warnings=summary["warnings"],
+        selected_achievements=summary["selected_achievements"],
+        selected_achievement_ids=summary["selected_achievement_ids"],
+        selected_evidence_ids=summary["selected_evidence_ids"],
+        evidence_selection_reason=summary["evidence_selection_reason"],
+        matched_keywords=summary["matched_keywords"],
+        missing_keywords=summary["missing_keywords"],
+        selection_rationale=summary["selection_rationale"],
+        rendered_text_preview=preview,
     )
 
 
@@ -532,9 +599,9 @@ async def get_document_history(
             other_document_id=documents[1].id,
         )
         comparison = {
-            "from_document_id": diff_result["document_id"],
-            "to_document_id": diff_result["other_document_id"],
-            "diff": diff_result["diff"],
+            "from_document_id": diff_result["base_document_id"],
+            "to_document_id": diff_result["target_document_id"],
+            "diff": diff_result["summary"],
         }
 
     return DocumentHistoryResponse(
@@ -617,8 +684,8 @@ async def diff_documents(
     )
 
     return DocumentDiffResponse(
-        document_id=result["document_id"],
-        other_document_id=result["other_document_id"],
+        base_document_id=result["base_document_id"],
+        target_document_id=result["target_document_id"],
         document_kind=result["document_kind"],
-        diff=result["diff"],
+        sections=result["sections"],
     )

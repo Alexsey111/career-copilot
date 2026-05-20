@@ -10,6 +10,8 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+from sqlalchemy import select
+
 pytestmark = pytest.mark.asyncio
 
 API_PREFIX = "/api/v1"
@@ -292,7 +294,15 @@ async def test_document_history_shows_all_versions(client, db_session):
     assert history["latest"]["id"] == document_c_id
     assert history["comparison"]["from_document_id"] == document_c_id
     assert history["comparison"]["to_document_id"] == document_b_id
-    assert history["comparison"]["diff"]
+    assert history["comparison"]["diff"] == ""
+
+    stmt = select(DocumentVersion).where(DocumentVersion.id == document_c_id)
+    doc_c_db = (await db_session.execute(stmt)).scalar_one_or_none()
+    assert doc_c_db is not None
+    assert str(doc_c_db.derived_from_id) == document_b_id
+    assert doc_c_db.content_json is not None
+    assert doc_c_db.content_json["meta"]["enhanced_from"] == document_b_id
+    assert doc_c_db.content_json["meta"]["diff_from_previous"]
 
     # Порядок: C, B, A (новые первыми)
     assert history["items"][0]["id"] == document_c_id
@@ -311,3 +321,56 @@ async def test_document_history_shows_all_versions(client, db_session):
     assert history["items"][2]["derived_from_id"] is None
     assert history["items"][2]["is_active"] is False
     assert history["items"][2]["review_status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_enhance_creates_new_inactive_version(client, db_session, test_user):
+    await _prepare_profile(client)
+    vacancy_id = await _create_analyzed_vacancy(client)
+
+    generate_response = await client.post(
+        f"{API_PREFIX}/documents/letters/generate",
+        json={"vacancy_id": vacancy_id},
+    )
+    assert generate_response.status_code == 200, generate_response.text
+    document_a_id = generate_response.json()["document_id"]
+
+    doc_a_response = await client.get(f"{API_PREFIX}/documents/{document_a_id}")
+    assert doc_a_response.status_code == 200, doc_a_response.text
+    original_rendered = doc_a_response.json()["rendered_text"]
+
+    from app.services.cover_letter_generation_service import CoverLetterGenerationService
+
+    with patch.object(
+        CoverLetterGenerationService,
+        "enhance_cover_letter_with_ai",
+        new=AsyncMock(return_value="Enhanced cover letter text"),
+    ):
+        enhance_response = await client.post(
+            f"{API_PREFIX}/documents/letters/{document_a_id}/enhance",
+            json={"cover_letter_text": original_rendered},
+        )
+
+    assert enhance_response.status_code == 200, enhance_response.text
+    payload = enhance_response.json()
+    document_b_id = payload["document_id"]
+    assert document_b_id != document_a_id
+    assert payload["review_status"] == "draft"
+    assert payload["version_label"] == "cover_letter_enhanced_v1"
+
+    doc_b_response = await client.get(f"{API_PREFIX}/documents/{document_b_id}")
+    assert doc_b_response.status_code == 200, doc_b_response.text
+    document_b = doc_b_response.json()
+    assert document_b["review_status"] == "draft"
+    assert document_b["is_active"] is False
+    assert document_b["version_label"] == "cover_letter_enhanced_v1"
+
+    from app.models import DocumentVersion
+
+    stmt = select(DocumentVersion).where(DocumentVersion.id == UUID(document_b_id))
+    doc_b_db = (await db_session.execute(stmt)).scalar_one_or_none()
+    assert doc_b_db is not None
+    assert str(doc_b_db.derived_from_id) == document_a_id
+    assert doc_b_db.is_active is False
+    assert doc_b_db.content_json["meta"]["enhanced_from"] == document_a_id
+    assert doc_b_db.content_json["meta"]["diff_from_previous"]["source_document_id"] == document_a_id

@@ -10,6 +10,7 @@ from pydantic import Field
 
 from app.schemas.json_contracts import DocumentKind, StrictBaseModel
 
+
 class ResumeGenerateRequest(StrictBaseModel):
     vacancy_id: UUID
 
@@ -127,11 +128,18 @@ class DocumentHistoryResponse(StrictBaseModel):
     items: list[DocumentSnapshotHistoryItem] = Field(default_factory=list)
 
 
+class DocumentSectionDiffResponse(StrictBaseModel):
+    section: str
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    changed: list[str] = Field(default_factory=list)
+
+
 class DocumentDiffResponse(StrictBaseModel):
-    document_id: UUID
-    other_document_id: UUID
+    base_document_id: UUID
+    target_document_id: UUID
     document_kind: DocumentKind
-    diff: str
+    sections: list[DocumentSectionDiffResponse] = Field(default_factory=list)
 
 
 class DocumentReadinessResponse(StrictBaseModel):
@@ -139,6 +147,25 @@ class DocumentReadinessResponse(StrictBaseModel):
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     score: float | None = None
+
+
+class DocumentReviewSummaryResponse(StrictBaseModel):
+    document_id: UUID
+    document_kind: str
+    review_status: str
+    is_active: bool
+    version_label: str | None
+    readiness: DocumentReadinessResponse
+    claims_needing_confirmation: list[dict] = Field(default_factory=list)
+    warnings: list[dict] = Field(default_factory=list)
+    selected_achievements: list[dict] = Field(default_factory=list)
+    selected_achievement_ids: list[str] = Field(default_factory=list)
+    selected_evidence_ids: list[str] = Field(default_factory=list)
+    evidence_selection_reason: list[dict] = Field(default_factory=list)
+    matched_keywords: list[str] = Field(default_factory=list)
+    missing_keywords: list[str] = Field(default_factory=list)
+    selection_rationale: list[dict] = Field(default_factory=list)
+    rendered_text_preview: str | None = None
 
 
 class DocumentActivateResponse(StrictBaseModel):

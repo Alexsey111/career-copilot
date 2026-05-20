@@ -16,10 +16,12 @@ from app.schemas.vacancy import (
     VacancyAnalysisResponse,
     VacancyImportRequest,
     VacancyImportResponse,
+    VacancyFitResponse,
     VacancyRead,
 )
 from app.services.vacancy_analysis_service import VacancyAnalysisService
 from app.services.vacancy_import_service import VacancyImportService
+from app.services.vacancy_fit_service import VacancyFitService
 
 
 router = APIRouter(prefix="/vacancies", tags=["vacancies"])
@@ -196,3 +198,19 @@ async def match_vacancy(
         analysis_version=analysis.analysis_version,
         created_at=analysis.created_at,
     )
+
+
+@router.get("/{vacancy_id}/fit", response_model=VacancyFitResponse)
+async def get_vacancy_fit(
+    vacancy_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> VacancyFitResponse:
+    service = VacancyFitService()
+    fit = await service.build_vacancy_fit(
+        session,
+        vacancy_id=vacancy_id,
+        user_id=current_user.id,
+    )
+
+    return VacancyFitResponse.model_validate(fit)

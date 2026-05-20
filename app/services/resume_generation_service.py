@@ -5,7 +5,7 @@ from __future__ import annotations
 import difflib
 import re
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -15,10 +15,12 @@ if TYPE_CHECKING:
     from app.ai.orchestrator import AIOrchestrator
 
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
+from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.repositories.document_version_repository import DocumentVersionRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
+from app.domain.evidence import EvidenceSourceType
 from app.domain.document_models import SelectedAchievement
 from app.services.document_compat import (
     achievement_to_dict,
@@ -27,6 +29,8 @@ from app.services.document_compat import (
 )
 from app.services.document_feedback import build_claim, build_warning
 from app.services.document_builders import build_resume_content
+from app.services.evidence_extraction_service import EvidenceExtractionService
+from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.resume_renderer import render_resume
 
 
@@ -52,9 +56,12 @@ class ResumeGenerationService:
         vacancy_repository: VacancyRepository | None = None,
         vacancy_analysis_repository: VacancyAnalysisRepository | None = None,
         candidate_profile_repository: CandidateProfileRepository | None = None,
+        evidence_snippet_repository: EvidenceSnippetRepository | None = None,
         file_extraction_repository: FileExtractionRepository | None = None,
         document_version_repository: DocumentVersionRepository | None = None,
         ai_orchestrator: AIOrchestrator | None = None,
+        evidence_extraction_service: EvidenceExtractionService | None = None,
+        evidence_selection_service: EvidenceSelectionService | None = None,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.vacancy_analysis_repository = (
@@ -63,11 +70,20 @@ class ResumeGenerationService:
         self.candidate_profile_repository = (
             candidate_profile_repository or CandidateProfileRepository()
         )
+        self.evidence_snippet_repository = (
+            evidence_snippet_repository or EvidenceSnippetRepository()
+        )
         self.file_extraction_repository = file_extraction_repository or FileExtractionRepository()
         self.document_version_repository = (
             document_version_repository or DocumentVersionRepository()
         )
         self.ai_orchestrator = ai_orchestrator
+        self.evidence_extraction_service = (
+            evidence_extraction_service or EvidenceExtractionService()
+        )
+        self.evidence_selection_service = (
+            evidence_selection_service or EvidenceSelectionService()
+        )
 
     async def generate_resume(
         self,
@@ -136,7 +152,120 @@ class ResumeGenerationService:
         selected_achievements = self._select_relevant_achievements(
             confirmed_achievements,
             matched_keywords,
+            user_id=str(vacancy.user_id),
         )
+
+        evidence_snippet_drafts = self.evidence_extraction_service.extract_from_achievements(
+            confirmed_achievements,
+            user_id=str(vacancy.user_id),
+            source_type=EvidenceSourceType.ACHIEVEMENT,
+        )
+        persisted_snippets = await self.evidence_snippet_repository.upsert_many(
+            session,
+            user_id=vacancy.user_id,
+            snippets=[
+                self.evidence_extraction_service.snippet_to_dict(snippet)
+                for snippet in evidence_snippet_drafts
+            ],
+        )
+        evidence_snippets = [
+            self._evidence_snippet_to_dict(item)
+            for item in persisted_snippets
+        ]
+        if not evidence_snippets:
+            existing_snippets = await self.evidence_snippet_repository.list_by_user_id(
+                session,
+                user_id=vacancy.user_id,
+                source_types=[EvidenceSourceType.ACHIEVEMENT],
+            )
+            evidence_snippets = [
+                self._evidence_snippet_to_dict(item)
+                for item in existing_snippets
+            ]
+
+        evidence_by_title = {
+            re.sub(r"\s+", " ", str(snippet.get("title") or "").strip()).lower(): snippet
+            for snippet in evidence_snippets
+            if str(snippet.get("title") or "").strip() and str(snippet.get("id") or "").strip()
+        }
+        evidence_by_id = {
+            str(snippet.get("id") or "").strip(): snippet
+            for snippet in evidence_snippets
+            if str(snippet.get("id") or "").strip()
+        }
+
+        selected_evidence_ids: list[str] = []
+        selected_evidence_reason: list[dict[str, Any]] = []
+        seen_selected_evidence_ids: set[str] = set()
+        for item in selected_achievements:
+            title_key = re.sub(r"\s+", " ", str(item.get("title") or "").strip()).lower()
+            snippet = evidence_by_title.get(title_key)
+            if snippet is None:
+                continue
+
+            evidence_id = str(snippet.get("id") or "").strip()
+            if not evidence_id or evidence_id in seen_selected_evidence_ids:
+                continue
+
+            seen_selected_evidence_ids.add(evidence_id)
+            selected_evidence_ids.append(evidence_id)
+            selected_evidence_reason.append(
+                {
+                    "evidence_id": evidence_id,
+                    "achievement_id": str(item.get("id") or "").strip() or None,
+                    "title": str(item.get("title") or "").strip(),
+                    "reason": str(item.get("reason") or "").strip() or "profile_core",
+                    "fact_status": str(item.get("fact_status") or "").strip() or "confirmed",
+                    "evidence_strength": str(snippet.get("evidence_strength") or "").strip() or None,
+                }
+            )
+
+        if not selected_evidence_ids and evidence_snippets:
+            fallback_ranked_evidence = self.evidence_selection_service.rank_evidence(
+                query_text=" ".join(matched_keywords or missing_keywords),
+                evidence_items=evidence_snippets,
+                required_skills=matched_keywords or missing_keywords,
+                source_types=["achievement"],
+                limit=3,
+            )
+            for item in fallback_ranked_evidence:
+                evidence_id = str(item.get("evidence_id") or "").strip()
+                if not evidence_id or evidence_id in seen_selected_evidence_ids:
+                    continue
+
+                snippet = evidence_by_id.get(evidence_id, {})
+                seen_selected_evidence_ids.add(evidence_id)
+                selected_evidence_ids.append(evidence_id)
+                selected_evidence_reason.append(
+                    {
+                        "evidence_id": evidence_id,
+                        "achievement_id": None,
+                        "title": str(item.get("title") or snippet.get("title") or "").strip(),
+                        "reason": str(item.get("reason") or "").strip() or "fallback evidence selection",
+                        "fact_status": str(item.get("fact_status") or snippet.get("fact_status") or "").strip()
+                        or None,
+                        "evidence_strength": str(
+                            item.get("evidence_strength") or snippet.get("evidence_strength") or ""
+                        ).strip() or None,
+                    }
+                )
+
+        for snippet in evidence_snippets:
+            snippet_id = str(snippet.get("id") or "")
+            if snippet_id not in seen_selected_evidence_ids:
+                continue
+            try:
+                await self.evidence_snippet_repository.record_usage(
+                    session,
+                    user_id=vacancy.user_id,
+                    evidence_snippet_id=UUID(snippet_id),
+                    usage_type="document",
+                    target_type="resume",
+                    target_id=str(vacancy.id),
+                    note="resume generation",
+                )
+            except Exception:
+                continue
 
         fit_summary = self._build_fit_summary(
             vacancy_title=vacancy.title,
@@ -220,7 +349,12 @@ class ResumeGenerationService:
             based_on_achievements=[
                 item["id"] for item in selected_achievements if item.get("id")
             ],
+            selected_achievement_ids=[
+                item["id"] for item in selected_achievements if item.get("id")
+            ],
             based_on_analysis_id=str(analysis.id),
+            selected_evidence_ids=selected_evidence_ids,
+            evidence_selection_reason=selected_evidence_reason or selection_rationale,
             confidence=self._compute_confidence(
                 selected_achievements=selected_achievements,
                 missing_keywords=missing_keywords,
@@ -441,14 +575,60 @@ class ResumeGenerationService:
             for item in self._get_confirmed_achievements(achievements)
         ]
 
+    def _evidence_snippet_to_dict(self, snippet) -> dict:
+        return {
+            "id": str(snippet.id),
+            "user_id": str(snippet.user_id),
+            "title": snippet.title,
+            "snippet_text": snippet.snippet_text,
+            "source_type": snippet.source_type,
+            "skills": list(snippet.skills_json or []),
+            "evidence_strength": snippet.evidence_strength,
+            "fact_status": snippet.fact_status,
+            "usage_count": snippet.usage_count,
+            "used_in_documents_count": snippet.used_in_documents_count,
+            "used_in_interviews_count": snippet.used_in_interviews_count,
+            "star_summary": snippet.star_summary_json or {},
+        }
+
     def _select_relevant_achievements(
         self,
         achievements: list[dict],
         keywords: list[str],
+        *,
+        user_id: str | None = None,
     ) -> list[dict]:
+        ordered_achievements = achievements
+        if user_id:
+            evidence_items = [
+                self.evidence_extraction_service.extract_from_achievement(
+                    achievement,
+                    user_id=user_id,
+                    source_type=EvidenceSourceType.ACHIEVEMENT,
+                ).as_dict()
+                for achievement in achievements
+            ]
+            ranked_evidence = self.evidence_selection_service.rank_evidence(
+                query_text=" ".join(keywords),
+                evidence_items=evidence_items,
+                required_skills=keywords,
+                source_types=["achievement"],
+                limit=3,
+            )
+            achievement_by_id = {
+                str(achievement.get("id")): achievement
+                for achievement in achievements
+                if achievement.get("id")
+            }
+            ordered_achievements = [
+                achievement_by_id[str(item.get("achievement_id"))]
+                for item in ranked_evidence
+                if str(item.get("achievement_id") or "") in achievement_by_id
+            ] or achievements
+
         selected: list[SelectedAchievement] = []
 
-        for achievement in achievements:
+        for achievement in ordered_achievements:
             title = str(achievement.get("title") or "").strip()
             if not title:
                 continue

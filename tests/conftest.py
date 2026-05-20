@@ -150,8 +150,7 @@ async def test_user(db_session: AsyncSession) -> User:
         auth_provider="test",
     )
     db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.flush()
     return user
 
 

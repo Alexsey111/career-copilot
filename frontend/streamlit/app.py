@@ -8,6 +8,12 @@ import httpx
 import streamlit as st
 
 from api_client import CareerCopilotApiClient, DEFAULT_API_BASE_URL
+from components import (
+    render_career_strategy_workspace_tab,
+    render_document_review_workspace_tab,
+    render_evidence_workspace_tab,
+    render_interview_prep_workspace_tab,
+)
 
 
 st.set_page_config(
@@ -28,29 +34,15 @@ APPLICATION_STATUS_LABELS = {
     "withdrawn": "Отозван",
 }
 
-INTERVIEW_STATUS_LABELS = {
-    "draft": "Черновик",
-    "answered": "С ответами",
-}
-
-QUESTION_TYPE_LABELS = {
-    "role_overview": "Обзор роли",
-    "must_have_requirement": "Обязательное требование",
-    "gap_preparation": "Подготовка по gap-зоне",
-    "strength_deep_dive": "Разбор сильной стороны",
-    "achievement_star_story": "STAR-история по достижению",
-}
-
-ANSWER_FORMAT_LABELS = {
-    "short_structured": "Короткий структурированный ответ",
-    "STAR_or_example": "STAR или конкретный пример",
-    "honest_gap_response": "Честный ответ по gap-зоне",
-    "STAR": "STAR",
-}
-
 APPLICATION_OUTCOME_LABELS = {
     "rejected": "Отказ",
     "offer": "Оффер",
+}
+
+APPLICATION_REMINDER_LABELS = {
+    "draft_stale": "Черновик без активности",
+    "ready_not_submitted": "Готов к отправке, но не отправлен",
+    "follow_up_missing": "Нет follow-up по отклику",
 }
 
 DEMO_VACANCY_TITLE_LABELS = {
@@ -76,24 +68,6 @@ def format_optional_datetime(value: str | None) -> str:
     if not value:
         return "—"
     return value.replace("T", " ")[:19]
-
-
-def format_interview_status(value: str | None) -> str:
-    if not value:
-        return "—"
-    return INTERVIEW_STATUS_LABELS.get(value, value)
-
-
-def format_question_type(value: str | None) -> str:
-    if not value:
-        return "—"
-    return QUESTION_TYPE_LABELS.get(value, value)
-
-
-def format_answer_format(value: str | None) -> str:
-    if not value:
-        return "—"
-    return ANSWER_FORMAT_LABELS.get(value, value)
 
 
 def format_application_outcome(value: str | None) -> str:
@@ -178,12 +152,6 @@ def init_session_state() -> None:
         st.session_state.approved_cover_letter = None
     if "application" not in st.session_state:
         st.session_state.application = None
-    if "application_list" not in st.session_state:
-        st.session_state.application_list = None
-    if "interview_session" not in st.session_state:
-        st.session_state.interview_session = None
-    if "interview_answers_result" not in st.session_state:
-        st.session_state.interview_answers_result = None
     if "auth_token" not in st.session_state:
         st.session_state.auth_token = None
     if "user_email" not in st.session_state:
@@ -258,6 +226,7 @@ def render_home() -> None:
 - подтверждение документов человеком;
 - создание записи отклика;
 - подготовка к собеседованию;
+- Interview Prep Workspace;
 - сохранение ответов на вопросы интервью и базовая обратная связь.
 """
     )
@@ -316,8 +285,6 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Резюме загружено")
 
     if st.session_state.source_file:
@@ -382,8 +349,6 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Резюме импортировано")
 
     if st.session_state.resume_import:
@@ -455,8 +420,6 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Структурированный профиль извлечён")
 
     if st.session_state.structured_profile:
@@ -559,8 +522,6 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Достижения извлечены")
 
     if st.session_state.achievements:
@@ -734,8 +695,6 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
                 st.session_state.approved_resume = None
                 st.session_state.approved_cover_letter = None
                 st.session_state.application = None
-                st.session_state.interview_session = None
-                st.session_state.interview_answers_result = None
 
                 st.success("Проверка достижений сохранена")
                 st.rerun()
@@ -853,8 +812,6 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Вакансия импортирована")
 
     if st.session_state.vacancy:
@@ -919,8 +876,6 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Вакансия проанализирована")
 
     if st.session_state.vacancy_analysis:
@@ -1003,6 +958,135 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
         with st.expander("Raw JSON результата", expanded=False):
             st.json(analysis)
 
+    if vacancy_id:
+        st.divider()
+        _render_vacancy_intelligence_block(client, vacancy_id=str(vacancy_id), token=token)
+
+
+def _render_vacancy_intelligence_block(
+    client: CareerCopilotApiClient,
+    *,
+    vacancy_id: str,
+    token: str | None = None,
+) -> None:
+    st.markdown("### Vacancy Intelligence")
+    st.caption("Deterministic fit breakdown for operational guidance, not hiring probability.")
+
+    try:
+        fit = client.get_vacancy_fit(vacancy_id, token=token)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {400, 404}:
+            st.info("Vacancy intelligence is available after vacancy analysis and profile extraction.")
+        else:
+            st.warning(f"Vacancy intelligence unavailable: HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.warning("Unable to connect to backend for vacancy intelligence.")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.warning("Vacancy intelligence returned an unexpected response.")
+        st.code(str(exc))
+        return
+
+    if not isinstance(fit, dict):
+        st.warning("Vacancy intelligence returned an unexpected payload.")
+        st.json(fit)
+        return
+
+    recommendation = str(fit.get("readiness_recommendation") or "—")
+    gap_severity = str(fit.get("gap_severity") or "—")
+
+    if recommendation == "Ready to apply":
+        st.success(recommendation)
+    elif recommendation == "Apply with caution":
+        st.warning(recommendation)
+    else:
+        st.error(recommendation)
+
+    col_overall, col_skills, col_evidence, col_experience, col_leadership = st.columns(5)
+    with col_overall:
+        st.metric("Overall fit", fit.get("overall_fit_score", 0))
+    with col_skills:
+        st.metric("Skills", fit.get("skills_fit", 0))
+    with col_evidence:
+        st.metric("Evidence", fit.get("evidence_fit", 0))
+    with col_experience:
+        st.metric("Experience", fit.get("experience_fit", 0))
+    with col_leadership:
+        st.metric("Leadership", fit.get("leadership_fit", 0))
+
+    st.caption(f"gap_severity: {gap_severity}")
+    if fit.get("analysis_version"):
+        st.caption(f"analysis_version: {fit.get('analysis_version')}")
+
+    coverage = fit.get("evidence_coverage") or {}
+    required = coverage.get("required") or []
+    if required:
+        st.markdown("#### This vacancy requires")
+        for item in required:
+            st.markdown(f"- {item}")
+
+    def _render_coverage_group(label: str, items: list[dict[str, object]], kind: str) -> None:
+        st.markdown(f"#### {label}")
+        if not items:
+            st.caption("—")
+            return
+
+        for item in items:
+            requirement = str(item.get("requirement") or "Requirement")
+            reason = str(item.get("reason") or "—")
+            scope = str(item.get("scope") or "—")
+            severity = str(item.get("severity") or "—")
+            evidence_ids = [str(value) for value in (item.get("evidence_ids") or []) if str(value).strip()]
+            supporting_evidence = item.get("supporting_evidence") or []
+
+            with st.container(border=True):
+                if kind == "strong":
+                    st.success(requirement)
+                elif kind == "medium":
+                    st.warning(requirement)
+                else:
+                    st.info(requirement)
+                st.caption(f"scope: {scope} · severity: {severity}")
+                st.caption(f"reason: {reason}")
+                st.caption(
+                    "evidence_ids: " + (", ".join(evidence_ids) if evidence_ids else "—")
+                )
+
+                if supporting_evidence:
+                    with st.expander("Supporting evidence", expanded=False):
+                        for evidence in supporting_evidence:
+                            title = str(evidence.get("title") or "Evidence").strip()
+                            evidence_id = str(evidence.get("evidence_id") or "").strip() or "—"
+                            score = evidence.get("score")
+                            fact_status = str(evidence.get("fact_status") or "—")
+                            evidence_strength = str(evidence.get("evidence_strength") or "—")
+                            st.markdown(f"**{title}**")
+                            st.caption(f"evidence_id: {evidence_id}")
+                            st.caption(
+                                f"score: {round(float(score)) if score is not None else '—'} · "
+                                f"fact_status: {fact_status} · strength: {evidence_strength}"
+                            )
+                            star_preview = evidence.get("star_preview") or {}
+                            if isinstance(star_preview, dict) and star_preview:
+                                st.caption(
+                                    "STAR preview: "
+                                    + ", ".join(
+                                        f"{key}={value}"
+                                        for key, value in star_preview.items()
+                                        if value not in (None, "", [])
+                                    )
+                                )
+                            snippet_text = str(evidence.get("snippet_text") or "").strip()
+                            if snippet_text:
+                                st.write(snippet_text)
+
+    _render_coverage_group("Strong evidence", coverage.get("strong") or [], "strong")
+    _render_coverage_group("Medium evidence", coverage.get("medium") or [], "medium")
+    _render_coverage_group("No confirmed evidence", coverage.get("missing") or [], "missing")
+
 
 def render_resume_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("7. Генерация адаптированного резюме")
@@ -1062,8 +1146,6 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Адаптированное резюме сгенерировано")
 
     if st.session_state.generated_resume:
@@ -1161,8 +1243,6 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Сопроводительное письмо сгенерировано")
 
     if st.session_state.generated_cover_letter:
@@ -1214,217 +1294,11 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
 
 def render_document_approval_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("9. Проверка и подтверждение документов")
-
-    generated_resume = st.session_state.generated_resume
-    if not generated_resume:
-        st.info("Сначала сгенерируйте адаптированное резюме на шаге 7.")
-        return
-
-    generated_cover_letter = st.session_state.generated_cover_letter
-    if not generated_cover_letter:
-        st.info("Сначала сгенерируйте сопроводительное письмо на шаге 8.")
-        return
-
-    resume_document_id = generated_resume.get("document_id")
-    cover_letter_document_id = generated_cover_letter.get("document_id")
-
-    if not resume_document_id:
-        st.error("В сгенерированном резюме не найден document_id.")
-        st.json(generated_resume)
-        return
-
-    if not cover_letter_document_id:
-        st.error("В сгенерированном письме не найден document_id.")
-        st.json(generated_cover_letter)
-        return
-
-    col_resume, col_letter = st.columns(2)
-
-    with col_resume:
-        st.markdown("### Резюме")
-        st.caption(f"document_id: {resume_document_id}")
-        st.caption(f"status: {generated_resume.get('review_status')}")
-
-        resume_preview = generated_resume.get("rendered_text_preview")
-        if resume_preview:
-            with st.expander("Предпросмотр резюме", expanded=False):
-                st.text(resume_preview)
-
-    with col_letter:
-        st.markdown("### Сопроводительное письмо")
-        st.caption(f"document_id: {cover_letter_document_id}")
-        st.caption(f"status: {generated_cover_letter.get('review_status')}")
-
-        letter_preview = generated_cover_letter.get("rendered_text_preview")
-        if letter_preview:
-            with st.expander("Предпросмотр письма", expanded=False):
-                st.text(letter_preview)
-
-    st.warning(
-        "Подтверждение означает, что человек проверил документы и разрешает использовать их "
-        "для создания записи отклика. Автоматическая отправка отклика не выполняется."
+    render_document_review_workspace_tab(
+        client,
+        token=token,
+        selection_state_key="document_review_workspace_step9_selection",
     )
-
-    review_comment = st.text_area(
-        "Комментарий к проверке",
-        value="Проверено и подтверждено пользователем через Streamlit UI.",
-        height=90,
-    )
-
-    if st.button(
-        "Подтвердить резюме и сопроводительное письмо",
-        type="primary",
-        use_container_width=True,
-    ):
-        try:
-            approved_resume = client.patch_json(f"/documents/{resume_document_id}/review",
-                {
-                    "review_status": "approved",
-                    "review_comment": review_comment.strip() or None,
-                    "set_active_when_approved": True,
-                }, token=token)
-
-            approved_cover_letter = client.patch_json(f"/documents/{cover_letter_document_id}/review",
-                {
-                    "review_status": "approved",
-                    "review_comment": review_comment.strip() or None,
-                    "set_active_when_approved": True,
-                }, token=token)
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(approved_resume, dict):
-            st.error("Backend вернул неожиданный формат ответа для резюме")
-            st.json(approved_resume)
-            return
-
-        if not isinstance(approved_cover_letter, dict):
-            st.error("Backend вернул неожиданный формат ответа для письма")
-            st.json(approved_cover_letter)
-            return
-
-        st.session_state.approved_resume = approved_resume
-        st.session_state.approved_cover_letter = approved_cover_letter
-        st.session_state.application = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
-
-        st.success("Документы подтверждены")
-
-    if st.session_state.approved_resume and st.session_state.approved_cover_letter:
-        st.markdown("### Подтверждённые документы")
-
-        col_approved_resume, col_approved_letter = st.columns(2)
-
-        with col_approved_resume:
-            st.markdown("#### Резюме")
-            st.json(
-                {
-                    "document_id": st.session_state.approved_resume.get("document_id"),
-                    "document_kind": st.session_state.approved_resume.get("document_kind"),
-                    "review_status": st.session_state.approved_resume.get("review_status"),
-                    "is_active": st.session_state.approved_resume.get("is_active"),
-                    "updated_at": st.session_state.approved_resume.get("updated_at"),
-                }
-            )
-
-        with col_approved_letter:
-            st.markdown("#### Сопроводительное письмо")
-            st.json(
-                {
-                    "document_id": st.session_state.approved_cover_letter.get("document_id"),
-                    "document_kind": st.session_state.approved_cover_letter.get("document_kind"),
-                    "review_status": st.session_state.approved_cover_letter.get("review_status"),
-                    "is_active": st.session_state.approved_cover_letter.get("is_active"),
-                    "updated_at": st.session_state.approved_cover_letter.get("updated_at"),
-                }
-            )
-
-        st.info("Следующий шаг — создать запись отклика без автоматической отправки.")
-
-        st.markdown("### Экспорт документов")
-
-        approved_resume_id = st.session_state.approved_resume.get("document_id")
-        approved_cover_letter_id = st.session_state.approved_cover_letter.get("document_id")
-
-        if approved_resume_id and approved_cover_letter_id:
-            try:
-                resume_txt = client.get_text(f"/documents/{approved_resume_id}/export/txt", token=token)
-                resume_md = client.get_text(f"/documents/{approved_resume_id}/export/md", token=token)
-                resume_docx = client.get_bytes(
-                    f"/documents/{approved_resume_id}/export/docx", token=token)
-                cover_letter_txt = client.get_text(
-                    f"/documents/{approved_cover_letter_id}/export/txt", token=token)
-                cover_letter_md = client.get_text(
-                    f"/documents/{approved_cover_letter_id}/export/md", token=token)
-                cover_letter_docx = client.get_bytes(
-                    f"/documents/{approved_cover_letter_id}/export/docx", token=token)
-            except httpx.HTTPStatusError as exc:
-                st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при экспорте")
-                st.code(exc.response.text)
-            except httpx.RequestError as exc:
-                st.error("Не удалось подключиться к backend для экспорта")
-                st.code(str(exc))
-            else:
-                col_resume_export, col_letter_export = st.columns(2)
-
-                with col_resume_export:
-                    st.markdown("#### Резюме")
-                    st.download_button(
-                        "Скачать резюме TXT",
-                        data=resume_txt,
-                        file_name="resume.txt",
-                        mime="text/plain",
-                        use_container_width=True,
-                    )
-                    st.download_button(
-                        "Скачать резюме MD",
-                        data=resume_md,
-                        file_name="resume.md",
-                        mime="text/markdown",
-                        use_container_width=True,
-                    )
-                    st.download_button(
-                        "Скачать резюме DOCX",
-                        data=resume_docx,
-                        file_name="resume.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
-                    )
-
-                with col_letter_export:
-                    st.markdown("#### Сопроводительное письмо")
-                    st.download_button(
-                        "Скачать письмо TXT",
-                        data=cover_letter_txt,
-                        file_name="cover_letter.txt",
-                        mime="text/plain",
-                        use_container_width=True,
-                    )
-                    st.download_button(
-                        "Скачать письмо MD",
-                        data=cover_letter_md,
-                        file_name="cover_letter.md",
-                        mime="text/markdown",
-                        use_container_width=True,
-                    )
-                    st.download_button(
-                        "Скачать письмо DOCX",
-                        data=cover_letter_docx,
-                        file_name="cover_letter.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
-                    )
 
 
 def render_application_creation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -1523,9 +1397,6 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
             return
 
         st.session_state.application = result
-        st.session_state.application_list = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Запись отклика создана")
 
     if st.session_state.application:
@@ -1653,9 +1524,6 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
             return
 
         st.session_state.application = result
-        st.session_state.application_list = None
-        st.session_state.interview_session = None
-        st.session_state.interview_answers_result = None
         st.success("Отклик отмечен как отправленный")
 
     if st.session_state.application:
@@ -1674,126 +1542,12 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
         )
 
 
-def render_application_dashboard_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("12. Дашборд откликов")
-
-    st.caption(
-        "Список внутренних записей откликов. Это не список реальных откликов на HH, "
-        "а локальный трекер статусов внутри проекта."
-    )
-
-    if st.button(
-        "Обновить список откликов",
-        type="primary",
-        use_container_width=True,
-        key="refresh_application_dashboard",
-    ):
-        try:
-            result = client.get_json("/applications", token=token)
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(result, list):
-            st.error("Backend вернул неожиданный формат списка откликов")
-            st.json(result)
-            return
-
-        st.session_state.application_list = result
-
-    applications = st.session_state.application_list
-
-    if applications is None:
-        st.info("Нажмите кнопку обновления, чтобы загрузить список откликов.")
-        return
-
-    if not applications:
-        st.info("Пока нет созданных записей откликов.")
-        return
-
-    status_counts: dict[str, int] = {}
-    for item in applications:
-        status_value = str(item.get("status") or "unknown")
-        status_counts[status_value] = status_counts.get(status_value, 0) + 1
-
-    col_total, col_draft, col_ready, col_applied, col_screening, col_interview, col_final = st.columns(7)
-
-    with col_total:
-        st.metric("Всего", len(applications))
-
-    with col_draft:
-        st.metric("Черновики", status_counts.get("draft", 0))
-
-    with col_ready:
-        st.metric("Готовы", status_counts.get("ready", 0))
-
-    with col_applied:
-        st.metric("Отправлены", status_counts.get("applied", 0))
-
-    with col_screening:
-        st.metric("Скрининг", status_counts.get("screening", 0))
-
-    with col_interview:
-        st.metric("Интервью", status_counts.get("interview", 0))
-
-    with col_final:
-        st.metric(
-            "Финальные",
-            status_counts.get("rejected", 0)
-            + status_counts.get("offer", 0)
-            + status_counts.get("withdrawn", 0),
-        )
-
-    rows = []
-    for item in applications:
-        rows.append(
-            {
-                "Вакансия": format_vacancy_title(item.get("vacancy_title")),
-                "Компания": format_vacancy_company(item.get("vacancy_company")),
-                "Локация": format_vacancy_location(item.get("vacancy_location")),
-                "Статус": format_application_status(item.get("status")),
-                "Источник": item.get("source") or "—",
-                "Дата отправки": format_optional_datetime(item.get("applied_at")),
-                "Outcome": item.get("outcome") or "—",
-                "Заметки": item.get("notes") or "—",
-            }
-        )
-
-    st.dataframe(rows, use_container_width=True, hide_index=True)
-
-    with st.expander("Технические детали откликов", expanded=False):
-        for index, item in enumerate(applications, start=1):
-            st.markdown(
-                f"#### {index}. {item.get('vacancy_title') or item.get('vacancy_id')}"
-            )
-            st.json(
-                {
-                    "application_id": item.get("id"),
-                    "vacancy_id": item.get("vacancy_id"),
-                    "resume_document_id": item.get("resume_document_id"),
-                    "cover_letter_document_id": item.get("cover_letter_document_id"),
-                    "status": item.get("status"),
-                    "source": item.get("source"),
-                    "applied_at": item.get("applied_at"),
-                    "outcome": item.get("outcome"),
-                    "notes": item.get("notes"),
-                    "created_at": item.get("created_at"),
-                    "updated_at": item.get("updated_at"),
-                }
-            )
-
-
 def render_interview_preparation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("13. Подготовка к собеседованию")
+    st.subheader("13. Interview Prep Workspace")
+    st.caption(
+        "Новый deterministic prep-слой вынесен в отдельный workspace. "
+        "Здесь остался короткий вход без дублирования логики ответов на mock interview."
+    )
 
     application = st.session_state.application
     if not application:
@@ -1802,266 +1556,19 @@ def render_interview_preparation_step(client: CareerCopilotApiClient, token: str
 
     if application.get("status") != "applied":
         st.info(
-            "Подготовку к интервью лучше создавать после того, как отклик вручную отправлен "
-            "и отмечен как applied на шаге 11."
+            "Interview prep имеет смысл запускать после ручной отправки отклика "
+            "и перевода статуса в applied на шаге 11."
         )
         return
 
-    vacancy = st.session_state.vacancy
-    if not vacancy:
-        st.info("Не найдена вакансия в текущей сессии Streamlit.")
-        return
-
-    vacancy_id = vacancy.get("vacancy_id") or vacancy.get("id")
-    if not vacancy_id:
-        st.error("В вакансии не найден vacancy_id.")
-        st.json(vacancy)
-        return
-
-    st.caption(f"vacancy_id: {vacancy_id}")
     st.caption(f"application_id: {application.get('id')}")
+    st.caption(f"vacancy_id: {application.get('vacancy_id')}")
 
-    st.warning(
-        "Будет создана внутренняя сессия подготовки к интервью. "
-        "Это не отправляет данные работодателю и не выполняет внешних действий."
+    render_interview_prep_workspace_tab(
+        client,
+        token=token,
+        selection_state_key="interview_prep_workspace_flow_selection",
     )
-
-    if st.button("Создать подготовку к интервью", type="primary", use_container_width=True):
-        try:
-            result = client.post_json("/interviews/sessions",
-                {
-                    "vacancy_id": vacancy_id,
-                    "session_type": "vacancy",
-                }, token=token)
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(result, dict):
-            st.error("Backend вернул неожиданный формат ответа")
-            st.json(result)
-            return
-
-        st.session_state.interview_session = result
-        st.session_state.interview_answers_result = None
-        st.success("Подготовка к интервью создана")
-
-    interview_session = st.session_state.interview_session
-    if not interview_session:
-        return
-
-    session_id = interview_session.get("id")
-    question_set = interview_session.get("question_set") or []
-    question_types = sorted(
-        {
-            str(question.get("type"))
-            for question in question_set
-            if question.get("type")
-        }
-    )
-
-    st.markdown("### Сессия подготовки")
-
-    st.json(
-        {
-            "interview_session_id": session_id,
-            "vacancy_id": interview_session.get("vacancy_id"),
-            "status": interview_session.get("status"),
-            "question_count": len(question_set),
-            "question_types": [format_question_type(value) for value in question_types],
-        }
-    )
-
-    if not session_id:
-        st.error("В interview session не найден id.")
-        st.json(interview_session)
-        return
-
-    if not question_set:
-        st.warning("Backend не вернул список вопросов.")
-        return
-
-    with st.expander("Список вопросов", expanded=False):
-        for index, question in enumerate(question_set, start=1):
-            question_type = question.get("type")
-            prompt = question.get("prompt")
-            answer_format = question.get("answer_format")
-
-            st.markdown(f"**{index}. {format_question_type(question_type)}**")
-            st.write(localize_demo_ui_text(prompt))
-            if answer_format:
-                st.caption(f"Формат ответа: {format_answer_format(answer_format)}")
-
-    st.markdown("### Ответы на вопросы интервью")
-
-    st.info(
-        "Можно заполнить часть ответов и сохранить промежуточный результат. "
-        "Для STAR-вопросов используйте структуру: Ситуация / Задача / Действия / Результат."
-    )
-
-    default_answers = {
-        0: (
-            "Меня интересует эта роль, потому что она соответствует моему направлению: "
-            "Python и backend-разработка."
-        ),
-        1: (
-            "Ситуация: я работал над практическим Python-проектом. "
-            "Задача: собрать рабочий прототип. "
-            "Действия: реализовал backend-flow. "
-            "Результат: прототип был готов к проверке."
-        ),
-    }
-
-    with st.form(f"interview_answers_form_{session_id}"):
-        answers_payload: list[dict] = []
-
-        for question_index, question in enumerate(question_set):
-            question_number = question_index + 1
-            question_type = question.get("type") or "unknown"
-            prompt = question.get("prompt") or f"Вопрос {question_number}"
-            answer_format = question.get("answer_format")
-
-            st.markdown(f"#### Вопрос {question_number}: {format_question_type(question_type)}")
-            st.write(localize_demo_ui_text(prompt))
-
-            if answer_format:
-                st.caption(f"Формат ответа: {format_answer_format(answer_format)}")
-
-            answer_text = st.text_area(
-                f"Ответ {question_number}",
-                value=localize_demo_ui_text(default_answers.get(question_index, "")),
-                height=150,
-                key=f"interview_answer_{session_id}_{question_index}",
-            )
-
-            if answer_text.strip():
-                answers_payload.append(
-                    {
-                        "question_index": question_index,
-                        "answer_text": answer_text.strip(),
-                    }
-                )
-
-        submitted = st.form_submit_button(
-            "Сохранить ответы и получить обратную связь",
-            type="primary",
-            use_container_width=True,
-        )
-
-    if submitted:
-        if not answers_payload:
-            st.error("Нужно заполнить хотя бы один ответ.")
-            return
-
-        try:
-            result = client.patch_json(f"/interviews/sessions/{session_id}/answers",
-                {
-                    "answers": answers_payload,
-                }, token=token)
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(result, dict):
-            st.error("Backend вернул неожиданный формат ответа")
-            st.json(result)
-            return
-
-        st.session_state.interview_session = result
-        st.session_state.interview_answers_result = result
-        st.success("Ответы сохранены, обратная связь рассчитана")
-
-    if st.session_state.interview_answers_result:
-        answered = st.session_state.interview_answers_result
-
-        st.markdown("### Результат подготовки")
-
-        score = answered.get("score") or {}
-        feedback = answered.get("feedback") or {}
-        feedback_items = feedback.get("items") or []
-
-        question_count = int(score.get("question_count") or len(question_set) or 0)
-        answered_count = int(score.get("answered_count") or 0)
-        unanswered_count = int(score.get("unanswered_count") or 0)
-        warning_count = int(score.get("warning_count") or 0)
-        readiness_score = score.get("readiness_score")
-
-        col_status, col_answered, col_unanswered, col_warnings, col_score = st.columns(5)
-
-        with col_status:
-            st.metric("Статус", format_interview_status(answered.get("status")))
-
-        with col_answered:
-            st.metric("Ответов", f"{answered_count} / {question_count}")
-
-        with col_unanswered:
-            st.metric("Осталось", unanswered_count)
-
-        with col_warnings:
-            st.metric("Предупреждений", warning_count)
-
-        with col_score:
-            st.metric(
-                "Готовность",
-                f"{readiness_score} / 100" if readiness_score is not None else "—",
-            )
-
-        if question_count > 0:
-            progress_value = max(0.0, min(1.0, answered_count / question_count))
-            st.progress(progress_value)
-
-        if unanswered_count > 0:
-            st.info(
-                "Низкая готовность сейчас означает не плохое качество ответов, "
-                "а незавершённую подготовку: заполнены не все вопросы."
-            )
-        elif warning_count == 0:
-            st.success("Все вопросы заполнены, критичных предупреждений по ответам нет.")
-
-        if feedback_items:
-            st.markdown("#### Обратная связь по ответам")
-
-            for item in feedback_items:
-                with st.container(border=True):
-                    st.markdown(
-                        f"**Вопрос {int(item.get('question_index', 0)) + 1} — "
-                        f"{format_question_type(item.get('question_type'))}**"
-                    )
-                    st.caption(f"Длина ответа: {item.get('answer_length')} символов")
-
-                    warnings = item.get("warnings") or []
-                    suggestions = item.get("suggestions") or []
-
-                    if warnings:
-                        st.warning("Предупреждения: " + ", ".join(warnings))
-                    else:
-                        st.success("Критичных предупреждений нет")
-
-                    if suggestions:
-                        st.markdown("Рекомендации:")
-                        for suggestion in suggestions:
-                            st.markdown(f"- {suggestion}")
-
-        with st.expander("Raw JSON результата", expanded=False):
-            st.json(answered)
 
 
 def render_application_dashboard(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -2104,6 +1611,99 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
     if not applications:
         st.info("Пока нет созданных откликов.")
         return
+
+    applications_by_id = {
+        str(application.get("id")): application
+        for application in applications
+        if application.get("id")
+    }
+
+    try:
+        reminders = client.get_application_reminders(token=token)
+    except Exception:
+        reminders = None
+
+    if isinstance(reminders, list) and reminders:
+        reminder_counts: dict[str, int] = {}
+        for reminder in reminders:
+            reminder_type = str(reminder.get("reminder_type") or "unknown")
+            reminder_counts[reminder_type] = reminder_counts.get(reminder_type, 0) + 1
+
+        st.warning("⚠ Требует внимания")
+
+        for reminder_type, count in reminder_counts.items():
+            if reminder_type == "follow_up_missing":
+                st.markdown(f"- {count} откликов ждут follow-up больше 14 дней")
+            elif reminder_type == "ready_not_submitted":
+                st.markdown(f"- {count} готовых откликов не отправлены")
+            elif reminder_type == "draft_stale":
+                st.markdown(f"- {count} черновиков без активности")
+            else:
+                label = APPLICATION_REMINDER_LABELS.get(reminder_type, reminder_type)
+                st.markdown(f"- {count} {label.lower()}")
+
+        reminder_rows = []
+        for reminder in reminders:
+            application_id = str(reminder.get("application_id") or "")
+            application = applications_by_id.get(application_id, {})
+            reminder_rows.append(
+                {
+                    "Type": APPLICATION_REMINDER_LABELS.get(
+                        str(reminder.get("reminder_type") or ""),
+                        str(reminder.get("reminder_type") or ""),
+                    ),
+                    "Vacancy": format_vacancy_title(application.get("vacancy_title")),
+                    "Age": f"{reminder.get('days_since_event', 0)}d",
+                }
+            )
+
+        st.dataframe(
+            reminder_rows,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    try:
+        analytics = client.get_json("/applications/analytics/summary", token=token)
+    except Exception:
+        analytics = None
+
+    if isinstance(analytics, dict):
+        col_total, col_applied, col_conversion, col_avg, col_offer, col_rejected = st.columns(6)
+
+        with col_total:
+            st.metric("Всего откликов", analytics.get("total_applications", 0))
+
+        with col_applied:
+            count_by_status = analytics.get("count_by_status") or {}
+            st.metric(
+                "Отправлены+",
+                sum(
+                    count_by_status.get(status, 0)
+                    for status in [
+                        "applied",
+                        "screening",
+                        "interview",
+                        "offer",
+                        "rejected",
+                        "withdrawn",
+                    ]
+                ),
+            )
+
+        with col_conversion:
+            conversion_to_applied = analytics.get("conversion_to_applied") or 0
+            st.metric("Conversion to applied", f"{round(conversion_to_applied * 100)}%")
+
+        with col_avg:
+            avg = analytics.get("average_time_to_apply_hours")
+            st.metric("Avg time to apply", f"{avg}h" if avg is not None else "—")
+
+        with col_offer:
+            st.metric("Офферы", analytics.get("offers_count", 0))
+
+        with col_rejected:
+            st.metric("Отказы", analytics.get("rejections_count", 0))
 
     counts_by_status = {
         "draft": 0,
@@ -2218,6 +1818,11 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
             "updated_at": selected_application.get("updated_at"),
         }
     )
+
+    vacancy_id_for_fit = str(selected_application.get("vacancy_id") or "").strip()
+    if vacancy_id_for_fit:
+        st.divider()
+        _render_vacancy_intelligence_block(client, vacancy_id=vacancy_id_for_fit, token=token)
 
     st.markdown("### История статусов")
     timeline: list[dict[str, object]] = []
@@ -2409,1096 +2014,6 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         st.rerun()
 
 
-def _format_mock_score(score: object) -> str:
-    if score is None:
-        return "—"
-
-    try:
-        value = float(score)
-    except (TypeError, ValueError):
-        return str(score)
-
-    if 0.0 <= value <= 1.0:
-        return f"{round(value * 100)}%"
-
-    return f"{round(value)} / 100"
-
-
-def _render_mock_evaluation_block(
-    *,
-    evaluation: dict,
-    progress: dict | None = None,
-) -> None:
-    st.markdown("#### Evaluation")
-
-    with st.container(border=True):
-        col_score, col_progress = st.columns(2)
-
-        with col_score:
-            st.metric("Оценка", _format_mock_score(evaluation.get("score")))
-
-        with col_progress:
-            current_value = progress.get("current") if progress else None
-            total_value = progress.get("total") if progress else None
-            progress_value = (
-                f"{current_value} / {total_value}"
-                if current_value is not None and total_value is not None
-                else "—"
-            )
-            st.metric("Прогресс", progress_value)
-
-        feedback = evaluation.get("feedback") or []
-        if feedback:
-            st.markdown("**Что улучшить**")
-            for item in feedback:
-                st.markdown(f"- {item}")
-        else:
-            st.info("Критичных замечаний по ответу нет.")
-
-
-def _render_mock_advisory_block(advisory: dict | None) -> None:
-    if not advisory:
-        st.info("Advisory не вернулся.")
-        return
-
-    st.markdown("#### Advisory")
-
-    with st.container(border=True):
-        sections = [
-            ("Сильные стороны", advisory.get("strong_parts") or []),
-            ("Чего не хватает", advisory.get("missing_signals") or []),
-            ("STAR improvements", advisory.get("star_improvements") or []),
-            ("Где не хватает конкретики", advisory.get("specificity_gaps") or []),
-            ("Риски", advisory.get("risk_warnings") or []),
-            ("Нужна верификация", advisory.get("confirmation_needed") or []),
-        ]
-
-        for title, items in sections:
-            if not items:
-                continue
-            st.markdown(f"**{title}**")
-            for item in items:
-                st.markdown(f"- {item}")
-
-        suggested_revision = (advisory.get("suggested_revision") or "").strip()
-        if suggested_revision:
-            st.markdown("**Suggested revision**")
-            st.write(suggested_revision)
-
-
-def _render_mock_summary_block(summary: dict) -> None:
-    st.markdown("#### Summary")
-
-    with st.container(border=True):
-        progress = summary.get("progress") or {}
-        col_status, col_answered, col_total, col_attempts, col_readiness = st.columns(5)
-
-        with col_status:
-            st.metric(
-                "Статус",
-                "Завершено" if progress.get("completed") else "В процессе",
-            )
-
-        with col_answered:
-            st.metric("Ответов", progress.get("answered", 0))
-
-        with col_total:
-            st.metric("Всего вопросов", progress.get("total", 0))
-
-        with col_attempts:
-            st.metric("Попыток", summary.get("attempt_count", 0))
-
-        with col_readiness:
-            st.metric("Готовность", _format_mock_score(summary.get("readiness_score")))
-
-        competency_readiness = summary.get("competency_readiness") or []
-        if competency_readiness:
-            st.markdown("**Готовность по компетенциям**")
-            for item in competency_readiness:
-                competency_name = (
-                    item.get("competency_name")
-                    or item.get("competency_key")
-                    or "Компетенция"
-                )
-                readiness = item.get("readiness_score")
-                answered = item.get("answered_count", 0)
-                total = item.get("question_count", 0)
-                warnings = item.get("warning_count", 0)
-
-                st.markdown(
-                    f"- {competency_name}: {_format_mock_score(readiness)}, "
-                    f"ответов {answered} / {total}, предупреждений {warnings}"
-                )
-
-        weak_competencies = summary.get("weak_competencies") or []
-        if weak_competencies:
-            st.markdown("**Слабые зоны**")
-            for item in weak_competencies:
-                competency_name = (
-                    item.get("competency_name")
-                    or item.get("competency_key")
-                    or "Компетенция"
-                )
-                st.markdown(
-                    f"- {competency_name}: {_format_mock_score(item.get('readiness_score'))}"
-                )
-
-
-def render_interview_mock_mode(
-    client: CareerCopilotApiClient,
-    selected_session: dict,
-    *,
-    token: str | None = None,
-) -> None:
-    st.markdown("### Mock interview mode")
-
-    question_set = selected_session.get("question_set") or []
-    if not question_set:
-        st.info("Для этой сессии нет question_set, поэтому mock interview недоступен.")
-        return
-
-    session_id = str(selected_session.get("id") or "").strip()
-    if not session_id:
-        st.warning("Не удалось определить session_id для mock interview.")
-        return
-
-    session_mode = str(selected_session.get("mode") or "")
-    session_status = str(selected_session.get("status") or "")
-
-    if session_status == "completed":
-        try:
-            summary = client.get_json(
-                f"/interviews/sessions/{session_id}/mock/summary",
-                token=token,
-            )
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(summary, dict):
-            st.error("Backend вернул неожиданный формат mock summary")
-            st.json(summary)
-            return
-
-        st.success("Mock interview completed")
-        _render_mock_summary_block(summary)
-        return
-
-    current_payload = None
-    if session_mode == "mock_interview":
-        try:
-            current_payload = client.get_json(
-                f"/interviews/sessions/{session_id}/mock/current",
-                token=token,
-            )
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(current_payload, dict):
-            st.error("Backend вернул неожиданный формат текущего вопроса")
-            st.json(current_payload)
-            return
-    else:
-        start_clicked = st.button(
-            "Начать mock interview",
-            key=f"mock_interview_start_{session_id}",
-            type="primary",
-            use_container_width=True,
-        )
-        if not start_clicked:
-            st.info("Нажмите кнопку, чтобы запустить mock interview для этой сессии.")
-            return
-
-        try:
-            started_session = client.post_json(
-                f"/interviews/sessions/{session_id}/mock/start",
-                {},
-                token=token,
-            )
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(started_session, dict):
-            st.error("Backend вернул неожиданный формат session")
-            st.json(started_session)
-            return
-
-        selected_session = started_session
-        session_mode = str(selected_session.get("mode") or "")
-
-        try:
-            current_payload = client.get_json(
-                f"/interviews/sessions/{session_id}/mock/current",
-                token=token,
-            )
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(current_payload, dict):
-            st.error("Backend вернул неожиданный формат текущего вопроса")
-            st.json(current_payload)
-            return
-
-    question = current_payload.get("question") or {}
-    progress = current_payload.get("progress") or {}
-    question_index = current_payload.get("question_index")
-    question_id = str(question.get("question_id") or "").strip()
-
-    with st.container(border=True):
-        st.metric(
-            "Текущий вопрос",
-            f"{progress.get('current', 0)} / {progress.get('total', 0)}",
-        )
-        st.caption(
-            f"Question {progress.get('current', 0)} / {progress.get('total', 0)}"
-        )
-        st.write(question.get("prompt") or question.get("question_text") or "Вопрос")
-        if question.get("answer_format"):
-            st.caption(f"Формат ответа: {format_answer_format(question.get('answer_format'))}")
-        total_value = int(progress.get("total") or 0)
-        current_value = int(progress.get("current") or 0)
-        if total_value > 0:
-            st.progress(max(0.0, min(1.0, current_value / total_value)))
-
-    answer_key = f"mock_interview_answer_{session_id}_{question_id or question_index}"
-    with st.form(f"mock_interview_form_{session_id}_{question_id or question_index}"):
-        answer_text = st.text_area(
-            "Ответ",
-            height=180,
-            key=answer_key,
-        )
-        submitted = st.form_submit_button(
-            "Отправить ответ",
-            type="primary",
-            use_container_width=True,
-            disabled=not answer_text.strip(),
-        )
-
-    if not submitted:
-        return
-
-    if not question_id:
-        st.error("Backend не вернул question_id для текущего вопроса.")
-        return
-
-    if not answer_text.strip():
-        st.error("Нужно заполнить ответ перед отправкой.")
-        return
-
-    try:
-        result = client.post_json(
-            f"/interviews/sessions/{session_id}/mock/answer",
-            {
-                "question_id": question_id,
-                "answer_text": answer_text.strip(),
-                "include_advisory": True,
-            },
-            token=token,
-        )
-    except httpx.HTTPStatusError as exc:
-        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-        st.code(exc.response.text)
-        return
-    except httpx.RequestError as exc:
-        st.error("Не удалось подключиться к backend")
-        st.code(str(exc))
-        return
-    except ValueError as exc:
-        st.error("Backend вернул неожиданный ответ")
-        st.code(str(exc))
-        return
-
-    if not isinstance(result, dict):
-        st.error("Backend вернул неожиданный формат mock answer")
-        st.json(result)
-        return
-
-    st.success("Ответ отправлен")
-    _render_mock_evaluation_block(
-        evaluation=result.get("evaluation") or {},
-        progress=result.get("progress") or {},
-    )
-    _render_mock_advisory_block(result.get("advisory"))
-
-    next_question = result.get("next_question")
-    if next_question:
-        st.markdown("#### Следующий вопрос")
-        with st.container(border=True):
-            st.write(next_question.get("prompt") or next_question.get("question_text") or "Вопрос")
-            if next_question.get("answer_format"):
-                st.caption(
-                    f"Формат ответа: {format_answer_format(next_question.get('answer_format'))}"
-                )
-
-    if result.get("completed"):
-        try:
-            summary = client.get_json(
-                f"/interviews/sessions/{session_id}/mock/summary",
-                token=token,
-            )
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if isinstance(summary, dict):
-            st.success("Mock interview completed")
-            _render_mock_summary_block(summary)
-        else:
-            st.error("Backend вернул неожиданный формат mock summary")
-            st.json(summary)
-
-
-def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.header("Интервью")
-    st.caption(
-        "Список внутренних сессий подготовки к интервью. "
-        "Здесь можно открыть старую сессию, дозаполнить ответы и пересчитать готовность."
-    )
-
-    saved_attempt_message = st.session_state.pop(
-        "interview_competency_attempt_saved_message",
-        None,
-    )
-    if saved_attempt_message:
-        st.success(saved_attempt_message)
-
-    try:
-        sessions = client.get_json("/interviews/sessions", token=token)
-    except httpx.HTTPStatusError as exc:
-        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-        st.code(exc.response.text)
-        return
-    except httpx.RequestError as exc:
-        st.error("Не удалось подключиться к backend")
-        st.code(str(exc))
-        return
-    except ValueError as exc:
-        st.error("Backend вернул неожиданный ответ")
-        st.code(str(exc))
-        return
-
-    if not isinstance(sessions, list):
-        st.error("Backend вернул неожиданный формат списка interview sessions")
-        st.json(sessions)
-        return
-
-    if not sessions:
-        st.info("Пока нет созданных сессий подготовки к интервью.")
-        return
-
-    answered_count = sum(1 for item in sessions if item.get("status") == "answered")
-    draft_count = sum(1 for item in sessions if item.get("status") == "draft")
-    readiness_values = [
-        int(item["readiness_score"])
-        for item in sessions
-        if item.get("readiness_score") is not None
-    ]
-    average_readiness = (
-        round(sum(readiness_values) / len(readiness_values))
-        if readiness_values
-        else None
-    )
-
-    col_total, col_draft, col_answered, col_avg_score = st.columns(4)
-
-    with col_total:
-        st.metric("Всего сессий", len(sessions))
-
-    with col_draft:
-        st.metric("Черновики", draft_count)
-
-    with col_answered:
-        st.metric("С ответами", answered_count)
-
-    with col_avg_score:
-        st.metric(
-            "Средняя готовность",
-            f"{average_readiness} / 100" if average_readiness is not None else "—",
-        )
-
-    rows = []
-    for item in sessions:
-        rows.append(
-            {
-                "Вакансия": format_vacancy_title(item.get("vacancy_title")),
-                "Компания": format_vacancy_company(item.get("vacancy_company")),
-                "Локация": format_vacancy_location(item.get("vacancy_location")),
-                "Статус": format_interview_status(item.get("status")),
-                "Ответов": f"{item.get('answered_count', 0)} / {item.get('question_count', 0)}",
-                "Предупреждений": item.get("warning_count", 0),
-                "Готовность": (
-                    f"{item.get('readiness_score')} / 100"
-                    if item.get("readiness_score") is not None
-                    else "—"
-                ),
-                "Слабые зоны": ", ".join(
-                    competency.get(
-                        "competency_name",
-                        competency.get("competency_key", "—"),
-                    )
-                    for competency in (item.get("weak_competencies") or [])
-                ) or "—",
-                "Обновлено": format_optional_datetime(item.get("updated_at")),
-            }
-        )
-
-    st.markdown("### Список подготовок")
-    st.dataframe(rows, use_container_width=True, hide_index=True)
-
-    session_ids = [
-        str(item.get("id"))
-        for item in sessions
-        if item.get("id")
-    ]
-
-    if not session_ids:
-        st.warning("В списке нет корректных session_id.")
-        return
-
-    sessions_by_id = {
-        str(item.get("id")): item
-        for item in sessions
-        if item.get("id")
-    }
-
-    selected_session_id = st.selectbox(
-        "Выберите сессию подготовки",
-        options=session_ids,
-        format_func=lambda value: (
-            f"{format_demo_display_text(sessions_by_id[value].get('vacancy_title'))} "
-            f"· {sessions_by_id[value].get('status')} "
-            f"· {value[:8]}"
-        ),
-    )
-
-    if not selected_session_id:
-        return
-
-    try:
-        selected_session = client.get_json(f"/interviews/sessions/{selected_session_id}", token=token)
-    except httpx.HTTPStatusError as exc:
-        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-        st.code(exc.response.text)
-        return
-    except httpx.RequestError as exc:
-        st.error("Не удалось подключиться к backend")
-        st.code(str(exc))
-        return
-    except ValueError as exc:
-        st.error("Backend вернул неожиданный ответ")
-        st.code(str(exc))
-        return
-
-    if not isinstance(selected_session, dict):
-        st.error("Backend вернул неожиданный формат interview session")
-        st.json(selected_session)
-        return
-
-    question_set = selected_session.get("question_set") or []
-    answers = selected_session.get("answers") or []
-    score = selected_session.get("score") or {}
-    feedback = selected_session.get("feedback") or {}
-
-    existing_answers_by_index = {}
-    for answer in answers:
-        question_index = answer.get("question_index")
-        if question_index is None:
-            continue
-        existing_answers_by_index[int(question_index)] = answer.get("answer_text") or ""
-
-    st.markdown("### Детали сессии")
-
-    col_status, col_questions, col_answers, col_score = st.columns(4)
-
-    with col_status:
-        st.metric("Статус", format_interview_status(selected_session.get("status")))
-
-    with col_questions:
-        st.metric("Вопросов", len(question_set))
-
-    with col_answers:
-        st.metric("Ответов", score.get("answered_count", len(answers)))
-
-    with col_score:
-        readiness_score = score.get("readiness_score")
-        st.metric(
-            "Готовность",
-            f"{readiness_score} / 100" if readiness_score is not None else "—",
-        )
-
-    render_interview_mock_mode(client, selected_session, token=token)
-
-    if not question_set:
-        st.warning("В этой сессии нет question_set.")
-        return
-
-    with st.expander("Список вопросов", expanded=False):
-        for index, question in enumerate(question_set, start=1):
-            st.markdown(f"**{index}. {format_question_type(question.get('type'))}**")
-            st.write(question.get("prompt"))
-            if question.get("answer_format"):
-                st.caption(f"Формат ответа: {format_answer_format(question.get('answer_format'))}")
-
-    st.markdown("### Редактор ответов")
-
-    st.info(
-        "Можно дозаполнить ответы и сохранить промежуточный результат. "
-        "Пустые ответы не сохраняются. Для STAR-вопросов используйте: "
-        "Ситуация / Задача / Действия / Результат."
-    )
-
-    with st.form(f"interview_dashboard_answers_form_{selected_session_id}"):
-        answers_payload: list[dict] = []
-
-        for question_index, question in enumerate(question_set):
-            question_number = question_index + 1
-            question_type = question.get("type") or "unknown"
-            prompt = question.get("prompt") or f"Вопрос {question_number}"
-            answer_format = question.get("answer_format")
-
-            st.markdown(f"#### Вопрос {question_number}: {format_question_type(question_type)}")
-            st.write(localize_demo_ui_text(prompt))
-
-            if answer_format:
-                st.caption(f"Формат ответа: {format_answer_format(answer_format)}")
-
-            answer_text = st.text_area(
-                f"Ответ {question_number}",
-                value=localize_demo_ui_text(existing_answers_by_index.get(question_index, "")),
-                height=150,
-                key=f"interview_dashboard_answer_{selected_session_id}_{question_index}",
-            )
-
-            if answer_text.strip():
-                answers_payload.append(
-                    {
-                        "question_id": question.get("question_id"),
-                        "question_index": question_index,
-                        "answer_text": answer_text.strip(),
-                    }
-                )
-
-        submitted = st.form_submit_button(
-            "Сохранить ответы и пересчитать готовность",
-            type="primary",
-            use_container_width=True,
-        )
-
-    if submitted:
-        if not answers_payload:
-            st.error("Нужно заполнить хотя бы один ответ.")
-            return
-
-        try:
-            updated_session = client.patch_json(f"/interviews/sessions/{selected_session_id}/answers",
-                {
-                    "answers": answers_payload,
-                }, token=token)
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(updated_session, dict):
-            st.error("Backend вернул неожиданный формат interview session")
-            st.json(updated_session)
-            return
-
-        selected_session = updated_session
-        score = selected_session.get("score") or {}
-        feedback = selected_session.get("feedback") or {}
-
-        st.success("Ответы сохранены, готовность пересчитана")
-
-    if score:
-        st.markdown("### Текущая оценка готовности")
-
-        question_count = int(score.get("question_count") or len(question_set) or 0)
-        answered_score_count = int(score.get("answered_count") or 0)
-        unanswered_count = int(score.get("unanswered_count") or 0)
-        warning_count = int(score.get("warning_count") or 0)
-        readiness_score = score.get("readiness_score")
-
-        col_answered, col_unanswered, col_warnings, col_readiness = st.columns(4)
-
-        with col_answered:
-            st.metric("Ответов", f"{answered_score_count} / {question_count}")
-
-        with col_unanswered:
-            st.metric("Осталось", unanswered_count)
-
-        with col_warnings:
-            st.metric("Предупреждений", warning_count)
-
-        with col_readiness:
-            st.metric(
-                "Готовность",
-                f"{readiness_score} / 100" if readiness_score is not None else "—",
-            )
-
-        if question_count > 0:
-            st.progress(max(0.0, min(1.0, answered_score_count / question_count)))
-
-        competency_readiness = score.get("competency_readiness") or []
-
-        if competency_readiness:
-            st.markdown("### Готовность по компетенциям")
-
-            for competency in competency_readiness:
-                competency_name = (
-                    competency.get("competency_name")
-                    or competency.get("competency_key")
-                    or "Компетенция"
-                )
-
-                readiness = competency.get("readiness_score")
-                answered = competency.get("answered_count", 0)
-                total = competency.get("question_count", 0)
-                warnings = competency.get("warning_count", 0)
-
-                with st.container(border=True):
-                    col_a, col_b, col_c = st.columns(3)
-
-                    with col_a:
-                        st.markdown(f"**{competency_name}**")
-
-                    with col_b:
-                        st.metric(
-                            "Готовность",
-                            f"{readiness} / 100"
-                            if readiness is not None
-                            else "—",
-                        )
-
-                    with col_c:
-                        st.metric(
-                            "Ответов",
-                            f"{answered} / {total}",
-                        )
-
-                    if warnings > 0:
-                        st.warning(
-                            f"Есть предупреждения по ответам: {warnings}"
-                        )
-                    elif total > 0 and answered == total:
-                        st.success("Компетенция полностью покрыта ответами")
-
-            weak_competencies = [
-                item
-                for item in competency_readiness
-                if (item.get("readiness_score") or 100) < 75
-            ]
-
-            if weak_competencies:
-                st.markdown("### Улучшение слабых зон")
-
-                weak_competency_keys = [
-                    item.get("competency_key")
-                    for item in weak_competencies
-                    if item.get("competency_key")
-                ]
-
-                if not weak_competency_keys:
-                    st.warning("Backend не вернул ключи weak competencies.")
-                else:
-                    selected_competency_key = st.selectbox(
-                        "Выберите competency для улучшения",
-                        options=weak_competency_keys,
-                        format_func=lambda key: next(
-                            (
-                                item.get("competency_name")
-                                or item.get("competency_key")
-                                for item in weak_competencies
-                                if item.get("competency_key") == key
-                            ),
-                            key,
-                        ),
-                    )
-
-                    try:
-                        competency_detail = client.get_json(
-                            (
-                                f"/interviews/sessions/{selected_session_id}"
-                                f"/competencies/{selected_competency_key}"
-                            ),
-                            token=token,
-                        )
-                    except httpx.HTTPStatusError as exc:
-                        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-                        st.code(exc.response.text)
-                        competency_detail = None
-                    except httpx.RequestError as exc:
-                        st.error("Не удалось подключиться к backend")
-                        st.code(str(exc))
-                        competency_detail = None
-                    except ValueError as exc:
-                        st.error("Backend вернул неожиданный ответ")
-                        st.code(str(exc))
-                        competency_detail = None
-
-                    if competency_detail is not None:
-                        if not isinstance(competency_detail, dict):
-                            st.error("Backend вернул неожиданный формат competency detail")
-                            st.json(competency_detail)
-                        else:
-                            questions = competency_detail.get("questions") or []
-                            detail_answers = competency_detail.get("answers") or []
-                            feedback_items = competency_detail.get("feedback_items") or []
-                            attempts = competency_detail.get("attempts") or []
-
-                            answers_by_question_id = {
-                                item.get("question_id"): item
-                                for item in detail_answers
-                            }
-                            feedback_by_question_id = {
-                                item.get("question_id"): item
-                                for item in feedback_items
-                            }
-                            attempts_by_question_id: dict[str, list[dict]] = {}
-                            for attempt in attempts:
-                                question_id = attempt.get("question_id")
-                                if not question_id:
-                                    continue
-                                attempts_by_question_id.setdefault(question_id, []).append(attempt)
-
-                            if not questions:
-                                st.info("Для этой competency нет связанных вопросов.")
-
-                            for question in questions:
-                                question_id = question.get("question_id")
-                                prompt = (
-                                    question.get("prompt")
-                                    or question.get("question_text")
-                                    or "Вопрос"
-                                )
-                                current_answer = (
-                                    answers_by_question_id.get(question_id, {}).get("answer_text")
-                                    or ""
-                                )
-                                question_feedback = feedback_by_question_id.get(question_id, {})
-                                warnings = question_feedback.get("warnings") or []
-                                suggestions = question_feedback.get("suggestions") or []
-                                question_attempts = attempts_by_question_id.get(question_id, [])
-
-                                with st.container(border=True):
-                                    st.markdown(f"**{localize_demo_ui_text(prompt)}**")
-
-                                    if current_answer:
-                                        st.caption("Текущий ответ")
-                                        st.write(localize_demo_ui_text(current_answer))
-                                    else:
-                                        st.warning("Текущий ответ пока не заполнен")
-
-                                    if warnings:
-                                        st.warning("Предупреждения: " + ", ".join(warnings))
-                                    else:
-                                        st.success("Критичных предупреждений нет")
-
-                                    if suggestions:
-                                        st.markdown("Рекомендации:")
-                                        for suggestion in suggestions:
-                                            st.markdown(f"- {suggestion}")
-
-                                    st.caption(f"Попыток улучшения: {len(question_attempts)}")
-
-                                    if not question_id:
-                                        st.warning("Backend не вернул question_id для этого вопроса.")
-                                        continue
-
-                                    advisory_state_key = (
-                                        "ai_advisory_"
-                                        f"{selected_session_id}_{question_id}"
-                                    )
-                                    advisory_error_key = (
-                                        "ai_advisory_error_"
-                                        f"{selected_session_id}_{question_id}"
-                                    )
-
-                                    with st.form(f"ai_advisory_{question_id}"):
-                                        submitted_advisory = st.form_submit_button(
-                                            "Получить AI-подсказку",
-                                            use_container_width=True,
-                                            disabled=not current_answer.strip(),
-                                        )
-
-                                    if submitted_advisory:
-                                        st.session_state.pop(advisory_error_key, None)
-
-                                        if not current_answer.strip():
-                                            st.session_state[advisory_error_key] = (
-                                                "Сначала нужен текущий ответ, чтобы получить AI-подсказку."
-                                            )
-                                        else:
-                                            try:
-                                                with st.spinner("Готовим AI-подсказку..."):
-                                                    advisory_result = client.post_json(
-                                                        f"/interviews/sessions/{selected_session_id}/coach/advisory",
-                                                        {
-                                                            "question_id": question_id,
-                                                            "answer_text": current_answer.strip(),
-                                                            "competency_key": question.get(
-                                                                "competency_key"
-                                                            ),
-                                                        },
-                                                        token=token,
-                                                    )
-                                            except httpx.HTTPStatusError as exc:
-                                                st.session_state[advisory_error_key] = (
-                                                    "AI advisory вернул ошибку HTTP "
-                                                    f"{exc.response.status_code}"
-                                                )
-                                            except httpx.RequestError as exc:
-                                                st.session_state[advisory_error_key] = (
-                                                    f"Не удалось получить AI-подсказку: {exc}"
-                                                )
-                                            except ValueError as exc:
-                                                st.session_state[advisory_error_key] = (
-                                                    "Backend вернул неожиданный advisory response: "
-                                                    f"{exc}"
-                                                )
-                                            else:
-                                                if not isinstance(advisory_result, dict):
-                                                    st.session_state[advisory_error_key] = (
-                                                        "Backend вернул неожиданный формат advisory response"
-                                                    )
-                                                else:
-                                                    st.session_state[advisory_state_key] = advisory_result
-                                                    st.session_state.pop(advisory_error_key, None)
-
-                                        st.rerun()
-
-                                    advisory_error = st.session_state.get(advisory_error_key)
-                                    if advisory_error:
-                                        st.error(str(advisory_error))
-
-                                    advisory_result = st.session_state.get(advisory_state_key)
-                                    if isinstance(advisory_result, dict):
-                                        st.markdown("#### AI-подсказка")
-                                        st.caption("AI-подсказка не сохраняется автоматически")
-
-                                        strong_parts = advisory_result.get("strong_parts") or []
-                                        missing_signals = (
-                                            advisory_result.get("missing_signals") or []
-                                        )
-                                        star_improvements = (
-                                            advisory_result.get("star_improvements") or []
-                                        )
-                                        specificity_gaps = (
-                                            advisory_result.get("specificity_gaps") or []
-                                        )
-                                        risk_warnings = advisory_result.get("risk_warnings") or []
-                                        confirmation_needed = (
-                                            advisory_result.get("confirmation_needed") or []
-                                        )
-                                        suggested_revision = (
-                                            advisory_result.get("suggested_revision") or ""
-                                        )
-
-                                        if strong_parts:
-                                            st.markdown("Сильные стороны:")
-                                            for item in strong_parts:
-                                                st.markdown(f"- {item}")
-
-                                        if missing_signals:
-                                            st.markdown("Чего не хватает:")
-                                            for item in missing_signals:
-                                                st.markdown(f"- {item}")
-
-                                        if star_improvements:
-                                            st.markdown("Как усилить по STAR:")
-                                            for item in star_improvements:
-                                                st.markdown(f"- {item}")
-
-                                        if specificity_gaps:
-                                            st.markdown("Где не хватает конкретики:")
-                                            for item in specificity_gaps:
-                                                st.markdown(f"- {item}")
-
-                                        if risk_warnings:
-                                            st.markdown("Риски:")
-                                            for item in risk_warnings:
-                                                st.markdown(f"- {item}")
-
-                                        if confirmation_needed:
-                                            st.markdown("Нужно подтвердить:")
-                                            for item in confirmation_needed:
-                                                st.markdown(f"- {item}")
-
-                                        if suggested_revision:
-                                            st.markdown("Предлагаемая версия:")
-                                            st.text_area(
-                                                "Suggested revision",
-                                                value=localize_demo_ui_text(suggested_revision),
-                                                height=180,
-                                                disabled=True,
-                                                key=(
-                                                    "interview_competency_suggested_revision_"
-                                                    f"{selected_session_id}_{question_id}"
-                                                ),
-                                            )
-
-                                    with st.form(f"improve_attempt_{question_id}"):
-                                        improved_answer = st.text_area(
-                                            "Улучшенный ответ",
-                                            value=current_answer,
-                                            height=180,
-                                            key=(
-                                                "interview_competency_attempt_"
-                                                f"{selected_session_id}_{question_id}"
-                                            ),
-                                        )
-                                        update_session_answer = st.checkbox(
-                                            "Обновить основной ответ в сессии",
-                                            value=True,
-                                            key=(
-                                                "interview_competency_update_session_answer_"
-                                                f"{selected_session_id}_{question_id}"
-                                            ),
-                                        )
-                                        submitted_attempt = st.form_submit_button(
-                                            "Сохранить improved attempt",
-                                            type="primary",
-                                            use_container_width=True,
-                                        )
-
-                                    if submitted_attempt:
-                                        if not improved_answer.strip():
-                                            st.error("Нужно заполнить улучшенный ответ.")
-                                            return
-
-                                        try:
-                                            updated_session = client.post_json(
-                                                (
-                                                    f"/interviews/sessions/{selected_session_id}"
-                                                    f"/questions/{question_id}/attempts"
-                                                ),
-                                                {
-                                                    "answer_text": improved_answer.strip(),
-                                                    "update_session_answer": update_session_answer,
-                                                },
-                                                token=token,
-                                            )
-                                        except httpx.HTTPStatusError as exc:
-                                            st.error(
-                                                f"Backend вернул ошибку HTTP {exc.response.status_code}"
-                                            )
-                                            st.code(exc.response.text)
-                                            return
-                                        except httpx.RequestError as exc:
-                                            st.error("Не удалось подключиться к backend")
-                                            st.code(str(exc))
-                                            return
-                                        except ValueError as exc:
-                                            st.error("Backend вернул неожиданный ответ")
-                                            st.code(str(exc))
-                                            return
-
-                                        if not isinstance(updated_session, dict):
-                                            st.error(
-                                                "Backend вернул неожиданный формат interview session"
-                                            )
-                                            st.json(updated_session)
-                                            return
-
-                                        selected_session = updated_session
-                                        score = selected_session.get("score") or {}
-                                        feedback = selected_session.get("feedback") or {}
-                                        new_readiness = score.get("readiness_score")
-                                        saved_message = (
-                                            "Improved attempt сохранён. Readiness пересчитан."
-                                        )
-                                        if new_readiness is not None:
-                                            saved_message = f"{saved_message} {new_readiness} / 100"
-                                        st.session_state[
-                                            "interview_competency_attempt_saved_message"
-                                        ] = saved_message
-                                        st.rerun()
-
-    feedback_items = feedback.get("items") or []
-    if feedback_items:
-        st.markdown("### Обратная связь")
-
-        for item in feedback_items:
-            with st.container(border=True):
-                st.markdown(
-                    f"**Вопрос {int(item.get('question_index', 0)) + 1} — "
-                    f"{format_question_type(item.get('question_type'))}**"
-                )
-                st.caption(f"Длина ответа: {item.get('answer_length')} символов")
-
-                warnings = item.get("warnings") or []
-                suggestions = item.get("suggestions") or []
-
-                if warnings:
-                    st.warning("Предупреждения: " + ", ".join(warnings))
-                else:
-                    st.success("Критичных предупреждений нет")
-
-                if suggestions:
-                    st.markdown("Рекомендации:")
-                    for suggestion in suggestions:
-                        st.markdown(f"- {suggestion}")
-
-    with st.expander("Raw JSON сессии", expanded=False):
-        st.json(selected_session)
-
-
 def render_mvp_flow(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("MVP-сценарий")
 
@@ -3546,7 +2061,10 @@ def render_mvp_flow(client: CareerCopilotApiClient, token: str | None = None) ->
 
     st.divider()
 
-    render_application_dashboard_step(client, token=token)
+    st.info(
+        "После создания и ручной отправки отклика используйте вкладку «Отклики» "
+        "для дальнейшего workflow, analytics и tracking."
+    )
 
     st.divider()
 
@@ -3564,8 +2082,16 @@ def main() -> None:
     init_session_state()
     _, client, token = render_sidebar()
 
-    tab_home, tab_flow, tab_applications, tab_interviews = st.tabs(
-        ["Главная", "MVP-сценарий", "Отклики", "Интервью"]
+    tab_home, tab_flow, tab_review, tab_prep, tab_evidence, tab_strategy, tab_applications = st.tabs(
+        [
+            "Главная",
+            "MVP-сценарий",
+            "Document Review Workspace",
+            "Interview Prep Workspace",
+            "Evidence Workspace",
+            "Career Strategy",
+            "Отклики",
+        ]
     )
 
     with tab_home:
@@ -3574,11 +2100,28 @@ def main() -> None:
     with tab_flow:
         render_mvp_flow(client, token=token)
 
+    with tab_review:
+        render_document_review_workspace_tab(
+            client,
+            token=token,
+            selection_state_key="document_review_workspace_tab_selection",
+        )
+
+    with tab_prep:
+        render_interview_prep_workspace_tab(
+            client,
+            token=token,
+            selection_state_key="interview_prep_workspace_selection",
+        )
+
+    with tab_evidence:
+        render_evidence_workspace_tab(client, token=token)
+
+    with tab_strategy:
+        render_career_strategy_workspace_tab(client, token=token)
+
     with tab_applications:
         render_application_dashboard(client, token=token)
-
-    with tab_interviews:
-        render_interview_dashboard(client, token=token)
 
 
 if __name__ == "__main__":
