@@ -5,16 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ApplicationStatus = Literal[
-    "draft",
-    "ready",
-    "applied",
-    "screening",
-    "interview",
-    "offer",
-    "rejected",
-    "withdrawn",
-]
+from app.domain.application_status import (
+    ALLOWED_TRANSITIONS,
+    ApplicationStatus,
+    FINAL_APPLICATION_STATUSES,
+    normalize_application_status,
+)
 
 EventType = Literal[
     "applied",
@@ -26,32 +22,39 @@ EventType = Literal[
 ]
 
 
-ALLOWED_STATUS_TRANSITIONS: dict[ApplicationStatus, set[ApplicationStatus]] = {
-    "draft": {"ready", "draft"},
-    "ready": {"applied", "draft"},
-    "applied": {"screening", "interview", "rejected", "withdrawn"},
-    "screening": {"interview", "rejected", "withdrawn"},
-    "interview": {"offer", "rejected", "withdrawn"},
-    "offer": set(),  # финальное состояние
-    "rejected": set(),  # финальное состояние
-    "withdrawn": set(),  # финальное состояние
-}
+ALLOWED_STATUS_TRANSITIONS = ALLOWED_TRANSITIONS
 
 
 def is_valid_transition(
-    from_status: ApplicationStatus,
-    to_status: ApplicationStatus,
+    from_status: str | ApplicationStatus,
+    to_status: str | ApplicationStatus,
 ) -> bool:
     """Проверяет валидность перехода статуса application."""
-    if from_status == to_status:
-        return from_status not in {"offer", "rejected", "withdrawn"}
+    normalized_from_status = normalize_application_status(from_status)
+    normalized_to_status = normalize_application_status(to_status)
 
-    return to_status in ALLOWED_STATUS_TRANSITIONS.get(from_status, set())
+    if normalized_from_status is None or normalized_to_status is None:
+        return False
+
+    if normalized_from_status == normalized_to_status:
+        return normalized_from_status not in FINAL_APPLICATION_STATUSES
+
+    return normalized_to_status in ALLOWED_STATUS_TRANSITIONS.get(
+        normalized_from_status,
+        set(),
+    )
 
 
-def get_allowed_transitions(status: ApplicationStatus) -> set[ApplicationStatus]:
+def get_allowed_transitions(status: str | ApplicationStatus) -> set[str]:
     """Возвращает допустимые переходы из текущего статуса."""
-    return ALLOWED_STATUS_TRANSITIONS.get(status, set())
+    normalized_status = normalize_application_status(status)
+    if normalized_status is None:
+        return set()
+
+    return {
+        transition.value
+        for transition in ALLOWED_STATUS_TRANSITIONS.get(normalized_status, set())
+    }
 
 
 @dataclass(slots=True)

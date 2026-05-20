@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.application_status import (
+    ApplicationStatus,
+    normalize_application_status,
+)
 from app.domain.application_models import (
     is_valid_transition,
     get_allowed_transitions,
@@ -12,6 +16,20 @@ from app.domain.application_models import (
 
 class TestApplicationStatusTransitions:
     """Тесты для статусных переходов application."""
+
+    def test_enum_members(self) -> None:
+        assert ApplicationStatus.DRAFT.value == "draft"
+        assert ApplicationStatus.READY.value == "ready"
+        assert ApplicationStatus.APPLIED.value == "applied"
+        assert ApplicationStatus.INTERVIEW.value == "interview"
+        assert ApplicationStatus.OFFER.value == "offer"
+        assert ApplicationStatus.REJECTED.value == "rejected"
+        assert ApplicationStatus.WITHDRAWN.value == "withdrawn"
+
+    def test_normalize_application_status(self) -> None:
+        assert normalize_application_status("draft") == ApplicationStatus.DRAFT
+        assert normalize_application_status(ApplicationStatus.READY) == ApplicationStatus.READY
+        assert normalize_application_status("missing") is None
 
     def test_valid_transitions(self) -> None:
         # draft → ready

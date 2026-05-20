@@ -29,6 +29,9 @@ class InterviewSessionRead(BaseModel):
     vacancy_id: UUID | None
     session_type: str
     status: str
+    mode: str = "preparation"
+    current_question_index: int | None = None
+    completed_at: datetime | None = None
     question_set: list[dict[str, Any]]
     answers: list[dict[str, Any]]
     feedback: dict[str, Any]
@@ -45,6 +48,9 @@ class InterviewSessionListItem(BaseModel):
     vacancy_location: str | None = None
     session_type: str
     status: str
+    mode: str = "preparation"
+    current_question_index: int | None = None
+    completed_at: datetime | None = None
     question_count: int
     answered_count: int
     unanswered_count: int
@@ -87,6 +93,52 @@ class InterviewAnswerImproveRequest(BaseModel):
 class InterviewAnswerImproveResponse(BaseModel):
     improved_answer: str
     explanation: str
+
+
+class InterviewAnswerAdvisoryRequest(BaseModel):
+    question_id: str = Field(min_length=1, max_length=100)
+    answer_text: str = Field(min_length=1, max_length=5000)
+    competency_key: str | None = None
+
+
+class InterviewAnswerAdvisoryResponse(BaseModel):
+    strong_parts: list[str] = Field(default_factory=list)
+    missing_signals: list[str] = Field(default_factory=list)
+    star_improvements: list[str] = Field(default_factory=list)
+    specificity_gaps: list[str] = Field(default_factory=list)
+    risk_warnings: list[str] = Field(default_factory=list)
+    suggested_revision: str = ""
+    confirmation_needed: list[str] = Field(default_factory=list)
+
+
+class InterviewMockCurrentResponse(BaseModel):
+    question_index: int
+    question: dict[str, Any]
+    progress: dict[str, Any]
+
+
+class InterviewMockAnswerRequest(BaseModel):
+    question_id: str = Field(min_length=1, max_length=100)
+    answer_text: str = Field(min_length=1, max_length=5000)
+    include_advisory: bool = False
+
+
+class InterviewMockAnswerResponse(BaseModel):
+    session: InterviewSessionRead
+    evaluation: dict[str, Any]
+    advisory: dict[str, Any] | None = None
+    completed: bool
+    next_question: dict[str, Any] | None = None
+    progress: dict[str, Any]
+
+
+class InterviewMockSummaryResponse(BaseModel):
+    session: InterviewSessionRead
+    progress: dict[str, Any]
+    readiness_score: int | None = None
+    competency_readiness: list[dict[str, Any]] = Field(default_factory=list)
+    weak_competencies: list[dict[str, Any]] = Field(default_factory=list)
+    attempt_count: int = 0
 
 
 class InterviewAttemptProgressResponse(BaseModel):

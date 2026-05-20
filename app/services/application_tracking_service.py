@@ -15,6 +15,15 @@ from app.domain.application_models import (
     is_valid_transition,
     get_allowed_transitions,
 )
+from app.domain.application_events import (
+    ApplicationEventType,
+    normalize_application_event_type,
+)
+from app.domain.application_event_meta import (
+    build_application_applied_meta,
+    build_application_created_meta,
+    build_application_status_changed_meta,
+)
 from app.repositories.application_event_repository import ApplicationEventRepository
 from app.repositories.application_record_repository import ApplicationRecordRepository
 from app.repositories.application_status_history_repository import (
@@ -25,6 +34,26 @@ from app.repositories.vacancy_repository import VacancyRepository
 from app.services.application_safety_service import ApplicationSafetyService
 
 APPLICATION_USER_VACANCY_UNIQUE_CONSTRAINT = "uq_application_records_user_vacancy"
+APPLICATION_STATUS_LABELS: dict[str, str] = {
+    "draft": "Черновик",
+    "ready": "Готов к отправке",
+    "applied": "Отправлен вручную",
+    "screening": "Скрининг",
+    "interview": "Интервью",
+    "offer": "Оффер",
+    "rejected": "Отказ",
+    "withdrawn": "Отозван",
+}
+APPLICATION_WORKFLOW_ORDER: tuple[str, ...] = (
+    "ready",
+    "applied",
+    "screening",
+    "interview",
+    "offer",
+    "rejected",
+    "withdrawn",
+    "draft",
+)
 
 
 def _is_duplicate_application_error(exc: IntegrityError) -> bool:
@@ -73,6 +102,48 @@ class ApplicationTrackingService:
         self.application_safety_service = (
             application_safety_service or ApplicationSafetyService()
         )
+
+    def _workflow_status_label(self, status: str) -> str:
+        normalized_status = status.strip().lower()
+        return APPLICATION_STATUS_LABELS.get(normalized_status, normalized_status)
+
+    def _sorted_allowed_transitions(self, current_status: str) -> list[str]:
+        allowed = get_allowed_transitions(current_status) or set()
+        return sorted(
+            allowed,
+            key=lambda value: (
+                APPLICATION_WORKFLOW_ORDER.index(value)
+                if value in APPLICATION_WORKFLOW_ORDER
+                else len(APPLICATION_WORKFLOW_ORDER)
+            ),
+        )
+
+    def get_application_workflow_metadata(self, application: Any) -> dict[str, Any]:
+        current_status = str(getattr(application, "status", "") or "").strip().lower()
+        allowed_transitions = self._sorted_allowed_transitions(current_status)
+
+        return {
+            "current_status": current_status,
+            "allowed_transitions": [
+                {
+                    "status": status_value,
+                    "label": self._workflow_status_label(status_value),
+                }
+                for status_value in allowed_transitions
+            ],
+            "can_submit": current_status == "ready",
+            "is_final": len(allowed_transitions) == 0,
+        }
+
+    def _event_type_for_status(self, status: str) -> ApplicationEventType:
+        normalized_status = status.strip().lower()
+        if normalized_status == "ready":
+            return ApplicationEventType.APPLICATION_READY
+        if normalized_status == "applied":
+            return ApplicationEventType.APPLICATION_APPLIED
+        if normalized_status in {"rejected", "offer", "withdrawn"}:
+            return ApplicationEventType.OUTCOME_RECORDED
+        return ApplicationEventType.APPLICATION_STATUS_CHANGED
 
     async def create_application(
         self,
@@ -137,12 +208,17 @@ class ApplicationTrackingService:
                 new_status="draft",
                 notes=notes,
             )
-            await self._add_event(
+            await self._create_application_event(
                 session,
-                application=application,
-                event_type="status_changed",
+                application_id=application.id,
+                event_type=ApplicationEventType.APPLICATION_CREATED,
                 title="Application created",
                 description="Application record created in draft status",
+                meta_json=build_application_created_meta(
+                    vacancy_id=vacancy_id,
+                    resume_document_id=resume_document_id,
+                    cover_letter_document_id=cover_letter_document_id,
+                ),
             )
             await session.flush()
         except IntegrityError as exc:
@@ -243,10 +319,10 @@ class ApplicationTrackingService:
         application.resume_document_id = resume_document_id
         application.cover_letter_document_id = cover_letter_document_id
 
-        await self._add_event(
+        await self._create_application_event(
             session,
-            application=application,
-            event_type="document_attached",
+            application_id=application.id,
+            event_type=ApplicationEventType.DOCUMENT_ATTACHED,
             title="Documents attached",
             description=(
                 f"Resume: {resume_document_id}, "
@@ -274,10 +350,10 @@ class ApplicationTrackingService:
             user_id=user_id,
         )
 
-        await self._add_event(
+        await self._create_application_event(
             session,
-            application=application,
-            event_type="interview_scheduled",
+            application_id=application.id,
+            event_type=ApplicationEventType.INTERVIEW_SESSION_CREATED,
             title="Interview scheduled",
             description=notes,
             meta_json={"interview_date": interview_date.isoformat()},
@@ -301,10 +377,10 @@ class ApplicationTrackingService:
             user_id=user_id,
         )
 
-        await self._add_event(
+        await self._create_application_event(
             session,
-            application=application,
-            event_type="note_added",
+            application_id=application.id,
+            event_type=ApplicationEventType.NOTE_ADDED,
             title="Note added",
             description=note,
         )
@@ -329,10 +405,10 @@ class ApplicationTrackingService:
 
         application.external_link = external_link
 
-        await self._add_event(
+        await self._create_application_event(
             session,
-            application=application,
-            event_type="external_link_added",
+            application_id=application.id,
+            event_type=ApplicationEventType.EXTERNAL_LINK_ADDED,
             title="External link added",
             description=f"Link: {external_link}",
         )
@@ -402,12 +478,17 @@ class ApplicationTrackingService:
             notes=None,
         )
 
-        await self._add_event(
+        await self._create_application_event(
             session,
-            application=application,
-            event_type="applied",
-            title="Application submitted",
-            description=f"Submitted via {source or 'manual'}",
+            application_id=application.id,
+            event_type=ApplicationEventType.APPLICATION_APPLIED,
+            title="Application submitted manually",
+            description="User confirmed manual submission",
+            meta_json=build_application_applied_meta(
+                source=source or "manual",
+                external_link=external_link,
+                applied_at=application.applied_at,
+            ),
         )
 
         await session.flush()
@@ -465,12 +546,17 @@ class ApplicationTrackingService:
             notes=notes,
         )
 
-        await self._add_event(
+        await self._create_application_event(
             session,
-            application=application,
-            event_type="status_changed",
+            application_id=application.id,
+            event_type=self._event_type_for_status(normalized_status),
             title=f"Status changed to {normalized_status}",
             description=notes,
+            meta_json=build_application_status_changed_meta(
+                previous_status=previous_status,
+                new_status=normalized_status,
+                source="manual",
+            ),
         )
 
         await session.flush()
@@ -494,18 +580,42 @@ class ApplicationTrackingService:
             detail=f"invalid application status transition: {current_status} -> {next_status}",
         )
 
+    async def _create_application_event(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        event_type: str | ApplicationEventType,
+        title: str | None = None,
+        description: str | None = None,
+        meta_json: dict | None = None,
+    ) -> None:
+        """Создаёт запись события в timeline приложения."""
+        normalized_event_type = normalize_application_event_type(event_type)
+        event_type_value = (
+            normalized_event_type.value if normalized_event_type is not None else str(event_type)
+        )
+        await self.application_event_repository.create(
+            session,
+            application_id=application_id,
+            event_type=event_type_value,
+            title=title,
+            description=description,
+            meta_json=meta_json,
+        )
+
     async def _add_event(
         self,
         session: AsyncSession,
         *,
         application: Any,
-        event_type: str,
+        event_type: str | ApplicationEventType,
         title: str | None = None,
         description: str | None = None,
         meta_json: dict | None = None,
     ) -> None:
-        """Добавляет событие в timeline."""
-        await self.application_event_repository.create(
+        """Deprecated: use _create_application_event."""
+        await self._create_application_event(
             session,
             application_id=application.id,
             event_type=event_type,

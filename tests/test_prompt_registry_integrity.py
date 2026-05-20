@@ -171,6 +171,7 @@ async def test_prompt_registry_has_output_schema_for_structured_prompts():
         PromptTemplate.RESUME_ENHANCE_V1,
         PromptTemplate.COVER_LETTER_ENHANCE_V1,
         PromptTemplate.INTERVIEW_COACH_V1,
+        PromptTemplate.INTERVIEW_COACH_ADVISORY_V1,
         PromptTemplate.INTERVIEW_COACHING_V1,
     ]
 
@@ -178,3 +179,13 @@ async def test_prompt_registry_has_output_schema_for_structured_prompts():
         spec = get_prompt(template)
         assert spec.output_schema is not None, f"{template.value} missing output_schema"
         assert isinstance(spec.output_schema, dict), f"{template.value} output_schema must be dict"
+
+
+def test_interview_coach_advisory_prompt_registered() -> None:
+    spec = get_prompt(PromptTemplate.INTERVIEW_COACH_ADVISORY_V1)
+
+    assert "Provide coaching suggestions only." in spec.template
+    assert spec.input_schema["competency"] == "str"
+    assert spec.output_schema is not None
+    assert "suggested_revision" in spec.output_schema["properties"]
+    assert spec.temperature_hint == 0.1

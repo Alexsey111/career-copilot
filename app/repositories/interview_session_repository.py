@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import InterviewAnswerAttempt, InterviewSession, Vacancy
@@ -23,12 +24,18 @@ class InterviewSessionRepository:
         answers_json: list[dict] | None = None,
         feedback_json: dict | None = None,
         score_json: dict | None = None,
+        mode: str = "preparation",
+        current_question_index: int | None = None,
+        completed_at: datetime | None = None,
     ) -> InterviewSession:
         interview_session = InterviewSession(
             user_id=user_id,
             vacancy_id=vacancy_id,
             session_type=session_type,
             status=status,
+            mode=mode,
+            current_question_index=current_question_index,
+            completed_at=completed_at,
             question_set_json=question_set_json,
             answers_json=answers_json or [],
             feedback_json=feedback_json or {},
@@ -120,6 +127,8 @@ class InterviewSessionRepository:
                     "vacancy_location": vacancy_location,
                     "session_type": interview_session.session_type,
                     "status": interview_session.status,
+                    "mode": interview_session.mode,
+                    "current_question_index": interview_session.current_question_index,
                     "question_count": int(score.get("question_count") or len(question_set)),
                     "answered_count": int(score.get("answered_count") or len(answers)),
                     "unanswered_count": int(score.get("unanswered_count") or 0),
@@ -127,6 +136,7 @@ class InterviewSessionRepository:
                     "readiness_score": readiness_score,
                     "competency_readiness": competency_readiness,
                     "weak_competencies": weak_competencies,
+                    "completed_at": interview_session.completed_at,
                     "created_at": interview_session.created_at,
                     "updated_at": interview_session.updated_at,
                 }
@@ -143,11 +153,18 @@ class InterviewSessionRepository:
         feedback_json: dict,
         score_json: dict,
         status: str,
+        mode: str | None = None,
+        current_question_index: int | None = None,
+        completed_at: datetime | None = None,
     ) -> InterviewSession:
         interview_session.answers_json = answers_json
         interview_session.feedback_json = feedback_json
         interview_session.score_json = score_json
         interview_session.status = status
+        if mode is not None:
+            interview_session.mode = mode
+        interview_session.current_question_index = current_question_index
+        interview_session.completed_at = completed_at
 
         await session.flush()
         await session.refresh(interview_session)
@@ -193,3 +210,17 @@ class InterviewSessionRepository:
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_attempts_by_session_id(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+    ) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(InterviewAnswerAttempt)
+            .where(InterviewAnswerAttempt.session_id == session_id)
+        )
+        result = await session.execute(stmt)
+        return int(result.scalar_one() or 0)

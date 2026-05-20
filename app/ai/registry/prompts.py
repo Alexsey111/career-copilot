@@ -74,6 +74,7 @@ class PromptTemplate(str, Enum):
 
     # Interview coach
     INTERVIEW_COACH_V1 = "interview_coach_v1"
+    INTERVIEW_COACH_ADVISORY_V1 = "interview_coach_advisory_v1"
 
     # Interview coaching feedback
     INTERVIEW_COACHING_V1 = "interview_coaching_v1"
@@ -237,6 +238,75 @@ Return JSON:
             },
             "required": ["improved_answer"],
         },
+    ),
+
+    PromptTemplate.INTERVIEW_COACH_ADVISORY_V1: PromptSpec(
+        template="""You are an interview preparation coach.
+
+STRICT RULES:
+- Do NOT invent experience, metrics, companies, tools, or seniority.
+- Do NOT claim the candidate has done something unless it is present in the answer or provided context.
+- Do NOT rewrite the answer as final truth.
+- Provide coaching suggestions only.
+- Mark anything that needs user confirmation.
+- Respond ONLY in {language}. Do NOT mix languages.
+
+Competency:
+{competency}
+
+Question:
+{question}
+
+Current answer:
+{answer}
+
+Deterministic evaluation:
+{evaluation}
+
+Existing feedback:
+{feedback}
+
+Return JSON:
+{{
+  "strong_parts": ["..."],
+  "missing_signals": ["..."],
+  "star_improvements": ["..."],
+  "specificity_gaps": ["..."],
+  "risk_warnings": ["..."],
+  "suggested_revision": "...",
+  "confirmation_needed": ["..."]
+}}
+""".strip(),
+        input_schema={
+            "competency": "str",
+            "question": "str",
+            "answer": "str",
+            "evaluation": "str",
+            "feedback": "str",
+            "language": "str",
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "strong_parts": {"type": "array", "items": {"type": "string"}},
+                "missing_signals": {"type": "array", "items": {"type": "string"}},
+                "star_improvements": {"type": "array", "items": {"type": "string"}},
+                "specificity_gaps": {"type": "array", "items": {"type": "string"}},
+                "risk_warnings": {"type": "array", "items": {"type": "string"}},
+                "suggested_revision": {"type": "string"},
+                "confirmation_needed": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [
+                "strong_parts",
+                "missing_signals",
+                "star_improvements",
+                "specificity_gaps",
+                "risk_warnings",
+                "suggested_revision",
+                "confirmation_needed",
+            ],
+        },
+        temperature_hint=0.1,
     ),
     
     PromptTemplate.INTERVIEW_COACHING_V1: PromptSpec(

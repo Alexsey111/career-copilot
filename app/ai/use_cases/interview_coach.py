@@ -42,6 +42,56 @@ async def coach_answer(
     )
 
 
+async def coach_answer_advisory(
+    orchestrator: AIOrchestrator,
+    session,
+    *,
+    user_id,
+    competency: dict,
+    question: dict,
+    answer: str,
+    evaluation: dict,
+    feedback: dict | None = None,
+    language: str = "ru",
+):
+    evaluation_text = (
+        f"Score: {evaluation.get('score', 0)}/1. "
+        f"Feedback: {', '.join(evaluation.get('feedback', []))}"
+    )
+
+    competency_text = (
+        competency.get("competency_name")
+        or competency.get("competency_key")
+        or "unknown"
+    )
+
+    question_text = (
+        question.get("prompt")
+        or question.get("question_text")
+        or ""
+    )
+
+    feedback_text = ", ".join((feedback or {}).get("warnings", []))
+
+    return await orchestrator.execute(
+        session=session,
+        user_id=user_id,
+        prompt_template=PromptTemplate.INTERVIEW_COACH_ADVISORY_V1,
+        prompt_vars={
+            "competency": competency_text,
+            "question": question_text,
+            "answer": answer,
+            "evaluation": evaluation_text,
+            "feedback": feedback_text,
+            "language": language,
+        },
+        workflow_name="interview_coach_advisory",
+        target_type="interview_answer",
+        target_id=str(question.get("question_id") or ""),
+        language=language,
+    )
+
+
 async def coach_attempts(
     orchestrator: AIOrchestrator,
     session,

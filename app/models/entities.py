@@ -507,6 +507,9 @@ class InterviewSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     session_type: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
+    mode: Mapped[str] = mapped_column(String(50), nullable=False, default="preparation")
+    current_question_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     question_set_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     answers_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)

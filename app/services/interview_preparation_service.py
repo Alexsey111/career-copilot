@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 import re
 from typing import Any
 from uuid import UUID
@@ -19,7 +20,7 @@ from app.repositories.candidate_profile_repository import CandidateProfileReposi
 from app.repositories.interview_session_repository import InterviewSessionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.schemas.json_contracts import InterviewSessionSchema
+from app.schemas.json_contracts import AttemptFeedbackSchema, InterviewSessionSchema
 from app.services.answer_evaluation_engine import AnswerEvaluationEngine
 from app.services.interview_serialization import (
     serialize_feedback,
@@ -114,11 +115,50 @@ class InterviewPreparationService:
             vacancy_id=vacancy.id,
             session_type=session_type.strip().lower() or "vacancy",
             status="draft",
+            mode="preparation",
             question_set_json=question_set,
             answers_json=[],
             feedback_json={},
             score_json={},
         )
+
+        await session.commit()
+        await session.refresh(interview_session)
+        return interview_session
+
+    async def start_mock_interview(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+        user_id: UUID,
+    ):
+        interview_session = await self.get_session(
+            session,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        question_set = interview_session.question_set_json or []
+        if not question_set:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="interview session has no question_set",
+            )
+        if interview_session.status == "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="mock interview already completed",
+            )
+        if (
+            interview_session.mode == "mock_interview"
+            and interview_session.status == "in_progress"
+        ):
+            return interview_session
+
+        interview_session.status = "in_progress"
+        interview_session.mode = "mock_interview"
+        interview_session.current_question_index = 0
+        interview_session.completed_at = None
 
         await session.commit()
         await session.refresh(interview_session)
@@ -247,6 +287,262 @@ class InterviewPreparationService:
             ],
         }
 
+    async def get_current_mock_question(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+        user_id: UUID,
+    ) -> dict[str, Any]:
+        interview_session = await self.get_session(
+            session,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        question_set = interview_session.question_set_json or []
+        if not question_set:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="interview session has no question_set",
+            )
+        if interview_session.status == "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="mock interview already completed",
+            )
+
+        question_index = interview_session.current_question_index
+        if question_index is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="mock interview not started",
+            )
+        if question_index < 0 or question_index >= len(question_set):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="current_question_index out of range",
+            )
+
+        return {
+            "question_index": question_index,
+            "question": question_set[question_index],
+            "progress": self._build_mock_progress(
+                current_index=question_index,
+                total=len(question_set),
+            ),
+        }
+
+    async def submit_mock_answer(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+        user_id: UUID,
+        question_id: str,
+        answer_text: str,
+        include_advisory: bool = False,
+    ) -> dict[str, Any]:
+        interview_session = await self.get_session(
+            session,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        question_set = interview_session.question_set_json or []
+        if not question_set:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="interview session has no question_set",
+            )
+        if interview_session.status == "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="mock interview already completed",
+            )
+
+        question_index = interview_session.current_question_index
+        if question_index is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="mock interview not started",
+            )
+        if question_index < 0 or question_index >= len(question_set):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="current_question_index out of range",
+            )
+
+        question = question_set[question_index]
+        expected_question_id = str(question.get("question_id") or "").strip()
+        if not expected_question_id or expected_question_id != question_id.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="question_id does not match current mock question",
+            )
+
+        normalized_answer_text = answer_text.strip()
+        evaluation = self.evaluate_answer(
+            question=question.get("prompt") or question.get("question_text") or "",
+            answer=normalized_answer_text,
+        )
+        validated_feedback = AttemptFeedbackSchema(feedback=evaluation["feedback"])
+
+        await self.interview_session_repository.create_attempt(
+            session=session,
+            session_id=session_id,
+            question_id=expected_question_id,
+            answer_text=normalized_answer_text,
+            score=evaluation["score"],
+            feedback_json=validated_feedback.model_dump(),
+        )
+
+        updated_answers = self.merge_answer_by_question_id(
+            question_set=question_set,
+            existing_answers=interview_session.answers_json or [],
+            question_id=expected_question_id,
+            answer_text=normalized_answer_text,
+        )
+        normalized_answers = self._validate_and_normalize_answers(
+            question_set=question_set,
+            answers=updated_answers,
+        )
+        feedback_json = self._build_feedback(
+            question_set=question_set,
+            answers=normalized_answers,
+        )
+        score_json = self._build_score(
+            feedback_json,
+            question_set=question_set,
+        )
+        validated = InterviewSessionSchema(
+            answers=normalized_answers,
+            feedback=feedback_json,
+            score=score_json,
+        )
+
+        next_question_index = question_index + 1
+        completed = next_question_index >= len(question_set)
+        session_status = "completed" if completed else "in_progress"
+        persisted_current_question_index = None if completed else next_question_index
+        completed_at = datetime.now(timezone.utc) if completed else None
+
+        interview_session = await self.interview_session_repository.save_answers(
+            session,
+            interview_session,
+            answers_json=[a.model_dump() for a in validated.answers],
+            feedback_json=validated.feedback,
+            score_json=validated.score.model_dump(),
+            status=session_status,
+            mode="mock_interview",
+            current_question_index=persisted_current_question_index,
+            completed_at=completed_at,
+        )
+        await session.commit()
+        await session.refresh(interview_session)
+
+        next_question = None if completed else question_set[next_question_index]
+        progress_index = len(question_set) - 1 if completed else next_question_index
+        advisory = None
+
+        if include_advisory:
+            feedback_item = next(
+                (
+                    item
+                    for item in (validated.feedback.get("items") or [])
+                    if item.get("question_id") == expected_question_id
+                ),
+                None,
+            )
+            competency_key = question.get("competency_key")
+            competency = next(
+                (
+                    item
+                    for item in (validated.score.model_dump().get("competency_readiness") or [])
+                    if item.get("competency_key") == competency_key
+                ),
+                {
+                    "competency_key": competency_key,
+                    "competency_name": question.get("competency_name")
+                    or question.get("requirement_text")
+                    or competency_key
+                    or "unknown",
+                },
+            )
+            advisory = await self.coach_answer_advisory(
+                session=session,
+                user_id=user_id,
+                competency=competency,
+                question=question,
+                answer=normalized_answer_text,
+                evaluation=evaluation,
+                feedback=feedback_item,
+                language="ru",
+            )
+
+        return {
+            "session": interview_session,
+            "evaluation": evaluation,
+            "advisory": advisory,
+            "completed": completed,
+            "next_question": next_question,
+            "progress": self._build_mock_progress(
+                current_index=progress_index,
+                total=len(question_set),
+            ),
+        }
+
+    async def build_mock_summary(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+        user_id: UUID,
+    ) -> dict[str, Any]:
+        interview_session = await self.get_session(
+            session,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        question_set = interview_session.question_set_json or []
+        score = interview_session.score_json or {}
+        total = len(question_set)
+        answered_count = int(score.get("answered_count") or len(interview_session.answers_json or []))
+        competency_readiness = score.get("competency_readiness") or []
+        if not isinstance(competency_readiness, list):
+            competency_readiness = []
+
+        weak_competencies = [
+            item
+            for item in competency_readiness
+            if item.get("readiness_score", 100) < 75
+        ]
+        weak_competencies = sorted(
+            weak_competencies,
+            key=lambda item: item.get("readiness_score", 100),
+        )[:3]
+
+        attempt_count = await self.interview_session_repository.count_attempts_by_session_id(
+            session,
+            session_id=interview_session.id,
+        )
+        attempt_count = max(
+            attempt_count,
+            int(score.get("answered_count") or 0),
+            len(interview_session.answers_json or []),
+        )
+
+        return {
+            "session": interview_session,
+            "progress": {
+                "answered": answered_count,
+                "total": total,
+                "completed": interview_session.status == "completed",
+            },
+            "readiness_score": score.get("readiness_score"),
+            "competency_readiness": competency_readiness,
+            "weak_competencies": weak_competencies,
+            "attempt_count": attempt_count,
+        }
+
     async def save_answers(
         self,
         session: AsyncSession,
@@ -292,6 +588,49 @@ class InterviewPreparationService:
         await session.commit()
         await session.refresh(interview_session)
         return interview_session
+
+    def merge_answer_by_question_id(
+        self,
+        *,
+        question_set: list[dict],
+        existing_answers: list[dict],
+        question_id: str,
+        answer_text: str,
+    ) -> list[dict]:
+        question_index = next(
+            index
+            for index, item in enumerate(question_set)
+            if item.get("question_id") == question_id
+        )
+        updated_answers_by_question_id: dict[str, dict[str, str | int]] = {}
+
+        for existing_answer in existing_answers:
+            existing_question_id = existing_answer.get("question_id")
+            if not existing_question_id:
+                continue
+            updated_answers_by_question_id[str(existing_question_id)] = {
+                "question_id": str(existing_question_id),
+                "question_index": int(existing_answer.get("question_index") or 0),
+                "answer_text": str(existing_answer.get("answer_text") or ""),
+            }
+
+        updated_answers_by_question_id[question_id] = {
+            "question_id": question_id,
+            "question_index": question_index,
+            "answer_text": answer_text,
+        }
+
+        return sorted(
+            updated_answers_by_question_id.values(),
+            key=lambda item: int(item["question_index"]),
+        )
+
+    @staticmethod
+    def _build_mock_progress(*, current_index: int, total: int) -> dict[str, int]:
+        return {
+            "current": min(total, current_index + 1),
+            "total": total,
+        }
 
     def _validate_and_normalize_answers(
         self,
@@ -695,6 +1034,40 @@ class InterviewPreparationService:
             question=question,
             answer=answer,
             evaluation=evaluation,
+            language=language,
+        )
+
+        return result["result"]
+
+    async def coach_answer_advisory(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        competency: dict,
+        question: dict,
+        answer: str,
+        evaluation: dict,
+        feedback: dict | None = None,
+        language: str = "ru",
+    ) -> dict:
+        if not self.ai_orchestrator:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AI orchestrator not configured",
+            )
+
+        from app.ai.use_cases.interview_coach import coach_answer_advisory
+
+        result = await coach_answer_advisory(
+            self.ai_orchestrator,
+            session,
+            user_id=user_id,
+            competency=competency,
+            question=question,
+            answer=answer,
+            evaluation=evaluation,
+            feedback=feedback,
             language=language,
         )
 

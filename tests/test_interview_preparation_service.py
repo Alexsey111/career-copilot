@@ -296,6 +296,72 @@ async def test_coach_answer_rejects_unsafe_enhancement(db_session, test_user):
 
 
 @pytest.mark.asyncio
+async def test_interview_coach_advisory_use_case_passes_context(db_session, test_user):
+    from app.ai.registry.prompts import PromptTemplate
+    from app.ai.use_cases.interview_coach import coach_answer_advisory
+
+    captured: dict = {}
+
+    class FakeOrchestrator:
+        async def execute(self, session, **kwargs):
+            captured["session"] = session
+            captured.update(kwargs)
+            return {
+                "result": {
+                    "strong_parts": ["Used Python"],
+                    "missing_signals": ["No production scope"],
+                    "star_improvements": ["Add result"],
+                    "specificity_gaps": ["No metrics"],
+                    "risk_warnings": ["Needs confirmation"],
+                    "suggested_revision": "Revised answer",
+                    "confirmation_needed": ["Confirm metrics"],
+                }
+            }
+
+    question = {
+        "question_id": "iq_python",
+        "prompt": "Tell me about Python",
+    }
+    competency = {
+        "competency_key": "python",
+        "competency_name": "Python",
+    }
+    evaluation = {
+        "score": 0.5,
+        "feedback": ["too_generic"],
+    }
+    feedback = {
+        "warnings": ["weak_star_structure"],
+    }
+
+    result = await coach_answer_advisory(
+        FakeOrchestrator(),
+        db_session,
+        user_id=test_user.id,
+        competency=competency,
+        question=question,
+        answer="I used Python to build APIs",
+        evaluation=evaluation,
+        feedback=feedback,
+        language="ru",
+    )
+
+    assert result["result"]["suggested_revision"] == "Revised answer"
+    assert captured["session"] is db_session
+    assert captured["user_id"] == test_user.id
+    assert captured["prompt_template"] == PromptTemplate.INTERVIEW_COACH_ADVISORY_V1
+    assert captured["prompt_vars"]["competency"] == "Python"
+    assert captured["prompt_vars"]["question"] == "Tell me about Python"
+    assert captured["prompt_vars"]["answer"] == "I used Python to build APIs"
+    assert captured["prompt_vars"]["evaluation"] == "Score: 0.5/1. Feedback: too_generic"
+    assert captured["prompt_vars"]["feedback"] == "weak_star_structure"
+    assert captured["workflow_name"] == "interview_coach_advisory"
+    assert captured["target_type"] == "interview_answer"
+    assert captured["target_id"] == "iq_python"
+    assert captured["language"] == "ru"
+
+
+@pytest.mark.asyncio
 async def test_attempt_saved_on_evaluate(db_session, test_user):
     """Тест что попытка ответа сохраняется при вызове evaluate endpoint."""
     from sqlalchemy import select

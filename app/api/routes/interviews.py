@@ -14,11 +14,17 @@ from app.db.session import get_db_session
 from app.models import User
 from app.models.entities import InterviewAnswerAttempt
 from app.schemas.interview import (
+    InterviewAnswerAdvisoryRequest,
+    InterviewAnswerAdvisoryResponse,
     InterviewCompetencyDetailResponse,
     InterviewAnswerEvaluateRequest,
     InterviewAnswerEvaluateResponse,
     InterviewAnswerImproveRequest,
     InterviewAnswerImproveResponse,
+    InterviewMockAnswerRequest,
+    InterviewMockAnswerResponse,
+    InterviewMockCurrentResponse,
+    InterviewMockSummaryResponse,
     InterviewAttemptProgressResponse,
     InterviewAnswersUpdateRequest,
     InterviewQuestionAttemptCreateRequest,
@@ -128,6 +134,9 @@ def _to_read_model(interview_session) -> InterviewSessionRead:
         vacancy_id=interview_session.vacancy_id,
         session_type=interview_session.session_type,
         status=interview_session.status,
+        mode=interview_session.mode,
+        current_question_index=interview_session.current_question_index,
+        completed_at=interview_session.completed_at,
         question_set=interview_session.question_set_json,
         answers=interview_session.answers_json,
         feedback=interview_session.feedback_json,
@@ -231,31 +240,11 @@ async def create_interview_question_attempt(
         await session.refresh(interview_session)
         return _to_read_model(interview_session)
 
-    updated_answers_by_question_id: dict[str, dict[str, str | int]] = {}
-    for existing_answer in interview_session.answers_json or []:
-        existing_question_id = existing_answer.get("question_id")
-        if not existing_question_id:
-            continue
-        updated_answers_by_question_id[str(existing_question_id)] = {
-            "question_id": str(existing_question_id),
-            "question_index": int(existing_answer.get("question_index") or 0),
-            "answer_text": str(existing_answer.get("answer_text") or ""),
-        }
-
-    question_index = next(
-        index
-        for index, item in enumerate(question_set)
-        if item.get("question_id") == question_id
-    )
-    updated_answers_by_question_id[question_id] = {
-        "question_id": question_id,
-        "question_index": question_index,
-        "answer_text": payload.answer_text,
-    }
-
-    updated_answers = sorted(
-        updated_answers_by_question_id.values(),
-        key=lambda item: int(item["question_index"]),
+    updated_answers = service.merge_answer_by_question_id(
+        question_set=question_set,
+        existing_answers=interview_session.answers_json or [],
+        question_id=question_id,
+        answer_text=payload.answer_text,
     )
     updated_session = await service.save_answers(
         session,
@@ -278,9 +267,11 @@ async def coach_interview_answer(
     orchestrator: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> InterviewAnswerImproveResponse:
     """
-    AI-улучшает ответ на вопрос собеседования.
-    
-    Сначала выполняется детерминированная оценка, затем AI даёт улучшения.
+    Legacy endpoint for simple AI rewrite of an interview answer.
+
+    Prefer `/sessions/{session_id}/coach/advisory` for the main interview coaching
+    flow. This legacy route is kept for backward compatibility and returns a
+    direct rewrite suggestion after deterministic evaluation.
     """
     service = InterviewPreparationService(ai_orchestrator=orchestrator)
     
@@ -311,6 +302,180 @@ async def coach_interview_answer(
         improved_answer=improvement.get("improved_answer", ""),
         explanation=improvement.get("explanation", ""),
     )
+
+
+@router.post(
+    "/sessions/{session_id}/mock/start",
+    response_model=InterviewSessionRead,
+)
+async def start_mock_interview(
+    session_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewSessionRead:
+    service = InterviewPreparationService()
+    interview_session = await service.start_mock_interview(
+        session,
+        session_id=session_id,
+        user_id=current_user.id,
+    )
+    return _to_read_model(interview_session)
+
+
+@router.get(
+    "/sessions/{session_id}/mock/current",
+    response_model=InterviewMockCurrentResponse,
+)
+async def get_current_mock_question(
+    session_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewMockCurrentResponse:
+    service = InterviewPreparationService()
+    payload = await service.get_current_mock_question(
+        session,
+        session_id=session_id,
+        user_id=current_user.id,
+    )
+    return InterviewMockCurrentResponse(**payload)
+
+
+@router.post(
+    "/sessions/{session_id}/mock/answer",
+    response_model=InterviewMockAnswerResponse,
+)
+async def submit_mock_answer(
+    session_id: UUID,
+    payload: InterviewMockAnswerRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewMockAnswerResponse:
+    service = InterviewPreparationService()
+
+    if payload.include_advisory:
+        service.ai_orchestrator = get_ai_orchestrator()
+
+    result = await service.submit_mock_answer(
+        session,
+        session_id=session_id,
+        user_id=current_user.id,
+        question_id=payload.question_id,
+        answer_text=payload.answer_text,
+        include_advisory=payload.include_advisory,
+    )
+
+    return InterviewMockAnswerResponse(
+        session=_to_read_model(result["session"]),
+        evaluation=result["evaluation"],
+        advisory=result["advisory"],
+        completed=result["completed"],
+        next_question=result["next_question"],
+        progress=result["progress"],
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/mock/summary",
+    response_model=InterviewMockSummaryResponse,
+)
+async def get_mock_summary(
+    session_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewMockSummaryResponse:
+    service = InterviewPreparationService()
+    result = await service.build_mock_summary(
+        session,
+        session_id=session_id,
+        user_id=current_user.id,
+    )
+    return InterviewMockSummaryResponse(
+        session=_to_read_model(result["session"]),
+        progress=result["progress"],
+        readiness_score=result["readiness_score"],
+        competency_readiness=result["competency_readiness"],
+        weak_competencies=result["weak_competencies"],
+        attempt_count=result["attempt_count"],
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/coach/advisory",
+    response_model=InterviewAnswerAdvisoryResponse,
+)
+async def coach_interview_answer_advisory(
+    session_id: UUID,
+    payload: InterviewAnswerAdvisoryRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+    orchestrator: AIOrchestrator = Depends(get_ai_orchestrator),
+) -> InterviewAnswerAdvisoryResponse:
+    """
+    Main AI coaching endpoint for interview preparation.
+
+    Boundary:
+    AI suggests -> user edits -> attempt saved -> deterministic readiness recalculated.
+    This route does not create attempts and does not update session answers.
+    """
+    service = InterviewPreparationService(ai_orchestrator=orchestrator)
+
+    interview_session = await service.get_session(
+        session,
+        session_id=session_id,
+        user_id=current_user.id,
+    )
+    question_set = interview_session.question_set_json or []
+    question = service.get_question_by_id(
+        question_set=question_set,
+        question_id=payload.question_id,
+    )
+
+    evaluation = service.evaluate_answer(
+        question=question.get("prompt") or question.get("question_text") or "",
+        answer=payload.answer_text,
+    )
+
+    competency_key = payload.competency_key or question.get("competency_key")
+    competency = next(
+        (
+            item
+            for item in (
+                (interview_session.score_json or {}).get("competency_readiness") or []
+            )
+            if item.get("competency_key") == competency_key
+        ),
+        None,
+    )
+    if competency is None:
+        competency = {
+            "competency_key": competency_key or question.get("competency_key"),
+            "competency_name": question.get("competency_name")
+            or question.get("requirement_text")
+            or competency_key
+            or "unknown",
+        }
+
+    feedback_item = next(
+        (
+            item
+            for item in ((interview_session.feedback_json or {}).get("items") or [])
+            if item.get("question_id") == payload.question_id
+        ),
+        None,
+    )
+
+    advisory = await service.coach_answer_advisory(
+        session=session,
+        user_id=current_user.id,
+        competency=competency,
+        question=question,
+        answer=payload.answer_text,
+        evaluation=evaluation,
+        feedback=feedback_item,
+        language="ru",
+    )
+
+    return InterviewAnswerAdvisoryResponse(**advisory)
 
 
 @router.get(

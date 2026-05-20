@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ApplicationCreateRequest(BaseModel):
@@ -26,6 +26,18 @@ class ApplicationStatusUpdateRequest(BaseModel):
     notes: str | None = None
 
 
+class ApplicationWorkflowTransitionItem(BaseModel):
+    status: str
+    label: str
+
+
+class ApplicationWorkflowResponse(BaseModel):
+    current_status: str
+    allowed_transitions: list[ApplicationWorkflowTransitionItem] = Field(default_factory=list)
+    can_submit: bool = False
+    is_final: bool = False
+
+
 class ApplicationStatusHistoryItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,12 +55,12 @@ class ApplicationEventItem(BaseModel):
     event_type: str
     title: str | None
     description: str | None
-    meta_json: dict
+    meta_json: dict[str, object]
     created_at: datetime
     updated_at: datetime
 
 
-class ApplicationRead(BaseModel):
+class ApplicationDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -65,7 +77,7 @@ class ApplicationRead(BaseModel):
     updated_at: datetime
 
 
-class ApplicationListItem(BaseModel):
+class ApplicationDashboardItem(BaseModel):
     id: UUID
     vacancy_id: UUID
     vacancy_title: str | None = None
@@ -81,3 +93,8 @@ class ApplicationListItem(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+
+
+# Backward-compatible aliases for the older response names.
+ApplicationRead = ApplicationDetailResponse
+ApplicationListItem = ApplicationDashboardItem

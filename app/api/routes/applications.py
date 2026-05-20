@@ -12,9 +12,10 @@ from app.db.session import get_db_session
 from app.models import User
 from app.schemas.application import (
     ApplicationCreateRequest,
+    ApplicationDashboardItem,
     ApplicationEventItem,
-    ApplicationListItem,
-    ApplicationRead,
+    ApplicationDetailResponse,
+    ApplicationWorkflowResponse,
     ApplicationStatusHistoryItem,
     ApplicationSubmitRequest,
     ApplicationStatusUpdateRequest,
@@ -25,12 +26,12 @@ from app.services.application_tracking_service import ApplicationTrackingService
 router = APIRouter(prefix="/applications", tags=["applications"])
 
 
-@router.post("", response_model=ApplicationRead)
+@router.post("", response_model=ApplicationDetailResponse)
 async def create_application(
     payload: ApplicationCreateRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-) -> ApplicationRead:
+) -> ApplicationDetailResponse:
     service = ApplicationTrackingService()
     try:
         application = await service.create_application(
@@ -43,25 +44,44 @@ async def create_application(
             notes=payload.notes,
         )
         await session.commit()
-        return ApplicationRead.model_validate(application)
+        return ApplicationDetailResponse.model_validate(application)
     except Exception:
         await session.rollback()
         raise
 
 
-@router.get("/{application_id}", response_model=ApplicationRead)
+@router.get("/{application_id}", response_model=ApplicationDetailResponse)
 async def get_application(
     application_id: UUID,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-) -> ApplicationRead:
+) -> ApplicationDetailResponse:
     service = ApplicationTrackingService()
     application = await service.get_application(
         session,
         application_id=application_id,
         user_id=current_user.id,
     )
-    return ApplicationRead.model_validate(application)
+    return ApplicationDetailResponse.model_validate(application)
+
+
+@router.get(
+    "/{application_id}/workflow",
+    response_model=ApplicationWorkflowResponse,
+)
+async def get_application_workflow(
+    application_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApplicationWorkflowResponse:
+    service = ApplicationTrackingService()
+    application = await service.get_application(
+        session,
+        application_id=application_id,
+        user_id=current_user.id,
+    )
+    workflow = service.get_application_workflow_metadata(application)
+    return ApplicationWorkflowResponse.model_validate(workflow)
 
 
 @router.get(
@@ -100,13 +120,13 @@ async def get_application_activity_log(
     return [ApplicationEventItem.model_validate(item) for item in log]
 
 
-@router.patch("/{application_id}/status", response_model=ApplicationRead)
+@router.patch("/{application_id}/status", response_model=ApplicationDetailResponse)
 async def update_application_status(
     application_id: UUID,
     payload: ApplicationStatusUpdateRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-) -> ApplicationRead:
+) -> ApplicationDetailResponse:
     service = ApplicationTrackingService()
     try:
         application = await service.update_status(
@@ -117,19 +137,19 @@ async def update_application_status(
             notes=payload.notes,
         )
         await session.commit()
-        return ApplicationRead.model_validate(application)
+        return ApplicationDetailResponse.model_validate(application)
     except Exception:
         await session.rollback()
         raise
 
 
-@router.post("/{application_id}/submit", response_model=ApplicationRead)
+@router.post("/{application_id}/submit", response_model=ApplicationDetailResponse)
 async def submit_application(
     application_id: UUID,
     payload: ApplicationSubmitRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-) -> ApplicationRead:
+) -> ApplicationDetailResponse:
     service = ApplicationTrackingService()
     try:
         application = await service.submit_application(
@@ -140,20 +160,20 @@ async def submit_application(
             external_link=payload.external_link,
         )
         await session.commit()
-        return ApplicationRead.model_validate(application)
+        return ApplicationDetailResponse.model_validate(application)
     except Exception:
         await session.rollback()
         raise
 
 
-@router.get("", response_model=list[ApplicationListItem])
+@router.get("", response_model=list[ApplicationDashboardItem])
 async def list_applications(
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-) -> list[ApplicationListItem]:
+) -> list[ApplicationDashboardItem]:
     service = ApplicationTrackingService()
     items = await service.list_application_dashboard_items(
         session,
         user_id=current_user.id,
     )
-    return [ApplicationListItem(**item) for item in items]
+    return [ApplicationDashboardItem(**item) for item in items]

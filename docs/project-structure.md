@@ -124,6 +124,7 @@ app/api/
 - `routes/interviews.py` управляет interview sessions, ответами, оценкой и coaching.
 - `routes/pipeline_execution_routes.py`, `pipeline_async.py` и `executions.py` покрывают pipeline execution lifecycle, async запуск и события.
 - `routes/review_workspace_routes.py` обслуживает human-in-the-loop review workspace.
+- `routes/applications.py` также отдает workflow metadata, timeline и activity log для application pipeline UI.
 - `routes/health.py` содержит healthcheck.
 
 ## `app/security/`
@@ -150,6 +151,8 @@ app/domain/
 ├── skills/
 ├── vacancies/
 ├── analytics_models.py
+├── application_event_meta.py
+├── application_events.py
 ├── application_models.py
 ├── application_statuses.py
 ├── check_registry.py
@@ -183,6 +186,7 @@ app/domain/
 Ключевые области:
 
 - statuses/transitions: `application_statuses.py`, `pipeline_execution_status.py`
+- application pipeline: `application_events.py`, `application_event_meta.py`, `application_models.py`
 - pipeline/progress/execution: `pipeline_models.py`, `progress_models.py`, `execution_events.py`, `execution_metrics.py`
 - evaluation/readiness/recommendations: `evaluation_models.py`, `readiness_models.py`, `readiness_evaluation.py`, `recommendation_models.py`
 - coverage/requirements/checks: `coverage_models.py`, `coverage_eval_models.py`, `requirement_models.py`, `check_registry.py`, `checks.py`
@@ -263,6 +267,7 @@ app/schemas/
 ```
 
 - `auth.py`, `application.py`, `document.py`, `interview.py`, `vacancy.py`, `source_file.py` описывают публичные API-контракты.
+- `application.py` содержит application detail, dashboard, workflow, timeline, status history и activity log contracts.
 - `profile_import.py`, `profile_structured.py`, `achievement_extract.py`, `resume_generation.py` покрывают profile/resume flows.
 - `pipeline_schemas.py` описывает pipeline execution responses.
 - `review_workspace.py` описывает human-in-the-loop workspace.
@@ -393,6 +398,7 @@ frontend/
 ```
 
 - `app.py` содержит MVP UI flow: профиль, достижения, вакансии, документы, заявки, интервью и review.
+- `app.py` также показывает workflow, status history и activity log для application dashboard.
 - `api_client.py` инкапсулирует backend API calls и export-запросы.
 
 ## `alembic/`
@@ -429,6 +435,7 @@ docs/
 ```
 
 - `project-structure.md` - этот документ.
+- `application_pipeline.md` - контракт application pipeline: статусы, submit boundary, workflow, timeline, event taxonomy и meta contract.
 - `local-operational-routine.md` - локальные эксплуатационные инструкции.
 - `PipelineExecution*.md` - документация execution tracking.
 - `readiness_*` и `recommendation_categories.md` - документация evaluation/readiness/recommendation областей.
@@ -484,7 +491,7 @@ tests/
 
 - API/service tests для auth, profile, vacancies, documents, applications, interviews, pipeline executions и execution events.
 - Document tests для generation, enhance, review, activation, rollback, diff, export и content JSON audit.
-- Application tests для package integrity, list API, status transitions и timeline/history.
+- Application tests для package integrity, list API, status transitions, timeline/history и activity log.
 - Pipeline tests для sync/async execution и event tracking.
 - AI tests для orchestrator, model override, prompt rendering и registry integrity.
 - Migration tests для drift checks.
@@ -521,7 +528,9 @@ tests/
 1. `ApplicationTrackingService` создает application record.
 2. Статусы обновляются только по разрешенным переходам.
 3. История переходов и application events сохраняются отдельно.
-4. Application package integrity проверяет, что документы готовы к отклику.
+4. `application_events.py` фиксирует canonical event taxonomy.
+5. `application_event_meta.py` задает structured meta_json builders для timeline событий.
+6. Application package integrity проверяет, что документы готовы к отклику.
 
 ### 5. Интервью
 

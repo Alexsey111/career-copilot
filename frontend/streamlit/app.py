@@ -19,10 +19,13 @@ st.set_page_config(
 
 APPLICATION_STATUS_LABELS = {
     "draft": "Черновик",
-    "submitted": "Отправлен вручную",
+    "ready": "Готов к отправке",
+    "applied": "Отправлен вручную",
+    "screening": "Скрининг",
     "interview": "Интервью",
     "rejected": "Отказ",
     "offer": "Оффер",
+    "withdrawn": "Отозван",
 }
 
 INTERVIEW_STATUS_LABELS = {
@@ -1536,7 +1539,7 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
                 "resume_document_id": application.get("resume_document_id"),
                 "cover_letter_document_id": application.get("cover_letter_document_id"),
                 "status": application.get("status"),
-                "channel": application.get("channel"),
+                "source": application.get("source"),
                 "applied_at": application.get("applied_at"),
                 "notes": application.get("notes"),
                 "created_at": application.get("created_at"),
@@ -1546,7 +1549,7 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
         if application.get("status") == "draft":
             st.info(
                 "Отклик создан в статусе draft. Это не означает отправку. "
-                "После ручной отправки на HH статус можно будет изменить на submitted отдельным шагом."
+                "После ручной отправки на HH статус можно будет изменить на applied отдельным шагом."
             )
 
 
@@ -1568,7 +1571,27 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
     st.caption(f"application_id: {application_id}")
     st.caption(f"current_status: {current_status}")
 
-    if current_status == "submitted":
+    try:
+        workflow = client.get_json(f"/applications/{application_id}/workflow", token=token)
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    if not isinstance(workflow, dict):
+        st.error("Backend вернул неожиданный формат workflow metadata")
+        st.json(workflow)
+        return
+
+    if current_status == "applied":
         st.success("Отклик уже отмечен как отправленный.")
         st.json(
             {
@@ -1580,15 +1603,24 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
         )
         return
 
+    if not workflow.get("can_submit"):
+        st.info(
+            "Ручная отметка отправки недоступна для текущего статуса. "
+            "Backend сам определяет, когда submit доступен."
+        )
+        with st.expander("Workflow metadata", expanded=False):
+            st.json(workflow)
+        return
+
     st.warning(
         "Нажимайте эту кнопку только после того, как вы вручную отправили отклик на HH "
         "или другой площадке. Система сама ничего не отправляет."
     )
 
-    notes = st.text_area(
-        "Заметка после ручной отправки",
-        value="Отклик отправлен вручную на HH.",
-        height=90,
+    external_link = st.text_input(
+        "Ссылка на отклик",
+        value=application.get("external_link") or "",
+        help="Опционально. Можно вставить ссылку на HH или другую площадку.",
     )
 
     if st.button(
@@ -1597,10 +1629,10 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
         use_container_width=True,
     ):
         try:
-            result = client.patch_json(f"/applications/{application_id}/status",
+            result = client.post_json(f"/applications/{application_id}/submit",
                 {
-                    "status": "submitted",
-                    "notes": notes.strip() or None,
+                    "source": "manual",
+                    "external_link": external_link.strip() or None,
                 }, token=token)
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
@@ -1693,7 +1725,7 @@ def render_application_dashboard_step(client: CareerCopilotApiClient, token: str
         status_value = str(item.get("status") or "unknown")
         status_counts[status_value] = status_counts.get(status_value, 0) + 1
 
-    col_total, col_draft, col_submitted, col_interview, col_final = st.columns(5)
+    col_total, col_draft, col_ready, col_applied, col_screening, col_interview, col_final = st.columns(7)
 
     with col_total:
         st.metric("Всего", len(applications))
@@ -1701,8 +1733,14 @@ def render_application_dashboard_step(client: CareerCopilotApiClient, token: str
     with col_draft:
         st.metric("Черновики", status_counts.get("draft", 0))
 
-    with col_submitted:
-        st.metric("Отправлены", status_counts.get("submitted", 0))
+    with col_ready:
+        st.metric("Готовы", status_counts.get("ready", 0))
+
+    with col_applied:
+        st.metric("Отправлены", status_counts.get("applied", 0))
+
+    with col_screening:
+        st.metric("Скрининг", status_counts.get("screening", 0))
 
     with col_interview:
         st.metric("Интервью", status_counts.get("interview", 0))
@@ -1710,7 +1748,9 @@ def render_application_dashboard_step(client: CareerCopilotApiClient, token: str
     with col_final:
         st.metric(
             "Финальные",
-            status_counts.get("rejected", 0) + status_counts.get("offer", 0),
+            status_counts.get("rejected", 0)
+            + status_counts.get("offer", 0)
+            + status_counts.get("withdrawn", 0),
         )
 
     rows = []
@@ -1721,7 +1761,7 @@ def render_application_dashboard_step(client: CareerCopilotApiClient, token: str
                 "Компания": format_vacancy_company(item.get("vacancy_company")),
                 "Локация": format_vacancy_location(item.get("vacancy_location")),
                 "Статус": format_application_status(item.get("status")),
-                "Канал": item.get("channel") or "—",
+                "Источник": item.get("source") or "—",
                 "Дата отправки": format_optional_datetime(item.get("applied_at")),
                 "Outcome": item.get("outcome") or "—",
                 "Заметки": item.get("notes") or "—",
@@ -1742,7 +1782,7 @@ def render_application_dashboard_step(client: CareerCopilotApiClient, token: str
                     "resume_document_id": item.get("resume_document_id"),
                     "cover_letter_document_id": item.get("cover_letter_document_id"),
                     "status": item.get("status"),
-                    "channel": item.get("channel"),
+                    "source": item.get("source"),
                     "applied_at": item.get("applied_at"),
                     "outcome": item.get("outcome"),
                     "notes": item.get("notes"),
@@ -1760,10 +1800,10 @@ def render_interview_preparation_step(client: CareerCopilotApiClient, token: str
         st.info("Сначала создайте запись отклика на шаге 10.")
         return
 
-    if application.get("status") != "submitted":
+    if application.get("status") != "applied":
         st.info(
             "Подготовку к интервью лучше создавать после того, как отклик вручную отправлен "
-            "и отмечен как submitted на шаге 11."
+            "и отмечен как applied на шаге 11."
         )
         return
 
@@ -2032,18 +2072,13 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
     status_labels = {
         "draft": "Черновик",
-        "submitted": "Отправлен вручную",
+        "ready": "Готов к отправке",
+        "applied": "Отправлен вручную",
+        "screening": "Скрининг",
         "interview": "Интервью",
         "rejected": "Отказ",
         "offer": "Оффер",
-    }
-
-    allowed_next_statuses = {
-        "draft": ["submitted"],
-        "submitted": ["interview", "rejected", "offer"],
-        "interview": ["rejected", "offer"],
-        "rejected": [],
-        "offer": [],
+        "withdrawn": "Отозван",
     }
 
     try:
@@ -2072,10 +2107,13 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
     counts_by_status = {
         "draft": 0,
-        "submitted": 0,
+        "ready": 0,
+        "applied": 0,
+        "screening": 0,
         "interview": 0,
         "rejected": 0,
         "offer": 0,
+        "withdrawn": 0,
     }
 
     for application in applications:
@@ -2083,7 +2121,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         if status_value in counts_by_status:
             counts_by_status[status_value] += 1
 
-    metric_cols = st.columns(5)
+    metric_cols = st.columns(8)
 
     for col, status_value in zip(metric_cols, counts_by_status.keys()):
         with col:
@@ -2172,7 +2210,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
             "resume_document_id": selected_application.get("resume_document_id"),
             "cover_letter_document_id": selected_application.get("cover_letter_document_id"),
             "status": selected_application.get("status"),
-            "channel": selected_application.get("channel"),
+            "source": selected_application.get("source"),
             "applied_at": selected_application.get("applied_at"),
             "outcome": selected_application.get("outcome"),
             "notes": selected_application.get("notes"),
@@ -2181,8 +2219,136 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         }
     )
 
+    st.markdown("### История статусов")
+    timeline: list[dict[str, object]] = []
+    try:
+        timeline_result = client.get_json(
+            f"/applications/{selected_application_id}/timeline",
+            token=token,
+        )
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при загрузке timeline")
+        st.code(exc.response.text)
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend для загрузки timeline")
+        st.code(str(exc))
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ для timeline")
+        st.code(str(exc))
+    else:
+        if not isinstance(timeline_result, list):
+            st.error("Backend вернул неожиданный формат timeline")
+            st.json(timeline_result)
+        else:
+            timeline = timeline_result
+
+    if timeline:
+        for item in timeline:
+            previous_status = item.get("previous_status") or "—"
+            new_status = item.get("new_status") or "—"
+            changed_at = format_optional_datetime(item.get("changed_at"))
+
+            with st.container(border=True):
+                st.markdown(f"**{changed_at}**")
+                st.write(f"{previous_status} -> {new_status}")
+                if item.get("notes"):
+                    st.caption(item.get("notes"))
+    else:
+        st.caption("История статусов пока пуста.")
+
+    st.markdown("### Activity log")
+    activity_log: list[dict[str, object]] = []
+    try:
+        activity_log_result = client.get_json(
+            f"/applications/{selected_application_id}/activity-log",
+            token=token,
+        )
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при загрузке activity log")
+        st.code(exc.response.text)
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend для загрузки activity log")
+        st.code(str(exc))
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ для activity log")
+        st.code(str(exc))
+    else:
+        if not isinstance(activity_log_result, list):
+            st.error("Backend вернул неожиданный формат activity log")
+            st.json(activity_log_result)
+        else:
+            activity_log = activity_log_result
+
+    def _render_activity_meta(meta_json: dict[str, object] | None) -> None:
+        if not meta_json:
+            st.caption("meta: —")
+            return
+
+        important_keys = [
+            "vacancy_id",
+            "resume_document_id",
+            "cover_letter_document_id",
+            "previous_status",
+            "new_status",
+            "source",
+            "external_link",
+            "applied_at",
+        ]
+        important_parts = []
+        for key in important_keys:
+            value = meta_json.get(key)
+            if value not in (None, "", []):
+                important_parts.append(f"{key}={value}")
+
+        if important_parts:
+            st.caption("meta: " + ", ".join(important_parts))
+        else:
+            st.caption("meta: " + ", ".join(f"{key}={value}" for key, value in meta_json.items()))
+
+    if activity_log:
+        for item in activity_log:
+            with st.container(border=True):
+                st.markdown(f"**{item.get('title') or item.get('event_type') or 'Event'}**")
+                st.caption(format_optional_datetime(item.get("created_at")))
+                if item.get("description"):
+                    st.write(item.get("description"))
+                _render_activity_meta(item.get("meta_json") or {})
+    else:
+        st.caption("Activity log пока пуст.")
+
     current_status = str(selected_application.get("status") or "").strip().lower()
-    next_statuses = allowed_next_statuses.get(current_status, [])
+
+    try:
+        workflow = client.get_json(f"/applications/{selected_application_id}/workflow", token=token)
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    if not isinstance(workflow, dict):
+        st.error("Backend вернул неожиданный формат workflow metadata")
+        st.json(workflow)
+        return
+
+    allowed_transitions = workflow.get("allowed_transitions") or []
+    next_statuses = [
+        str(item.get("status") or "").strip()
+        for item in allowed_transitions
+        if isinstance(item, dict) and str(item.get("status") or "").strip()
+    ]
+    transition_labels = {
+        str(item.get("status") or "").strip(): str(item.get("label") or "").strip()
+        for item in allowed_transitions
+        if isinstance(item, dict) and str(item.get("status") or "").strip()
+    }
 
     st.markdown("### Ручное обновление статуса")
 
@@ -2191,13 +2357,15 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
             "Для текущего статуса нет разрешённых следующих переходов. "
             "Финальные статусы не переоткрываются автоматически."
         )
+        with st.expander("Workflow metadata", expanded=False):
+            st.json(workflow)
         return
 
     with st.form(f"application_status_dashboard_form_{selected_application_id}"):
         next_status = st.selectbox(
             "Новый статус",
             options=next_statuses,
-            format_func=lambda value: status_labels.get(value, value),
+            format_func=lambda value: transition_labels.get(value, status_labels.get(value, value)),
         )
 
         notes = st.text_area(
@@ -2241,12 +2409,406 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         st.rerun()
 
 
+def _format_mock_score(score: object) -> str:
+    if score is None:
+        return "—"
+
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return str(score)
+
+    if 0.0 <= value <= 1.0:
+        return f"{round(value * 100)}%"
+
+    return f"{round(value)} / 100"
+
+
+def _render_mock_evaluation_block(
+    *,
+    evaluation: dict,
+    progress: dict | None = None,
+) -> None:
+    st.markdown("#### Evaluation")
+
+    with st.container(border=True):
+        col_score, col_progress = st.columns(2)
+
+        with col_score:
+            st.metric("Оценка", _format_mock_score(evaluation.get("score")))
+
+        with col_progress:
+            current_value = progress.get("current") if progress else None
+            total_value = progress.get("total") if progress else None
+            progress_value = (
+                f"{current_value} / {total_value}"
+                if current_value is not None and total_value is not None
+                else "—"
+            )
+            st.metric("Прогресс", progress_value)
+
+        feedback = evaluation.get("feedback") or []
+        if feedback:
+            st.markdown("**Что улучшить**")
+            for item in feedback:
+                st.markdown(f"- {item}")
+        else:
+            st.info("Критичных замечаний по ответу нет.")
+
+
+def _render_mock_advisory_block(advisory: dict | None) -> None:
+    if not advisory:
+        st.info("Advisory не вернулся.")
+        return
+
+    st.markdown("#### Advisory")
+
+    with st.container(border=True):
+        sections = [
+            ("Сильные стороны", advisory.get("strong_parts") or []),
+            ("Чего не хватает", advisory.get("missing_signals") or []),
+            ("STAR improvements", advisory.get("star_improvements") or []),
+            ("Где не хватает конкретики", advisory.get("specificity_gaps") or []),
+            ("Риски", advisory.get("risk_warnings") or []),
+            ("Нужна верификация", advisory.get("confirmation_needed") or []),
+        ]
+
+        for title, items in sections:
+            if not items:
+                continue
+            st.markdown(f"**{title}**")
+            for item in items:
+                st.markdown(f"- {item}")
+
+        suggested_revision = (advisory.get("suggested_revision") or "").strip()
+        if suggested_revision:
+            st.markdown("**Suggested revision**")
+            st.write(suggested_revision)
+
+
+def _render_mock_summary_block(summary: dict) -> None:
+    st.markdown("#### Summary")
+
+    with st.container(border=True):
+        progress = summary.get("progress") or {}
+        col_status, col_answered, col_total, col_attempts, col_readiness = st.columns(5)
+
+        with col_status:
+            st.metric(
+                "Статус",
+                "Завершено" if progress.get("completed") else "В процессе",
+            )
+
+        with col_answered:
+            st.metric("Ответов", progress.get("answered", 0))
+
+        with col_total:
+            st.metric("Всего вопросов", progress.get("total", 0))
+
+        with col_attempts:
+            st.metric("Попыток", summary.get("attempt_count", 0))
+
+        with col_readiness:
+            st.metric("Готовность", _format_mock_score(summary.get("readiness_score")))
+
+        competency_readiness = summary.get("competency_readiness") or []
+        if competency_readiness:
+            st.markdown("**Готовность по компетенциям**")
+            for item in competency_readiness:
+                competency_name = (
+                    item.get("competency_name")
+                    or item.get("competency_key")
+                    or "Компетенция"
+                )
+                readiness = item.get("readiness_score")
+                answered = item.get("answered_count", 0)
+                total = item.get("question_count", 0)
+                warnings = item.get("warning_count", 0)
+
+                st.markdown(
+                    f"- {competency_name}: {_format_mock_score(readiness)}, "
+                    f"ответов {answered} / {total}, предупреждений {warnings}"
+                )
+
+        weak_competencies = summary.get("weak_competencies") or []
+        if weak_competencies:
+            st.markdown("**Слабые зоны**")
+            for item in weak_competencies:
+                competency_name = (
+                    item.get("competency_name")
+                    or item.get("competency_key")
+                    or "Компетенция"
+                )
+                st.markdown(
+                    f"- {competency_name}: {_format_mock_score(item.get('readiness_score'))}"
+                )
+
+
+def render_interview_mock_mode(
+    client: CareerCopilotApiClient,
+    selected_session: dict,
+    *,
+    token: str | None = None,
+) -> None:
+    st.markdown("### Mock interview mode")
+
+    question_set = selected_session.get("question_set") or []
+    if not question_set:
+        st.info("Для этой сессии нет question_set, поэтому mock interview недоступен.")
+        return
+
+    session_id = str(selected_session.get("id") or "").strip()
+    if not session_id:
+        st.warning("Не удалось определить session_id для mock interview.")
+        return
+
+    session_mode = str(selected_session.get("mode") or "")
+    session_status = str(selected_session.get("status") or "")
+
+    if session_status == "completed":
+        try:
+            summary = client.get_json(
+                f"/interviews/sessions/{session_id}/mock/summary",
+                token=token,
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(summary, dict):
+            st.error("Backend вернул неожиданный формат mock summary")
+            st.json(summary)
+            return
+
+        st.success("Mock interview completed")
+        _render_mock_summary_block(summary)
+        return
+
+    current_payload = None
+    if session_mode == "mock_interview":
+        try:
+            current_payload = client.get_json(
+                f"/interviews/sessions/{session_id}/mock/current",
+                token=token,
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(current_payload, dict):
+            st.error("Backend вернул неожиданный формат текущего вопроса")
+            st.json(current_payload)
+            return
+    else:
+        start_clicked = st.button(
+            "Начать mock interview",
+            key=f"mock_interview_start_{session_id}",
+            type="primary",
+            use_container_width=True,
+        )
+        if not start_clicked:
+            st.info("Нажмите кнопку, чтобы запустить mock interview для этой сессии.")
+            return
+
+        try:
+            started_session = client.post_json(
+                f"/interviews/sessions/{session_id}/mock/start",
+                {},
+                token=token,
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(started_session, dict):
+            st.error("Backend вернул неожиданный формат session")
+            st.json(started_session)
+            return
+
+        selected_session = started_session
+        session_mode = str(selected_session.get("mode") or "")
+
+        try:
+            current_payload = client.get_json(
+                f"/interviews/sessions/{session_id}/mock/current",
+                token=token,
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(current_payload, dict):
+            st.error("Backend вернул неожиданный формат текущего вопроса")
+            st.json(current_payload)
+            return
+
+    question = current_payload.get("question") or {}
+    progress = current_payload.get("progress") or {}
+    question_index = current_payload.get("question_index")
+    question_id = str(question.get("question_id") or "").strip()
+
+    with st.container(border=True):
+        st.metric(
+            "Текущий вопрос",
+            f"{progress.get('current', 0)} / {progress.get('total', 0)}",
+        )
+        st.caption(
+            f"Question {progress.get('current', 0)} / {progress.get('total', 0)}"
+        )
+        st.write(question.get("prompt") or question.get("question_text") or "Вопрос")
+        if question.get("answer_format"):
+            st.caption(f"Формат ответа: {format_answer_format(question.get('answer_format'))}")
+        total_value = int(progress.get("total") or 0)
+        current_value = int(progress.get("current") or 0)
+        if total_value > 0:
+            st.progress(max(0.0, min(1.0, current_value / total_value)))
+
+    answer_key = f"mock_interview_answer_{session_id}_{question_id or question_index}"
+    with st.form(f"mock_interview_form_{session_id}_{question_id or question_index}"):
+        answer_text = st.text_area(
+            "Ответ",
+            height=180,
+            key=answer_key,
+        )
+        submitted = st.form_submit_button(
+            "Отправить ответ",
+            type="primary",
+            use_container_width=True,
+            disabled=not answer_text.strip(),
+        )
+
+    if not submitted:
+        return
+
+    if not question_id:
+        st.error("Backend не вернул question_id для текущего вопроса.")
+        return
+
+    if not answer_text.strip():
+        st.error("Нужно заполнить ответ перед отправкой.")
+        return
+
+    try:
+        result = client.post_json(
+            f"/interviews/sessions/{session_id}/mock/answer",
+            {
+                "question_id": question_id,
+                "answer_text": answer_text.strip(),
+                "include_advisory": True,
+            },
+            token=token,
+        )
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    if not isinstance(result, dict):
+        st.error("Backend вернул неожиданный формат mock answer")
+        st.json(result)
+        return
+
+    st.success("Ответ отправлен")
+    _render_mock_evaluation_block(
+        evaluation=result.get("evaluation") or {},
+        progress=result.get("progress") or {},
+    )
+    _render_mock_advisory_block(result.get("advisory"))
+
+    next_question = result.get("next_question")
+    if next_question:
+        st.markdown("#### Следующий вопрос")
+        with st.container(border=True):
+            st.write(next_question.get("prompt") or next_question.get("question_text") or "Вопрос")
+            if next_question.get("answer_format"):
+                st.caption(
+                    f"Формат ответа: {format_answer_format(next_question.get('answer_format'))}"
+                )
+
+    if result.get("completed"):
+        try:
+            summary = client.get_json(
+                f"/interviews/sessions/{session_id}/mock/summary",
+                token=token,
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if isinstance(summary, dict):
+            st.success("Mock interview completed")
+            _render_mock_summary_block(summary)
+        else:
+            st.error("Backend вернул неожиданный формат mock summary")
+            st.json(summary)
+
+
 def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("Интервью")
     st.caption(
         "Список внутренних сессий подготовки к интервью. "
         "Здесь можно открыть старую сессию, дозаполнить ответы и пересчитать готовность."
     )
+
+    saved_attempt_message = st.session_state.pop(
+        "interview_competency_attempt_saved_message",
+        None,
+    )
+    if saved_attempt_message:
+        st.success(saved_attempt_message)
 
     try:
         sessions = client.get_json("/interviews/sessions", token=token)
@@ -2412,6 +2974,8 @@ def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None
             f"{readiness_score} / 100" if readiness_score is not None else "—",
         )
 
+    render_interview_mock_mode(client, selected_session, token=token)
+
     if not question_set:
         st.warning("В этой сессии нет question_set.")
         return
@@ -2574,6 +3138,337 @@ def render_interview_dashboard(client: CareerCopilotApiClient, token: str | None
                         )
                     elif total > 0 and answered == total:
                         st.success("Компетенция полностью покрыта ответами")
+
+            weak_competencies = [
+                item
+                for item in competency_readiness
+                if (item.get("readiness_score") or 100) < 75
+            ]
+
+            if weak_competencies:
+                st.markdown("### Улучшение слабых зон")
+
+                weak_competency_keys = [
+                    item.get("competency_key")
+                    for item in weak_competencies
+                    if item.get("competency_key")
+                ]
+
+                if not weak_competency_keys:
+                    st.warning("Backend не вернул ключи weak competencies.")
+                else:
+                    selected_competency_key = st.selectbox(
+                        "Выберите competency для улучшения",
+                        options=weak_competency_keys,
+                        format_func=lambda key: next(
+                            (
+                                item.get("competency_name")
+                                or item.get("competency_key")
+                                for item in weak_competencies
+                                if item.get("competency_key") == key
+                            ),
+                            key,
+                        ),
+                    )
+
+                    try:
+                        competency_detail = client.get_json(
+                            (
+                                f"/interviews/sessions/{selected_session_id}"
+                                f"/competencies/{selected_competency_key}"
+                            ),
+                            token=token,
+                        )
+                    except httpx.HTTPStatusError as exc:
+                        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+                        st.code(exc.response.text)
+                        competency_detail = None
+                    except httpx.RequestError as exc:
+                        st.error("Не удалось подключиться к backend")
+                        st.code(str(exc))
+                        competency_detail = None
+                    except ValueError as exc:
+                        st.error("Backend вернул неожиданный ответ")
+                        st.code(str(exc))
+                        competency_detail = None
+
+                    if competency_detail is not None:
+                        if not isinstance(competency_detail, dict):
+                            st.error("Backend вернул неожиданный формат competency detail")
+                            st.json(competency_detail)
+                        else:
+                            questions = competency_detail.get("questions") or []
+                            detail_answers = competency_detail.get("answers") or []
+                            feedback_items = competency_detail.get("feedback_items") or []
+                            attempts = competency_detail.get("attempts") or []
+
+                            answers_by_question_id = {
+                                item.get("question_id"): item
+                                for item in detail_answers
+                            }
+                            feedback_by_question_id = {
+                                item.get("question_id"): item
+                                for item in feedback_items
+                            }
+                            attempts_by_question_id: dict[str, list[dict]] = {}
+                            for attempt in attempts:
+                                question_id = attempt.get("question_id")
+                                if not question_id:
+                                    continue
+                                attempts_by_question_id.setdefault(question_id, []).append(attempt)
+
+                            if not questions:
+                                st.info("Для этой competency нет связанных вопросов.")
+
+                            for question in questions:
+                                question_id = question.get("question_id")
+                                prompt = (
+                                    question.get("prompt")
+                                    or question.get("question_text")
+                                    or "Вопрос"
+                                )
+                                current_answer = (
+                                    answers_by_question_id.get(question_id, {}).get("answer_text")
+                                    or ""
+                                )
+                                question_feedback = feedback_by_question_id.get(question_id, {})
+                                warnings = question_feedback.get("warnings") or []
+                                suggestions = question_feedback.get("suggestions") or []
+                                question_attempts = attempts_by_question_id.get(question_id, [])
+
+                                with st.container(border=True):
+                                    st.markdown(f"**{localize_demo_ui_text(prompt)}**")
+
+                                    if current_answer:
+                                        st.caption("Текущий ответ")
+                                        st.write(localize_demo_ui_text(current_answer))
+                                    else:
+                                        st.warning("Текущий ответ пока не заполнен")
+
+                                    if warnings:
+                                        st.warning("Предупреждения: " + ", ".join(warnings))
+                                    else:
+                                        st.success("Критичных предупреждений нет")
+
+                                    if suggestions:
+                                        st.markdown("Рекомендации:")
+                                        for suggestion in suggestions:
+                                            st.markdown(f"- {suggestion}")
+
+                                    st.caption(f"Попыток улучшения: {len(question_attempts)}")
+
+                                    if not question_id:
+                                        st.warning("Backend не вернул question_id для этого вопроса.")
+                                        continue
+
+                                    advisory_state_key = (
+                                        "ai_advisory_"
+                                        f"{selected_session_id}_{question_id}"
+                                    )
+                                    advisory_error_key = (
+                                        "ai_advisory_error_"
+                                        f"{selected_session_id}_{question_id}"
+                                    )
+
+                                    with st.form(f"ai_advisory_{question_id}"):
+                                        submitted_advisory = st.form_submit_button(
+                                            "Получить AI-подсказку",
+                                            use_container_width=True,
+                                            disabled=not current_answer.strip(),
+                                        )
+
+                                    if submitted_advisory:
+                                        st.session_state.pop(advisory_error_key, None)
+
+                                        if not current_answer.strip():
+                                            st.session_state[advisory_error_key] = (
+                                                "Сначала нужен текущий ответ, чтобы получить AI-подсказку."
+                                            )
+                                        else:
+                                            try:
+                                                with st.spinner("Готовим AI-подсказку..."):
+                                                    advisory_result = client.post_json(
+                                                        f"/interviews/sessions/{selected_session_id}/coach/advisory",
+                                                        {
+                                                            "question_id": question_id,
+                                                            "answer_text": current_answer.strip(),
+                                                            "competency_key": question.get(
+                                                                "competency_key"
+                                                            ),
+                                                        },
+                                                        token=token,
+                                                    )
+                                            except httpx.HTTPStatusError as exc:
+                                                st.session_state[advisory_error_key] = (
+                                                    "AI advisory вернул ошибку HTTP "
+                                                    f"{exc.response.status_code}"
+                                                )
+                                            except httpx.RequestError as exc:
+                                                st.session_state[advisory_error_key] = (
+                                                    f"Не удалось получить AI-подсказку: {exc}"
+                                                )
+                                            except ValueError as exc:
+                                                st.session_state[advisory_error_key] = (
+                                                    "Backend вернул неожиданный advisory response: "
+                                                    f"{exc}"
+                                                )
+                                            else:
+                                                if not isinstance(advisory_result, dict):
+                                                    st.session_state[advisory_error_key] = (
+                                                        "Backend вернул неожиданный формат advisory response"
+                                                    )
+                                                else:
+                                                    st.session_state[advisory_state_key] = advisory_result
+                                                    st.session_state.pop(advisory_error_key, None)
+
+                                        st.rerun()
+
+                                    advisory_error = st.session_state.get(advisory_error_key)
+                                    if advisory_error:
+                                        st.error(str(advisory_error))
+
+                                    advisory_result = st.session_state.get(advisory_state_key)
+                                    if isinstance(advisory_result, dict):
+                                        st.markdown("#### AI-подсказка")
+                                        st.caption("AI-подсказка не сохраняется автоматически")
+
+                                        strong_parts = advisory_result.get("strong_parts") or []
+                                        missing_signals = (
+                                            advisory_result.get("missing_signals") or []
+                                        )
+                                        star_improvements = (
+                                            advisory_result.get("star_improvements") or []
+                                        )
+                                        specificity_gaps = (
+                                            advisory_result.get("specificity_gaps") or []
+                                        )
+                                        risk_warnings = advisory_result.get("risk_warnings") or []
+                                        confirmation_needed = (
+                                            advisory_result.get("confirmation_needed") or []
+                                        )
+                                        suggested_revision = (
+                                            advisory_result.get("suggested_revision") or ""
+                                        )
+
+                                        if strong_parts:
+                                            st.markdown("Сильные стороны:")
+                                            for item in strong_parts:
+                                                st.markdown(f"- {item}")
+
+                                        if missing_signals:
+                                            st.markdown("Чего не хватает:")
+                                            for item in missing_signals:
+                                                st.markdown(f"- {item}")
+
+                                        if star_improvements:
+                                            st.markdown("Как усилить по STAR:")
+                                            for item in star_improvements:
+                                                st.markdown(f"- {item}")
+
+                                        if specificity_gaps:
+                                            st.markdown("Где не хватает конкретики:")
+                                            for item in specificity_gaps:
+                                                st.markdown(f"- {item}")
+
+                                        if risk_warnings:
+                                            st.markdown("Риски:")
+                                            for item in risk_warnings:
+                                                st.markdown(f"- {item}")
+
+                                        if confirmation_needed:
+                                            st.markdown("Нужно подтвердить:")
+                                            for item in confirmation_needed:
+                                                st.markdown(f"- {item}")
+
+                                        if suggested_revision:
+                                            st.markdown("Предлагаемая версия:")
+                                            st.text_area(
+                                                "Suggested revision",
+                                                value=localize_demo_ui_text(suggested_revision),
+                                                height=180,
+                                                disabled=True,
+                                                key=(
+                                                    "interview_competency_suggested_revision_"
+                                                    f"{selected_session_id}_{question_id}"
+                                                ),
+                                            )
+
+                                    with st.form(f"improve_attempt_{question_id}"):
+                                        improved_answer = st.text_area(
+                                            "Улучшенный ответ",
+                                            value=current_answer,
+                                            height=180,
+                                            key=(
+                                                "interview_competency_attempt_"
+                                                f"{selected_session_id}_{question_id}"
+                                            ),
+                                        )
+                                        update_session_answer = st.checkbox(
+                                            "Обновить основной ответ в сессии",
+                                            value=True,
+                                            key=(
+                                                "interview_competency_update_session_answer_"
+                                                f"{selected_session_id}_{question_id}"
+                                            ),
+                                        )
+                                        submitted_attempt = st.form_submit_button(
+                                            "Сохранить improved attempt",
+                                            type="primary",
+                                            use_container_width=True,
+                                        )
+
+                                    if submitted_attempt:
+                                        if not improved_answer.strip():
+                                            st.error("Нужно заполнить улучшенный ответ.")
+                                            return
+
+                                        try:
+                                            updated_session = client.post_json(
+                                                (
+                                                    f"/interviews/sessions/{selected_session_id}"
+                                                    f"/questions/{question_id}/attempts"
+                                                ),
+                                                {
+                                                    "answer_text": improved_answer.strip(),
+                                                    "update_session_answer": update_session_answer,
+                                                },
+                                                token=token,
+                                            )
+                                        except httpx.HTTPStatusError as exc:
+                                            st.error(
+                                                f"Backend вернул ошибку HTTP {exc.response.status_code}"
+                                            )
+                                            st.code(exc.response.text)
+                                            return
+                                        except httpx.RequestError as exc:
+                                            st.error("Не удалось подключиться к backend")
+                                            st.code(str(exc))
+                                            return
+                                        except ValueError as exc:
+                                            st.error("Backend вернул неожиданный ответ")
+                                            st.code(str(exc))
+                                            return
+
+                                        if not isinstance(updated_session, dict):
+                                            st.error(
+                                                "Backend вернул неожиданный формат interview session"
+                                            )
+                                            st.json(updated_session)
+                                            return
+
+                                        selected_session = updated_session
+                                        score = selected_session.get("score") or {}
+                                        feedback = selected_session.get("feedback") or {}
+                                        new_readiness = score.get("readiness_score")
+                                        saved_message = (
+                                            "Improved attempt сохранён. Readiness пересчитан."
+                                        )
+                                        if new_readiness is not None:
+                                            saved_message = f"{saved_message} {new_readiness} / 100"
+                                        st.session_state[
+                                            "interview_competency_attempt_saved_message"
+                                        ] = saved_message
+                                        st.rerun()
 
     feedback_items = feedback.get("items") or []
     if feedback_items:

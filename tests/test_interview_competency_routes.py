@@ -5,6 +5,8 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
+from app.api.dependencies import get_ai_orchestrator
+from app.main import app
 from app.models.entities import InterviewAnswerAttempt
 
 
@@ -253,3 +255,152 @@ async def test_create_attempt_recalculates_competency_readiness(client) -> None:
     )
     assert competency["answered_count"] >= 1
     assert competency["readiness_score"] is not None
+
+
+async def test_interview_coach_advisory_route_returns_structured_response(
+    client,
+    monkeypatch,
+) -> None:
+    created_session = await _create_session(client)
+    question = _find_question(created_session, "must_have_requirement")
+    session_id = created_session["id"]
+
+    sentinel = object()
+
+    async def fake_coach_answer_advisory(
+        self,
+        session,
+        *,
+        user_id,
+        competency,
+        question,
+        answer,
+        evaluation,
+        feedback=None,
+        language="ru",
+    ):
+        assert self.ai_orchestrator is sentinel
+        assert competency["competency_key"] == question["competency_key"]
+        assert answer == "I used Python in backend services."
+        assert isinstance(evaluation, dict)
+        return {
+            "strong_parts": ["Mentions Python"],
+            "missing_signals": ["No result"],
+            "star_improvements": ["Add outcome"],
+            "specificity_gaps": ["No metrics"],
+            "risk_warnings": ["Needs confirmation"],
+            "suggested_revision": "Situation ... Result ...",
+            "confirmation_needed": ["Confirm production scope"],
+        }
+
+    from app.api.routes import interviews as interviews_route_module
+
+    monkeypatch.setattr(
+        interviews_route_module.InterviewPreparationService,
+        "coach_answer_advisory",
+        fake_coach_answer_advisory,
+    )
+    app.dependency_overrides[get_ai_orchestrator] = lambda: sentinel
+
+    try:
+        response = await client.post(
+            f"{API_PREFIX}/interviews/sessions/{session_id}/coach/advisory",
+            json={
+                "question_id": question["question_id"],
+                "answer_text": "I used Python in backend services.",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_orchestrator, None)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["strong_parts"] == ["Mentions Python"]
+    assert payload["missing_signals"] == ["No result"]
+    assert payload["suggested_revision"] == "Situation ... Result ..."
+
+
+async def test_interview_coach_advisory_does_not_create_attempt(
+    client,
+    db_session,
+    monkeypatch,
+) -> None:
+    created_session = await _create_session(client)
+    question = _find_question(created_session, "must_have_requirement")
+    session_id = created_session["id"]
+
+    async def fake_coach_answer_advisory(
+        self,
+        session,
+        *,
+        user_id,
+        competency,
+        question,
+        answer,
+        evaluation,
+        feedback=None,
+        language="ru",
+    ):
+        return {
+            "strong_parts": [],
+            "missing_signals": [],
+            "star_improvements": [],
+            "specificity_gaps": [],
+            "risk_warnings": [],
+            "suggested_revision": "Keep refining",
+            "confirmation_needed": [],
+        }
+
+    from app.api.routes import interviews as interviews_route_module
+
+    monkeypatch.setattr(
+        interviews_route_module.InterviewPreparationService,
+        "coach_answer_advisory",
+        fake_coach_answer_advisory,
+    )
+    app.dependency_overrides[get_ai_orchestrator] = lambda: object()
+
+    try:
+        response = await client.post(
+            f"{API_PREFIX}/interviews/sessions/{session_id}/coach/advisory",
+            json={
+                "question_id": question["question_id"],
+                "answer_text": "I used Python in backend services.",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_orchestrator, None)
+
+    assert response.status_code == 200, response.text
+
+    result = await db_session.execute(
+        select(InterviewAnswerAttempt).where(
+            InterviewAnswerAttempt.session_id == UUID(session_id)
+        )
+    )
+    attempts = result.scalars().all()
+    assert attempts == []
+
+
+async def test_interview_coach_advisory_validates_question_id(
+    client,
+    monkeypatch,
+) -> None:
+    created_session = await _create_session(client)
+    session_id = created_session["id"]
+
+    app.dependency_overrides[get_ai_orchestrator] = lambda: object()
+
+    try:
+        response = await client.post(
+            f"{API_PREFIX}/interviews/sessions/{session_id}/coach/advisory",
+            json={
+                "question_id": "iq_missing",
+                "answer_text": "Some answer",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_orchestrator, None)
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "question_id not found in interview session"

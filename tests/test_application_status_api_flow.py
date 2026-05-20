@@ -151,6 +151,102 @@ async def test_application_status_api_accepts_valid_flow(client) -> None:
     assert offer_response.json()["status"] == "offer"
     assert offer_response.json()["outcome"] == "offer"
 
+    activity_response = await client.get(
+        f"{API_PREFIX}/applications/{application_id}/activity-log",
+    )
+    assert activity_response.status_code == 200, activity_response.text
+
+    activity_log = activity_response.json()
+    assert [item["event_type"] for item in activity_log] == [
+        "application_created",
+        "application_ready",
+        "application_applied",
+        "application_status_changed",
+        "outcome_recorded",
+    ]
+
+    created_event = activity_log[0]
+    assert created_event["meta_json"] == {
+        "vacancy_id": created_event["meta_json"]["vacancy_id"],
+        "resume_document_id": created_event["meta_json"]["resume_document_id"],
+        "cover_letter_document_id": None,
+    }
+    assert created_event["meta_json"]["vacancy_id"] is not None
+    assert created_event["meta_json"]["resume_document_id"] is not None
+
+    ready_event = activity_log[1]
+    assert ready_event["meta_json"] == {
+        "previous_status": "draft",
+        "new_status": "ready",
+        "source": "manual",
+    }
+
+    applied_event = activity_log[2]
+    assert applied_event["meta_json"]["source"] == "manual"
+    assert applied_event["meta_json"]["external_link"] == "https://example.com/apply/hh"
+    assert applied_event["meta_json"]["applied_at"] is not None
+
+    interview_event = activity_log[3]
+    assert interview_event["meta_json"] == {
+        "previous_status": "applied",
+        "new_status": "interview",
+        "source": "manual",
+    }
+
+
+async def test_application_workflow_api_returns_backend_source_of_truth(client) -> None:
+    application_id = await _create_application(client)
+
+    draft_workflow_response = await client.get(
+        f"{API_PREFIX}/applications/{application_id}/workflow",
+    )
+    assert draft_workflow_response.status_code == 200, draft_workflow_response.text
+
+    draft_workflow = draft_workflow_response.json()
+    assert draft_workflow["current_status"] == "draft"
+    assert draft_workflow["can_submit"] is False
+    assert draft_workflow["is_final"] is False
+    assert [item["status"] for item in draft_workflow["allowed_transitions"]] == [
+        "ready",
+        "draft",
+    ]
+    assert draft_workflow["allowed_transitions"][0]["label"] == "Готов к отправке"
+
+    ready_response = await client.patch(
+        f"{API_PREFIX}/applications/{application_id}/status",
+        json={
+            "status": "ready",
+            "notes": "Ready for submission",
+        },
+    )
+    assert ready_response.status_code == 200, ready_response.text
+
+    submit_response = await client.post(
+        f"{API_PREFIX}/applications/{application_id}/submit",
+        json={
+            "source": "manual",
+            "external_link": "https://example.com/apply/hh",
+        },
+    )
+    assert submit_response.status_code == 200, submit_response.text
+    assert submit_response.json()["status"] == "applied"
+
+    applied_workflow_response = await client.get(
+        f"{API_PREFIX}/applications/{application_id}/workflow",
+    )
+    assert applied_workflow_response.status_code == 200, applied_workflow_response.text
+
+    applied_workflow = applied_workflow_response.json()
+    assert applied_workflow["current_status"] == "applied"
+    assert applied_workflow["can_submit"] is False
+    assert applied_workflow["is_final"] is False
+    assert [item["status"] for item in applied_workflow["allowed_transitions"]] == [
+        "screening",
+        "interview",
+        "rejected",
+        "withdrawn",
+    ]
+
 
 async def test_application_status_api_rejects_invalid_draft_to_offer(client) -> None:
     application_id = await _create_application(client)

@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.application_events import ApplicationEventType
 from app.models import ApplicationEvent
 
 
@@ -16,14 +17,17 @@ class ApplicationEventRepository:
         session: AsyncSession,
         *,
         application_id: UUID,
-        event_type: str,
+        event_type: str | ApplicationEventType,
         title: str | None = None,
         description: str | None = None,
         meta_json: dict | None = None,
     ) -> ApplicationEvent:
+        event_type_value = (
+            event_type.value if isinstance(event_type, ApplicationEventType) else str(event_type)
+        )
         event = ApplicationEvent(
             application_id=application_id,
-            event_type=event_type,
+            event_type=event_type_value,
             title=title,
             description=description,
             meta_json=meta_json or {},
