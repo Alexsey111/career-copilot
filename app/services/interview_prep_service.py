@@ -17,6 +17,7 @@ from app.repositories.interview_prep_session_repository import (
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.domain.evidence import EvidenceSourceType
+from app.domain.evidence_confidence import aggregate_evidence_confidence
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.interview_question_service import InterviewQuestionService
@@ -213,11 +214,21 @@ class InterviewPrepService:
                 )
             except Exception:
                 continue
+        provenance = self._build_session_provenance(
+            application_id=application_id,
+            vacancy_id=vacancy.id,
+            analysis_id=analysis.id,
+            confirmed_achievements=confirmed_achievements,
+            questions=questions,
+            evidence_links=evidence_links,
+            competency_map=competency_map,
+        )
         readiness = self.readiness_service.build_readiness(
             competency_map=competency_map,
             weak_areas=weak_areas,
             evidence_links=evidence_links,
         )
+        readiness["provenance"] = provenance
         prep_status = "ready" if readiness["ready"] else "draft"
 
         return {
@@ -229,6 +240,7 @@ class InterviewPrepService:
             "readiness": readiness,
             "readiness_score": readiness["score"],
             "prep_status": prep_status,
+            "provenance": provenance,
         }
 
     def _rank_evidence_snippets(
@@ -340,4 +352,81 @@ class InterviewPrepService:
             "used_in_documents_count": snippet.used_in_documents_count,
             "used_in_interviews_count": snippet.used_in_interviews_count,
             "star_summary": snippet.star_summary_json or {},
+        }
+
+    def _build_session_provenance(
+        self,
+        *,
+        application_id: UUID,
+        vacancy_id: UUID,
+        analysis_id: UUID,
+        confirmed_achievements: list[dict[str, Any]],
+        questions: list[dict[str, Any]],
+        evidence_links: list[dict[str, Any]],
+        competency_map: dict[str, Any],
+    ) -> dict[str, Any]:
+        selected_achievement_ids = sorted(
+            {
+                str(item.get("id"))
+                for item in confirmed_achievements
+                if item.get("id")
+            }
+        )
+        selected_evidence_ids = sorted(
+            {
+                str(link.get("achievement_id"))
+                for link in evidence_links
+                if link.get("achievement_id")
+            }
+        )
+        competency_sources = [
+            {
+                "competency_key": item.get("key"),
+                "source": item.get("source") or "must_have",
+                "label": item.get("label"),
+            }
+            for item in (competency_map.get("required_skills") or [])
+            if isinstance(item, dict)
+        ]
+
+        question_source_counts: dict[str, int] = {}
+        for question in questions:
+            source_type = str(question.get("source_type") or "unknown")
+            question_source_counts[source_type] = (
+                question_source_counts.get(source_type, 0) + 1
+            )
+
+        confidence_assessment = aggregate_evidence_confidence(
+            [
+                {
+                    "fact_status": question.get("fact_status"),
+                    "evidence_strength": (
+                        "strong"
+                        if question.get("recommended_evidence_ids")
+                        else "weak"
+                    ),
+                    "source_type": question.get("source_type"),
+                    "star_summary": {
+                        "result": question.get("prompt"),
+                    },
+                }
+                for question in questions
+            ],
+            gap_risk=any(str(question.get("category") or "").lower() == "gap-risk" for question in questions),
+        )
+
+        return {
+            "source": "achievement_mapping",
+            "generation_mode": "deterministic_v1_review_ready",
+            "application_id": str(application_id),
+            "vacancy_id": str(vacancy_id),
+            "analysis_id": str(analysis_id),
+            "selected_achievement_ids": selected_achievement_ids,
+            "selected_evidence_ids": selected_evidence_ids,
+            "competency_sources": competency_sources,
+            "question_generation_mode": "deterministic_v1",
+            "question_source_counts": question_source_counts,
+            "confidence": confidence_assessment.confidence,
+            "confidence_level": confidence_assessment.confidence_level.value,
+            "requires_human_review": True,
         }

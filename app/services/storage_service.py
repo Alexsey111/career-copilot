@@ -13,6 +13,12 @@ class StorageService:
     def __init__(self) -> None:
         settings = get_settings()
 
+        if settings.storage_mode not in {"minio", "s3"}:
+            raise RuntimeError(
+                "StorageService currently supports only minio/s3 runtime modes. "
+                "Use STORAGE_MODE=minio locally or STORAGE_MODE=s3 in production."
+            )
+
         scheme = "https" if settings.minio_secure else "http"
         endpoint_url = f"{scheme}://{settings.minio_endpoint}"
 

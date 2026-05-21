@@ -148,6 +148,7 @@ class ContentMeta(StrictBaseModel):
     evidence_selection_reason: list[dict[str, Any]] = Field(default_factory=list)
 
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    confidence_level: str | None = None
     generation_prompt_version: str | None = None
     generated_at: str | None = None  # ISO timestamp
     warnings: list["WarningItem"] = Field(default_factory=list)
@@ -157,6 +158,22 @@ class ContentMeta(StrictBaseModel):
 
     # AI audit trail for enhancement operations
     ai_metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: "DocumentProvenance | None" = None
+
+
+class DocumentProvenance(StrictBaseModel):
+    source: str = "ai_generated"
+    generation_mode: str = "deterministic_v1_review_ready"
+    analysis_id: str | None = None
+    based_on_achievements: list[Any] = Field(default_factory=list)
+    selected_achievement_ids: list[Any] = Field(default_factory=list)
+    selected_evidence_ids: list[Any] = Field(default_factory=list)
+    evidence_selection_reason: list[dict[str, Any]] = Field(default_factory=list)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    confidence_level: str | None = None
+    generation_prompt_version: str | None = None
+    generated_at: str | None = None
+    requires_human_review: bool = True
 
 
 class CandidateInfo(StrictBaseModel):
@@ -249,6 +266,7 @@ class DocumentContentSchema(StrictBaseModel):
     target_vacancy: TargetVacancy | None = None
     sections: DocumentSections = Field(default_factory=DocumentSections)
     meta: ContentMeta = Field(default_factory=ContentMeta)
+    provenance: DocumentProvenance = Field(default_factory=DocumentProvenance)
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +301,7 @@ class ResumeContent(StrictBaseModel):
     target_vacancy: TargetVacancy | None = None
     sections: ResumeSections = Field(default_factory=ResumeSections)
     meta: ContentMeta = Field(default_factory=ContentMeta)
+    provenance: DocumentProvenance = Field(default_factory=DocumentProvenance)
 
 
 class CoverLetterContent(StrictBaseModel):
@@ -293,6 +312,7 @@ class CoverLetterContent(StrictBaseModel):
     target_vacancy: TargetVacancy | None = None
     sections: CoverLetterSections = Field(default_factory=CoverLetterSections)
     meta: ContentMeta = Field(default_factory=ContentMeta)
+    provenance: DocumentProvenance = Field(default_factory=DocumentProvenance)
 
 
 # ---------------------------------------------------------------------------

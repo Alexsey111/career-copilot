@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models import AuthEvent, RefreshSession
 
 pytestmark = pytest.mark.asyncio
@@ -125,6 +126,39 @@ async def test_password_reset_request_does_not_reveal_missing_email(client):
         "status": "ok",
         "reset_token": None,
     }
+
+
+async def test_password_reset_request_does_not_return_token_in_prod(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("APP_DEBUG", "false")
+    monkeypatch.setenv("DEV_AUTH_ENABLED", "false")
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "0123456789abcdef0123456789abcdef",
+    )
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "safe-access-key")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "safe-secret-key")
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "http://localhost:8501")
+    get_settings.cache_clear()
+
+    email = "password-reset-prod@example.com"
+    register_response = await client.post(
+        f"{AUTH_PREFIX}/register",
+        json={"email": email, "password": "OldPass123!"},
+    )
+    assert register_response.status_code == 200
+
+    request_response = await client.post(
+        f"{AUTH_PREFIX}/password-reset/request",
+        json={"email": email},
+    )
+    assert request_response.status_code == 200
+    assert request_response.json() == {"status": "ok", "reset_token": None}
+
+    get_settings.cache_clear()
 
 
 async def test_password_reset_invalid_token_writes_audit_event(

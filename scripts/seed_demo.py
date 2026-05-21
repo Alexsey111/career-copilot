@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import copy
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
+import sys
+from pathlib import Path
 
 from sqlalchemy import delete
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.db.session import AsyncSessionLocal
 from app.models import (
@@ -137,6 +144,7 @@ class DemoArtifacts:
     analysis_ids: list[str]
     resume_document_id: str
     cover_letter_document_id: str
+    trust_cover_letter_document_id: str
     application_ids: list[str]
     prep_session_id: str
 
@@ -441,7 +449,7 @@ async def _seed_documents(
     *,
     user: User,
     vacancy: Vacancy,
-) -> tuple[DocumentVersion, DocumentVersion]:
+) -> tuple[DocumentVersion, DocumentVersion, DocumentVersion]:
     resume_service = ResumeGenerationService()
     cover_letter_service = CoverLetterGenerationService()
     review_service = DocumentReviewService()
@@ -481,7 +489,84 @@ async def _seed_documents(
     if approved_resume is None or approved_cover_letter is None:
         raise RuntimeError("Failed to seed approved documents")
 
-    return approved_resume, approved_cover_letter
+    trust_cover_letter = await _create_trust_risk_cover_letter_variant(
+        session,
+        user=user,
+        source_document=approved_cover_letter,
+    )
+
+    return approved_resume, approved_cover_letter, trust_cover_letter
+
+
+async def _create_trust_risk_cover_letter_variant(
+    session,
+    *,
+    user: User,
+    source_document: DocumentVersion,
+) -> DocumentVersion:
+    document_repo = DocumentVersionRepository()
+
+    content_json = copy.deepcopy(source_document.content_json or {})
+    sections = content_json.setdefault("sections", {})
+    meta = content_json.setdefault("meta", {})
+    provenance = content_json.setdefault("provenance", meta.get("provenance") or {})
+
+    risky_claims = [
+        {
+            "claim_type": "achievement",
+            "text": "Led platform migration that improved reliability across teams",
+            "fact_status": "needs_confirmation",
+            "source": "seed_demo",
+        },
+        {
+            "claim_type": "achievement",
+            "text": "Reduced deployment time to under five minutes",
+            "fact_status": "partial",
+            "source": "seed_demo",
+        },
+    ]
+
+    sections["claims_needing_confirmation"] = risky_claims
+    sections["warnings"] = list(sections.get("warnings") or []) + [
+        {
+            "code": "seeded_trust_risk",
+            "message": "Seeded demo cover letter intentionally includes claims requiring confirmation",
+            "severity": "warning",
+        }
+    ]
+
+    provenance["confidence"] = 0.34
+    provenance["confidence_level"] = "needs_review"
+    provenance["requires_human_review"] = True
+
+    meta["confidence"] = 0.34
+    meta["provenance"] = provenance
+    meta["generated_at"] = meta.get("generated_at") or datetime.now(timezone.utc).isoformat()
+
+    trust_document = await document_repo.create(
+        session,
+        user_id=user.id,
+        vacancy_id=source_document.vacancy_id,
+        derived_from_id=source_document.id,
+        analysis_id=source_document.analysis_id,
+        document_kind=source_document.document_kind,
+        version_label="cover_letter_trust_demo_v1",
+        review_status="draft",
+        is_active=True,
+        content_json=content_json,
+        rendered_text=source_document.rendered_text,
+        source_recommendation_id=source_document.source_recommendation_id,
+    )
+    await document_repo.deactivate_same_scope(
+        session,
+        user_id=user.id,
+        vacancy_id=source_document.vacancy_id,
+        document_kind=source_document.document_kind,
+        exclude_document_id=trust_document.id,
+    )
+    await session.commit()
+    await session.refresh(trust_document)
+    return trust_document
 
 
 async def _seed_application_trackers(
@@ -709,7 +794,7 @@ async def seed_demo() -> DemoArtifacts:
         )
         await _seed_evidence(session, user=user, achievements=achievements)
         vacancies, analysis_ids = await _seed_vacancies_and_analysis(session, user=user)
-        resume_document, cover_letter_document = await _seed_documents(
+        resume_document, cover_letter_document, trust_cover_letter_document = await _seed_documents(
             session,
             user=user,
             vacancy=vacancies[0],
@@ -734,6 +819,7 @@ async def seed_demo() -> DemoArtifacts:
             analysis_ids=analysis_ids,
             resume_document_id=str(resume_document.id),
             cover_letter_document_id=str(cover_letter_document.id),
+            trust_cover_letter_document_id=str(trust_cover_letter_document.id),
             application_ids=[str(application.id) for application in applications],
             prep_session_id=prep_session_id,
         )
@@ -746,6 +832,7 @@ async def main() -> None:
     print(f"User id: {artifacts.user_id}")
     print(f"Resume document: {artifacts.resume_document_id}")
     print(f"Cover letter document: {artifacts.cover_letter_document_id}")
+    print(f"Trust cover letter document: {artifacts.trust_cover_letter_document_id}")
     print(f"Applications: {', '.join(artifacts.application_ids)}")
     print(f"Interview prep session: {artifacts.prep_session_id}")
     print("Demo application is an internal tracker record.")

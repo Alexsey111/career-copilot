@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import os
 import sys
+from uuid import uuid4
 from typing import Any
 
 import httpx
 
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
+SMOKE_EMAIL = os.getenv("SMOKE_EMAIL") or f"smoke-{uuid4().hex[:12]}@career-copilot.local"
+SMOKE_PASSWORD = os.getenv("SMOKE_PASSWORD", "SmokePilot!123")
 
 
 RESUME_TEXT = """Алексей
@@ -72,6 +75,62 @@ def assert_status(response: httpx.Response, expected: int) -> None:
         )
 
 
+def authenticate(client: httpx.Client) -> dict[str, str]:
+    register_response = client.post(
+        f"{API_BASE_URL}/auth/register",
+        json={
+            "email": SMOKE_EMAIL,
+            "password": SMOKE_PASSWORD,
+        },
+    )
+
+    if register_response.status_code == 200:
+        token_payload = register_response.json()
+        print_step(
+            "0. REGISTER",
+            {
+                "email": SMOKE_EMAIL,
+                "token_type": token_payload["token_type"],
+            },
+        )
+    elif register_response.status_code == 409:
+        print_step(
+            "0. REGISTER SKIPPED",
+            {
+                "email": SMOKE_EMAIL,
+                "status_code": register_response.status_code,
+                "detail": register_response.json().get("detail"),
+            },
+        )
+        token_payload = None
+    else:
+        raise RuntimeError(
+            f"Register failed with HTTP {register_response.status_code}\n"
+            f"Response: {register_response.text}"
+        )
+
+    login_response = client.post(
+        f"{API_BASE_URL}/auth/login",
+        json={
+            "email": SMOKE_EMAIL,
+            "password": SMOKE_PASSWORD,
+        },
+    )
+    assert_status(login_response, 200)
+    login_payload = login_response.json()
+    client.headers["Authorization"] = f"Bearer {login_payload['access_token']}"
+
+    print_step(
+        "0. LOGIN",
+        {
+            "email": SMOKE_EMAIL,
+            "token_type": login_payload["token_type"],
+        },
+    )
+
+    return login_payload
+
+
 def main() -> None:
     configure_stdout()
 
@@ -83,6 +142,8 @@ def main() -> None:
     )
 
     with httpx.Client(timeout=60) as client:
+        authenticate(client)
+
         # 1. Upload resume TXT
         upload_response = client.post(
             f"{API_BASE_URL}/files/upload",
@@ -367,11 +428,52 @@ def main() -> None:
             "12. DUPLICATE APPLICATION PROTECTION",
             {
                 "status_code": duplicate_response.status_code,
-                "detail": duplicate_response.json()["detail"],
+                "detail": duplicate_response.json().get("detail"),
             },
         )
 
-        # 13. Update application status
+        # 13. Create interview prep session
+        interview_prep_response = client.post(
+            f"{API_BASE_URL}/interview-prep/sessions",
+            json={
+                "application_id": application_id,
+            },
+        )
+        assert_status(interview_prep_response, 200)
+        interview_prep = interview_prep_response.json()
+        interview_prep_id = interview_prep["id"]
+
+        assert interview_prep["application_id"] == application_id
+        assert interview_prep["prep_status"] in {"draft", "ready"}
+
+        print_step(
+            "13. CREATE INTERVIEW PREP SESSION",
+            {
+                "interview_prep_id": interview_prep_id,
+                "application_id": interview_prep["application_id"],
+                "prep_status": interview_prep["prep_status"],
+                "readiness_score": interview_prep["readiness_score"],
+            },
+        )
+
+        readiness_response = client.get(
+            f"{API_BASE_URL}/interview-prep/sessions/{interview_prep_id}/readiness",
+        )
+        assert_status(readiness_response, 200)
+        readiness = readiness_response.json()
+
+        print_step(
+            "14. INTERVIEW PREP READINESS",
+            {
+                "interview_prep_id": interview_prep_id,
+                "ready": readiness["ready"],
+                "blockers": readiness["blockers"],
+                "warnings": readiness["warnings"],
+                "score": readiness["score"],
+            },
+        )
+
+        # 15. Update application status
         submitted_response = client.patch(
             f"{API_BASE_URL}/applications/{application_id}/status",
             json={
@@ -386,7 +488,7 @@ def main() -> None:
         assert submitted["applied_at"] is not None
 
         print_step(
-            "13. UPDATE APPLICATION STATUS",
+            "15. UPDATE APPLICATION STATUS",
             {
                 "application_id": submitted["id"],
                 "status": submitted["status"],
@@ -395,7 +497,7 @@ def main() -> None:
             },
         )
 
-        # 14. Create interview session
+        # 16. Create interview session
         interview_response = client.post(
             f"{API_BASE_URL}/interviews/sessions",
             json={
@@ -418,7 +520,7 @@ def main() -> None:
         assert "achievement_star_story" in question_types
 
         print_step(
-            "14. CREATE INTERVIEW SESSION",
+            "16. CREATE INTERVIEW SESSION",
             {
                 "interview_session_id": interview_session_id,
                 "status": interview["status"],
@@ -427,7 +529,7 @@ def main() -> None:
             },
         )
 
-        # 15. Submit interview answers
+        # 17. Submit interview answers
         answers_response = client.patch(
             f"{API_BASE_URL}/interviews/sessions/{interview_session_id}/answers",
             json={
@@ -464,7 +566,7 @@ def main() -> None:
         assert answered["score"]["readiness_score"] is not None
 
         print_step(
-            "15. SUBMIT INTERVIEW ANSWERS",
+            "17. SUBMIT INTERVIEW ANSWERS",
             {
                 "interview_session_id": answered["id"],
                 "status": answered["status"],
@@ -477,6 +579,7 @@ def main() -> None:
     print_step(
         "MVP SMOKE PASSED",
         {
+            "email": SMOKE_EMAIL,
             "source_file_id": source_file_id,
             "extraction_id": extraction_id,
             "vacancy_id": vacancy_id,
@@ -484,6 +587,7 @@ def main() -> None:
             "resume_document_id": resume_document_id,
             "cover_letter_document_id": cover_letter_document_id,
             "application_id": application_id,
+            "interview_prep_id": interview_prep_id,
             "interview_session_id": interview_session_id,
         },
     )

@@ -1,3 +1,5 @@
+# app\config\scoring.py
+
 from __future__ import annotations
 
 COMPONENT_WEIGHTS = {

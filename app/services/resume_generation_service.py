@@ -21,6 +21,9 @@ from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.domain.evidence import EvidenceSourceType
+from app.domain.evidence_confidence import (
+    aggregate_evidence_confidence,
+)
 from app.domain.document_models import SelectedAchievement
 from app.services.document_compat import (
     achievement_to_dict,
@@ -317,6 +320,12 @@ class ResumeGenerationService:
                 if ai_summary:
                     fit_summary = ai_summary
 
+        confidence_assessment = self._build_confidence_assessment(
+            selected_achievements=selected_achievements,
+            selected_evidence_reason=selected_evidence_reason,
+            missing_keywords=missing_keywords,
+        )
+
         content_json = build_resume_content(
             candidate={
                 "full_name": profile.full_name,
@@ -355,10 +364,8 @@ class ResumeGenerationService:
             based_on_analysis_id=str(analysis.id),
             selected_evidence_ids=selected_evidence_ids,
             evidence_selection_reason=selected_evidence_reason or selection_rationale,
-            confidence=self._compute_confidence(
-                selected_achievements=selected_achievements,
-                missing_keywords=missing_keywords,
-            ),
+            confidence=confidence_assessment.confidence,
+            confidence_level=confidence_assessment.confidence_level.value,
             generation_prompt_version=(
                 "resume_tailor_v1" if use_ai_enhancement else None
             ),
@@ -872,36 +879,61 @@ class ResumeGenerationService:
         )
         return warnings
 
+    def _build_confidence_assessment(
+        self,
+        *,
+        selected_achievements: list[dict],
+        selected_evidence_reason: list[dict[str, Any]] | None = None,
+        missing_keywords: list[str],
+    ):
+        """Deterministically normalize confidence for resume drafts."""
+        evidence_items = selected_evidence_reason or selected_achievements
+        assessment = aggregate_evidence_confidence(
+            [
+                self._confidence_item_from_achievement(item)
+                if "evidence_id" not in item
+                else item
+                for item in evidence_items
+            ],
+        )
+        if missing_keywords:
+            penalty = min(len(missing_keywords) * 0.03, 0.2)
+            assessment.confidence = round(max(0.1, assessment.confidence - penalty), 2)
+            if assessment.confidence_level.value == "high" and assessment.confidence < 0.8:
+                assessment.confidence_level = assessment.confidence_level.__class__.MEDIUM
+        return assessment
+
     def _compute_confidence(
         self,
         *,
         selected_achievements: list[dict],
         missing_keywords: list[str],
     ) -> float:
-        """Вычисляет confidence score на основе качества исходных данных.
+        return self._build_confidence_assessment(
+            selected_achievements=selected_achievements,
+            missing_keywords=missing_keywords,
+        ).confidence
 
-        - 1.0: все достижения confirmed, нет missing keywords
-        - 0.7-0.9: есть confirmed достижения, но есть gaps
-        - 0.4-0.6: мало confirmed достижений или большие gaps
-        """
-        if not selected_achievements:
-            return 0.3
-
-        confirmed_count = sum(
-            1 for item in selected_achievements
-            if ensure_selected_achievement(item).fact_status == "confirmed"
-        )
-        confirmed_ratio = confirmed_count / len(selected_achievements)
-
-        # Базовый score от confirmed ratio
-        base_score = 0.4 + (confirmed_ratio * 0.6)
-
-        # Штраф за missing keywords
-        if missing_keywords:
-            penalty = min(len(missing_keywords) * 0.05, 0.3)
-            base_score -= penalty
-
-        return round(max(0.1, min(1.0, base_score)), 2)
+    def _confidence_item_from_achievement(self, achievement: dict[str, Any]) -> dict[str, Any]:
+        item = ensure_selected_achievement(achievement)
+        return {
+            "id": item.id,
+            "title": item.title,
+            "fact_status": item.fact_status,
+            "evidence_strength": (
+                "strong"
+                if item.fact_status == "confirmed" and item.metric_text
+                else "medium"
+                if item.fact_status == "confirmed"
+                else "weak"
+            ),
+            "star_summary": {
+                "situation": item.situation,
+                "task": item.task,
+                "action": item.action,
+                "result": item.result,
+            },
+        }
 
     def _format_period(self, start_date, end_date) -> str:
         start = start_date.strftime("%m.%Y") if start_date else "не указано"

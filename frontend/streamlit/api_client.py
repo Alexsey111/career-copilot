@@ -187,8 +187,24 @@ class CareerCopilotApiClient:
     def get_application_reminders(self, token: str | None = None) -> list[Any]:
         return self.get_json("/applications/reminders", token=token)
 
+    def get_system_health_diagnostics(self, token: str | None = None) -> dict[str, Any]:
+        return self.get_json("/health/diagnostics", token=token)
+
     def get_document_review_summary(self, document_id: str, token: str | None = None) -> dict[str, Any]:
-        return self.get_json(f"/documents/{document_id}/review-summary", token=token)
+        return self.get_review_summary(
+            entity_type="document",
+            entity_id=document_id,
+            token=token,
+        )
+
+    def get_review_summary(
+        self,
+        *,
+        entity_type: str,
+        entity_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.get_json(f"/review/summary/{entity_type}/{entity_id}", token=token)
 
     def list_evidence_snippets(self, token: str | None = None) -> list[Any]:
         return self.get_json("/evidence/snippets", token=token)

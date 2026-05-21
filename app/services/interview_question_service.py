@@ -222,6 +222,17 @@ class InterviewQuestionService:
             },
             evidence_items=evidence_candidates,
         )
+        recommended_evidence_ids = [
+            item["achievement_id"]
+            for item in ranked[:2]
+            if item.get("achievement_id")
+        ]
+        source_type = "gap" if category == "gap-risk" else "vacancy_requirement"
+        fact_status = (
+            "inferred_needs_review"
+            if category == "gap-risk"
+            else "confirmed" if recommended_evidence_ids else "needs_confirmation"
+        )
 
         return {
             "question_id": question_id,
@@ -230,7 +241,14 @@ class InterviewQuestionService:
             "answer_format": answer_format,
             "competency_key": competency_key,
             "competency_name": competency_name,
-            "recommended_evidence_ids": [item["achievement_id"] for item in ranked[:2]],
+            "source_type": source_type,
+            "source_requirement": competency_name,
+            "source_achievement_id": recommended_evidence_ids[0]
+            if recommended_evidence_ids
+            else None,
+            "fact_status": fact_status,
+            "requires_careful_answer": category == "gap-risk",
+            "recommended_evidence_ids": recommended_evidence_ids,
             "recommended_evidence": [
                 {
                     "achievement_id": item["achievement_id"],
@@ -240,6 +258,17 @@ class InterviewQuestionService:
                 }
                 for item in ranked[:2]
             ],
+            "provenance": {
+                "source_type": source_type,
+                "source_requirement": competency_name,
+                "source_achievement_id": recommended_evidence_ids[0]
+                if recommended_evidence_ids
+                else None,
+                "recommended_evidence_ids": recommended_evidence_ids,
+                "fact_status": fact_status,
+                "requires_human_review": True,
+                "requires_careful_answer": category == "gap-risk",
+            },
         }
 
     def _rank_evidence_items_for_question(

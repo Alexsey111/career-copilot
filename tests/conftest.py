@@ -22,6 +22,7 @@ from app import models  # noqa: F401
 from app.api.dependencies import get_current_dev_user
 from app.api.dependencies import get_current_active_user
 from app.core.config import get_settings
+from app.core.rate_limit import clear_rate_limits_for_tests
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
@@ -170,6 +171,13 @@ def fake_storage(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(StorageService, "download_bytes", download_bytes)
 
     return storage
+
+
+@pytest.fixture(autouse=True)
+def clear_rate_limits_between_tests():
+    clear_rate_limits_for_tests()
+    yield
+    clear_rate_limits_for_tests()
 
 
 @pytest.fixture(autouse=True)

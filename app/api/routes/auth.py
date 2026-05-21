@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.core.rate_limit import login_rate_limit, password_reset_rate_limit
 from app.db.session import get_db_session
 from app.models import PasswordResetToken, User
 from app.repositories.user_repository import UserRepository
@@ -70,7 +72,7 @@ async def register(
     return await issue_tokens(session, user, request)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[login_rate_limit])
 async def login(
     body: LoginRequest,
     request: Request,
@@ -223,12 +225,17 @@ async def logout_all(
     return {"status": "ok"}
 
 
-@router.post("/password-reset/request", response_model=PasswordResetRequestResponse)
+@router.post(
+    "/password-reset/request",
+    response_model=PasswordResetRequestResponse,
+    dependencies=[password_reset_rate_limit],
+)
 async def request_password_reset(
     body: PasswordResetRequest,
     request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> PasswordResetRequestResponse:
+    settings = get_settings()
     repo = UserRepository()
     user = await repo.get_by_email(session, body.email.lower())
 
@@ -264,7 +271,10 @@ async def request_password_reset(
     )
     await session.commit()
 
-    return PasswordResetRequestResponse(reset_token=reset_plain)
+    if settings.app_env in {"local", "test"}:
+        return PasswordResetRequestResponse(reset_token=reset_plain)
+
+    return PasswordResetRequestResponse()
 
 
 @router.post("/password-reset/confirm")

@@ -156,6 +156,7 @@ class DocumentReviewSummaryResponse(StrictBaseModel):
     is_active: bool
     version_label: str | None
     readiness: DocumentReadinessResponse
+    provenance: dict = Field(default_factory=dict)
     claims_needing_confirmation: list[dict] = Field(default_factory=list)
     warnings: list[dict] = Field(default_factory=list)
     selected_achievements: list[dict] = Field(default_factory=list)

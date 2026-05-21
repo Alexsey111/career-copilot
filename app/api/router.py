@@ -9,12 +9,14 @@ from app.api.routes.evidence import router as evidence_router
 from app.api.routes.documents import router as documents_router
 from app.api.routes.files import router as files_router
 from app.api.routes.executions import router as executions_router
+from app.api.routes.interviews import router as interviews_router
 from app.api.routes.interview_prep import router as interview_prep_router
 from app.api.routes.health import router as health_router
 from app.api.routes.pipeline_async import router as pipeline_async_router
 from app.api.routes.pipeline_execution_routes import router as pipeline_execution_router
 from app.api.routes.profile import router as profile_router
 from app.api.routes.review_workspace_routes import router as review_workspace_router
+from app.api.routes.review_summary import router as review_summary_router
 from app.api.routes.vacancies import router as vacancies_router
 from app.core.config import get_settings
 
@@ -35,8 +37,10 @@ def build_api_router() -> APIRouter:
     api_router.include_router(applications_router)
     api_router.include_router(evidence_router)
     api_router.include_router(interview_prep_router)
+    api_router.include_router(interviews_router)
     api_router.include_router(pipeline_execution_router)
     api_router.include_router(review_workspace_router)
+    api_router.include_router(review_summary_router)
 
     root_router = APIRouter()
     root_router.include_router(health_router)

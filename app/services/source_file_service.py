@@ -7,15 +7,16 @@ import uuid
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.exceptions import AppError
+from app.core.config import get_settings
 from app.models import SourceFile
 from app.repositories.source_file_repository import SourceFileRepository
 from app.services.storage_service import StorageService
 
 
-MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
 ALLOWED_FILE_KINDS = {"resume", "other"}
 
 
@@ -36,26 +37,50 @@ class SourceFileService:
         file_kind: str,
         upload_file: UploadFile,
     ) -> SourceFile:
+        settings = get_settings()
         normalized_file_kind = file_kind.strip().lower()
         if normalized_file_kind not in ALLOWED_FILE_KINDS:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"file_kind must be one of: {sorted(ALLOWED_FILE_KINDS)}",
+            raise AppError(
+                status_code=400,
+                code="invalid_file_kind",
+                message=f"file_kind must be one of: {sorted(ALLOWED_FILE_KINDS)}",
+                details={"allowed_file_kinds": sorted(ALLOWED_FILE_KINDS)},
             )
 
         original_name = upload_file.filename or "upload.bin"
+        extension = Path(original_name).suffix.lower()
+        if extension not in settings.allowed_upload_extensions:
+            raise AppError(
+                status_code=400,
+                code="unsupported_file_extension",
+                message="Unsupported file extension",
+                details={"allowed_extensions": sorted(settings.allowed_upload_extensions)},
+            )
+
+        content_type = (upload_file.content_type or "").lower()
+        if content_type not in settings.allowed_upload_content_types:
+            raise AppError(
+                status_code=400,
+                code="unsupported_content_type",
+                message="Unsupported content type",
+                details={"allowed_content_types": sorted(settings.allowed_upload_content_types)},
+            )
+
         file_bytes = await upload_file.read()
 
         if not file_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="uploaded file is empty",
+            raise AppError(
+                status_code=400,
+                code="empty_upload_file",
+                message="Uploaded file is empty",
             )
 
-        if len(file_bytes) > MAX_UPLOAD_SIZE_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"file is too large, max size is {MAX_UPLOAD_SIZE_BYTES} bytes",
+        if len(file_bytes) > settings.max_upload_size_bytes:
+            raise AppError(
+                status_code=413,
+                code="upload_file_too_large",
+                message="Uploaded file is too large",
+                details={"max_upload_size_bytes": settings.max_upload_size_bytes},
             )
 
         safe_name = self._sanitize_filename(original_name)
@@ -94,9 +119,10 @@ class SourceFileService:
             user_id=user_id,
         )
         if source_file is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="file not found",
+            raise AppError(
+                status_code=404,
+                code="source_file_not_found",
+                message="Source file not found",
             )
         return source_file
 

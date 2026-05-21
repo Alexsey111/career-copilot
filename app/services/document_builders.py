@@ -12,6 +12,39 @@ from app.domain.trace_models import GenerationTrace
 from app.services.trace_serialization import serialize_trace
 
 
+def build_document_provenance(
+    *,
+    source: str,
+    generation_mode: str,
+    based_on_analysis_id: Any,
+    based_on_achievements: list[Any],
+    selected_achievement_ids: list[Any] | None,
+    selected_evidence_ids: list[Any] | None,
+    evidence_selection_reason: list[dict[str, Any]] | None,
+    confidence: float,
+    confidence_level: str | None = None,
+    generation_prompt_version: str | None,
+    generated_at: str,
+    requires_human_review: bool = True,
+) -> dict[str, Any]:
+    provenance = {
+        "source": source,
+        "generation_mode": generation_mode,
+        "analysis_id": str(based_on_analysis_id) if based_on_analysis_id is not None else None,
+        "based_on_achievements": to_jsonable(based_on_achievements),
+        "selected_achievement_ids": to_jsonable(selected_achievement_ids or []),
+        "selected_evidence_ids": to_jsonable(selected_evidence_ids or []),
+        "evidence_selection_reason": to_jsonable(evidence_selection_reason or []),
+        "confidence": confidence,
+        "generation_prompt_version": generation_prompt_version,
+        "generated_at": generated_at,
+        "requires_human_review": requires_human_review,
+    }
+    if confidence_level is not None:
+        provenance["confidence_level"] = confidence_level
+    return provenance
+
+
 def build_resume_content(
     *,
     candidate: dict[str, Any],
@@ -34,12 +67,27 @@ def build_resume_content(
     selected_achievement_ids: list[Any] | None = None,
     based_on_analysis_id: Any,
     confidence: float,
+    confidence_level: str | None = None,
     generation_prompt_version: str | None,
     generated_at: str,
     trace: GenerationTrace | None = None,
     selected_evidence_ids: list[Any] | None = None,
     evidence_selection_reason: list[dict[str, Any]] | None = None,
 ) -> dict:
+    provenance = build_document_provenance(
+        source=source,
+        generation_mode=draft_mode,
+        based_on_analysis_id=based_on_analysis_id,
+        based_on_achievements=based_on_achievements,
+        selected_achievement_ids=selected_achievement_ids,
+        selected_evidence_ids=selected_evidence_ids,
+        evidence_selection_reason=evidence_selection_reason,
+        confidence=confidence,
+        confidence_level=confidence_level,
+        generation_prompt_version=generation_prompt_version,
+        generated_at=generated_at,
+    )
+
     payload = {
         "document_kind": "resume",
         "draft_mode": draft_mode,
@@ -72,9 +120,11 @@ def build_resume_content(
             "confidence": confidence,
             "generation_prompt_version": generation_prompt_version,
             "generated_at": generated_at,
+            "provenance": provenance,
             "warnings": [],
             "generation_trace": serialize_trace(trace) if trace else {},
         },
+        "provenance": provenance,
     }
 
     validated = validate_document_content(
@@ -105,12 +155,27 @@ def build_cover_letter_content(
     selected_achievement_ids: list[Any] | None = None,
     based_on_analysis_id: Any,
     confidence: float,
+    confidence_level: str | None = None,
     generation_prompt_version: str | None,
     generated_at: str,
     trace: GenerationTrace | None = None,
     selected_evidence_ids: list[Any] | None = None,
     evidence_selection_reason: list[dict[str, Any]] | None = None,
 ) -> dict:
+    provenance = build_document_provenance(
+        source=source,
+        generation_mode=draft_mode,
+        based_on_analysis_id=based_on_analysis_id,
+        based_on_achievements=based_on_achievements,
+        selected_achievement_ids=selected_achievement_ids,
+        selected_evidence_ids=selected_evidence_ids,
+        evidence_selection_reason=evidence_selection_reason,
+        confidence=confidence,
+        confidence_level=confidence_level,
+        generation_prompt_version=generation_prompt_version,
+        generated_at=generated_at,
+    )
+
     payload = {
         "document_kind": "cover_letter",
         "draft_mode": draft_mode,
@@ -141,9 +206,11 @@ def build_cover_letter_content(
             "confidence": confidence,
             "generation_prompt_version": generation_prompt_version,
             "generated_at": generated_at,
+            "provenance": provenance,
             "warnings": [],
             "generation_trace": serialize_trace(trace) if trace else {},
         },
+        "provenance": provenance,
     }
 
     validated = validate_document_content(

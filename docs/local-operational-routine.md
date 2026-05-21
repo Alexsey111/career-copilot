@@ -8,6 +8,20 @@
 4. поднять backend;
 5. прогнать smoke flow.
 
+Если нужен deterministic reset для demo-последовательности, используйте:
+
+```powershell
+python scripts/reset_demo_environment.py
+```
+
+Для one-click local startup доступны цели:
+
+```powershell
+make demo
+make backend
+make streamlit
+```
+
 ## 1. Очистить БД
 
 Если `psycopg` уже установлен в текущем `.venv`, можно выполнить очистку прямо из PowerShell:

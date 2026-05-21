@@ -81,6 +81,7 @@ async def get_interview_prep_readiness(
 
 
 def _to_read_model(prep_session) -> InterviewPrepSessionRead:
+    readiness_json = prep_session.readiness_json or {}
     return InterviewPrepSessionRead(
         id=prep_session.id,
         application_id=prep_session.application_id,
@@ -91,9 +92,8 @@ def _to_read_model(prep_session) -> InterviewPrepSessionRead:
         questions=prep_session.question_set_json or [],
         evidence_links=prep_session.evidence_links_json or [],
         weak_areas=prep_session.weak_areas_json or [],
-        readiness=InterviewPrepReadinessRead.model_validate(
-            prep_session.readiness_json or {}
-        ),
+        readiness=InterviewPrepReadinessRead.model_validate(readiness_json),
+        provenance=dict(readiness_json.get("provenance") or {}),
         created_at=prep_session.created_at,
         updated_at=prep_session.updated_at,
     )

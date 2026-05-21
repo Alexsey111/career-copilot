@@ -38,6 +38,7 @@ class InterviewPrepReadinessRead(StrictBaseModel):
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     score: int | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
 
 
 class InterviewPrepQuestionRead(StrictBaseModel):
@@ -47,8 +48,14 @@ class InterviewPrepQuestionRead(StrictBaseModel):
     answer_format: str
     competency_key: str | None = None
     competency_name: str | None = None
+    source_type: str | None = None
+    source_requirement: str | None = None
+    source_achievement_id: UUID | None = None
+    fact_status: str | None = None
+    requires_careful_answer: bool = False
     recommended_evidence_ids: list[UUID] = Field(default_factory=list)
     recommended_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
 
 
 class InterviewPrepSessionRead(StrictBaseModel):
@@ -62,6 +69,7 @@ class InterviewPrepSessionRead(StrictBaseModel):
     evidence_links: list[dict[str, Any]] = Field(default_factory=list)
     weak_areas: list[dict[str, Any]] = Field(default_factory=list)
     readiness: InterviewPrepReadinessRead
+    provenance: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 

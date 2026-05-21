@@ -9,9 +9,9 @@ import jwt
 
 from app.core.config import get_settings
 
-settings = get_settings()
 
 def create_access_token(user_id: str) -> str:
+    settings = get_settings()
     now = datetime.now(timezone.utc)
 
     payload = {
@@ -25,7 +25,9 @@ def create_access_token(user_id: str) -> str:
 
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
+
 def decode_access_token(token: str) -> dict[str, Any]:
+    settings = get_settings()
     payload = jwt.decode(
         token,
         settings.jwt_secret,
@@ -37,11 +39,15 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
     return payload
 
+
 def generate_refresh_token() -> str:
     return secrets.token_urlsafe(64)
+
 
 def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
+
 def get_refresh_expires() -> datetime:
+    settings = get_settings()
     return datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)

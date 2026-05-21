@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.repositories.application_record_repository import ApplicationRecordRepository
+from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
 
@@ -12,7 +13,9 @@ pytestmark = pytest.mark.asyncio
 API_PREFIX = "/api/v1"
 
 
-async def _prepare_profile_with_confirmed_achievements(client) -> list[dict]:
+async def _prepare_profile_with_confirmed_achievements(client, db_session, test_user) -> list[dict]:
+    extraction_repo = FileExtractionRepository()
+
     upload_response = await client.post(
         f"{API_PREFIX}/files/upload",
         data={"file_kind": "resume"},
@@ -27,6 +30,14 @@ async def _prepare_profile_with_confirmed_achievements(client) -> list[dict]:
     )
     assert import_response.status_code == 200, import_response.text
     extraction_id = import_response.json()["extraction_id"]
+
+    extraction = await extraction_repo.get_by_id(
+        db_session,
+        extraction_id,
+        user_id=test_user.id,
+    )
+    assert extraction is not None, "Imported file extraction must be visible before structuring"
+    assert str(extraction.source_file_id) == str(source_file_id)
 
     structured_response = await client.post(
         f"{API_PREFIX}/profile/extract-structured",
@@ -169,7 +180,7 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     db_session,
     test_user,
 ):
-    await _prepare_profile_with_confirmed_achievements(client)
+    await _prepare_profile_with_confirmed_achievements(client, db_session, test_user)
     seeded = await _seed_vacancy_and_application(client, db_session, test_user)
 
     create_response = await client.post(
@@ -219,6 +230,19 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     assert "No leadership examples" in readiness["blockers"]
     assert "No scale metrics" in readiness["warnings"]
 
+    provenance = payload["provenance"]
+    assert provenance["source"] == "achievement_mapping"
+    assert provenance["generation_mode"] == "deterministic_v1_review_ready"
+    assert provenance["application_id"] == str(seeded["application"].id)
+    assert provenance["vacancy_id"] == str(seeded["vacancy"].id)
+    assert provenance["requires_human_review"] is True
+    assert provenance["selected_achievement_ids"]
+    assert provenance["selected_evidence_ids"]
+    assert provenance["question_generation_mode"] == "deterministic_v1"
+    assert provenance["confidence_level"] == "needs_review"
+
+    assert readiness["provenance"] == provenance
+
     get_response = await client.get(
         f"{API_PREFIX}/interview-prep/sessions/{payload['id']}",
     )
@@ -234,3 +258,17 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     list_response = await client.get(f"{API_PREFIX}/interview-prep/sessions")
     assert list_response.status_code == 200, list_response.text
     assert len(list_response.json()) == 1
+
+    assert technical_python_question["source_type"] == "vacancy_requirement"
+    assert technical_python_question["source_requirement"] == "Python"
+    assert technical_python_question["fact_status"] == "confirmed"
+    assert technical_python_question["provenance"]["requires_human_review"] is True
+    assert technical_python_question["provenance"]["recommended_evidence_ids"]
+    assert technical_python_question["provenance"]["fact_status"] == "confirmed"
+
+    gap_question = next(item for item in questions if item["category"] == "gap-risk")
+    assert gap_question["source_type"] == "gap"
+    assert gap_question["fact_status"] == "inferred_needs_review"
+    assert gap_question["requires_careful_answer"] is True
+    assert gap_question["provenance"]["requires_careful_answer"] is True
+    assert gap_question["provenance"]["fact_status"] == "inferred_needs_review"

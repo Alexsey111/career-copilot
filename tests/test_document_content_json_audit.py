@@ -162,6 +162,17 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
         set(resume_meta["selected_achievement_ids"])
     )
 
+    resume_provenance = resume_content["provenance"]
+    assert resume_provenance["source"] == resume_meta["source"]
+    assert resume_provenance["generation_mode"] == resume_content["draft_mode"]
+    assert resume_provenance["analysis_id"] == resume_meta["based_on_analysis_id"]
+    assert resume_provenance["selected_achievement_ids"] == resume_meta["selected_achievement_ids"]
+    assert resume_provenance["selected_evidence_ids"] == resume_meta["selected_evidence_ids"]
+    assert resume_provenance["evidence_selection_reason"] == resume_meta["evidence_selection_reason"]
+    assert resume_provenance["confidence"] == resume_meta["confidence"]
+    assert resume_provenance["confidence_level"] in {"high", "medium", "low", "needs_review"}
+    assert resume_provenance["requires_human_review"] is True
+
     assert resume_sections["matched_requirements"]
     assert resume_sections["gap_requirements"]
     assert isinstance(resume_sections["claims_needing_confirmation"], list)
@@ -198,6 +209,17 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
     assert set(cover_letter_meta["selected_evidence_ids"]).isdisjoint(
         set(cover_letter_meta["selected_achievement_ids"])
     )
+
+    cover_letter_provenance = cover_letter_content["provenance"]
+    assert cover_letter_provenance["source"] == cover_letter_meta["source"]
+    assert cover_letter_provenance["generation_mode"] == cover_letter_content["draft_mode"]
+    assert cover_letter_provenance["analysis_id"] == cover_letter_meta["based_on_analysis_id"]
+    assert cover_letter_provenance["selected_achievement_ids"] == cover_letter_meta["selected_achievement_ids"]
+    assert cover_letter_provenance["selected_evidence_ids"] == cover_letter_meta["selected_evidence_ids"]
+    assert cover_letter_provenance["evidence_selection_reason"] == cover_letter_meta["evidence_selection_reason"]
+    assert cover_letter_provenance["confidence"] == cover_letter_meta["confidence"]
+    assert cover_letter_provenance["confidence_level"] in {"high", "medium", "low", "needs_review"}
+    assert cover_letter_provenance["requires_human_review"] is True
 
     assert cover_letter_sections["matched_requirements"]
     assert cover_letter_sections["gap_requirements"]

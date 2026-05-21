@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_active_user
+from app.core.rate_limit import upload_rate_limit
 from app.db.session import get_db_session
 from app.models import User
 from app.schemas.source_file import SourceFileRead
@@ -17,7 +18,7 @@ from app.services.source_file_service import SourceFileService
 router = APIRouter(prefix="/files", tags=["files"])
 
 
-@router.post("/upload", response_model=SourceFileRead)
+@router.post("/upload", response_model=SourceFileRead, dependencies=[upload_rate_limit])
 async def upload_file(
     file_kind: str = Form("resume"),
     file: UploadFile = File(...),
