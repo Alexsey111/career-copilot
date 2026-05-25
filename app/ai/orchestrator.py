@@ -12,8 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .clients.base import BaseLLMClient, LLMClientError
 from .config import AIOrchestratorConfig, AIModel
-from .registry.prompts import PromptRenderingError, PromptSpec, PromptTemplate, get_prompt, safe_render_prompt
+from .registry.prompts import (
+    PromptRenderingError,
+    PromptSpec,
+    PromptTemplate,
+    get_prompt,
+    safe_render_prompt,
+)
 from .tracing import trace_ai_run
+from app.core.config import get_settings
 from app.repositories.ai_run_repository import AIRunRepository  # создадим ниже
 
 
@@ -33,8 +40,18 @@ class AIOrchestrator:
         fallback_client: BaseLLMClient | None = None,
     ):
         if client is None:
-            from app.ai.clients.gigachat import GigaChatClient
-            client = GigaChatClient()
+            from app.ai.factory import create_llm_client
+
+            settings = get_settings()
+            client = create_llm_client(settings.ai_provider)
+
+        if fallback_client is None:
+            settings = get_settings()
+            if settings.ai_fallback_provider:
+                from app.ai.factory import create_llm_client
+
+                fallback_client = create_llm_client(settings.ai_fallback_provider)
+
         self.client = client
         self.config = config or AIOrchestratorConfig.from_settings()
         self.fallback_client = fallback_client
@@ -42,11 +59,9 @@ class AIOrchestrator:
     
     @classmethod
     def from_settings(cls) -> "AIOrchestrator":
-        """Фабричный метод: создаёт оркестратор с дефолтным GigaChat клиентом."""
-        from app.ai.clients.gigachat import GigaChatClient
+        from app.ai.factory import create_ai_orchestrator
 
-        client = GigaChatClient()
-        return cls(client=client)
+        return create_ai_orchestrator()
     
     async def aclose(self) -> None:
         """Закрывает все HTTP-клиенты."""

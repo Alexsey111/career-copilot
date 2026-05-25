@@ -42,10 +42,11 @@ class SourceFileRepository:
         *,
         user_id: UUID,
     ) -> SourceFile | None:
-        stmt = (
-            select(SourceFile)
-            .where(SourceFile.id == file_id)
-            .where(SourceFile.user_id == user_id)
-        )
+        stmt = select(SourceFile).where(SourceFile.id == file_id)
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        source_file = result.scalar_one_or_none()
+        if source_file is None:
+            return None
+        if source_file.user_id != user_id:
+            return None
+        return source_file

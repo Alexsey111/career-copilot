@@ -15,6 +15,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -97,22 +98,38 @@ def reset_database() -> None:
 
 
 async def truncate_database() -> None:
-    async with test_engine.begin() as conn:
-        result = await conn.execute(
-            text(
-                "SELECT tablename "
-                "FROM pg_tables "
-                "WHERE schemaname = 'public' "
-                "AND tablename <> 'alembic_version' "
-                "ORDER BY tablename"
-            )
-        )
-        table_names = [row[0] for row in result.fetchall()]
-        if not table_names:
-            return
+    max_attempts = 5
+    last_error: Exception | None = None
 
-        quoted_tables = ", ".join(f'"{name}"' for name in table_names)
-        await conn.execute(text(f"TRUNCATE TABLE {quoted_tables} RESTART IDENTITY CASCADE"))
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with test_engine.begin() as conn:
+                result = await conn.execute(
+                    text(
+                        "SELECT tablename "
+                        "FROM pg_tables "
+                        "WHERE schemaname = 'public' "
+                        "AND tablename <> 'alembic_version' "
+                        "ORDER BY tablename"
+                    )
+                )
+                table_names = [row[0] for row in result.fetchall()]
+                if not table_names:
+                    return
+
+                quoted_tables = ", ".join(f'"{name}"' for name in table_names)
+                await conn.execute(
+                    text(f"TRUNCATE TABLE {quoted_tables} RESTART IDENTITY CASCADE")
+                )
+            return
+        except OperationalError as exc:
+            last_error = exc
+            if "DeadlockDetected" not in str(exc):
+                raise
+            await asyncio.sleep(0.2 * attempt)
+
+    if last_error is not None:
+        raise last_error
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -224,6 +241,7 @@ async def client(db_session: AsyncSession, test_user: User):
     def override_current_user():
         return SimpleNamespace(
             id=test_user_id,
+            email=test_user.email,
             is_active=True,
             is_verified=True,
         )

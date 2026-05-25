@@ -162,6 +162,19 @@ def test_scoped_requirement_matching_does_not_create_generic_api_sql_duplicates(
     ]
 
 
+def test_fallback_requirement_keywords_use_valid_scope() -> None:
+    service = VacancyAnalysisService()
+
+    requirement_keywords = service._build_requirement_keywords(
+        keywords=["ChatGPT", "Claude", "AI workflow"],
+        must_have=[],
+        nice_to_have=[],
+    )
+
+    assert requirement_keywords
+    assert {item.scope for item in requirement_keywords} == {"must_have"}
+
+
 def test_profile_summary_skills_are_used_for_match_score() -> None:
     service = VacancyAnalysisService()
 

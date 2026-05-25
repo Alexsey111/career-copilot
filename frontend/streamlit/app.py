@@ -3,20 +3,41 @@
 from __future__ import annotations
 
 import os
+import importlib.util
+import sys
 from html import escape
+from pathlib import Path
 from typing import Any
 
 import httpx
 import streamlit as st
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+app_module = sys.modules.get("app")
+if app_module is not None and not hasattr(app_module, "__path__"):
+    del sys.modules["app"]
+
 from api_client import CareerCopilotApiClient, DEFAULT_API_BASE_URL
-from app.core.demo_scenarios import get_demo_scenarios
 from components import (
     render_career_strategy_workspace_tab,
     render_document_review_workspace_tab,
     render_evidence_workspace_tab,
     render_interview_prep_workspace_tab,
 )
+
+_DEMO_SCENARIOS_PATH = PROJECT_ROOT / "app" / "core" / "demo_scenarios.py"
+_demo_spec = importlib.util.spec_from_file_location(
+    "career_copilot_demo_scenarios",
+    _DEMO_SCENARIOS_PATH,
+)
+if _demo_spec is None or _demo_spec.loader is None:
+    raise RuntimeError(f"Unable to load demo scenarios from {_DEMO_SCENARIOS_PATH}")
+_demo_module = importlib.util.module_from_spec(_demo_spec)
+_demo_spec.loader.exec_module(_demo_module)
+get_demo_scenarios = _demo_module.get_demo_scenarios
 
 
 st.set_page_config(
@@ -67,26 +88,26 @@ RISK_LEVEL_LABELS = {
 }
 
 CONFIDENCE_LEVEL_LABELS = {
-    "high": "High confidence",
-    "medium": "Medium confidence",
-    "low": "Low confidence",
-    "needs_review": "Needs review",
+    "high": "Высокая уверенность",
+    "medium": "Средняя уверенность",
+    "low": "Низкая уверенность",
+    "needs_review": "Требует проверки",
 }
 
 ACTION_SEVERITY_LABELS = {
-    "blocker": "Blocker",
-    "warning": "Warning",
-    "info": "Info",
+    "blocker": "Блокер",
+    "warning": "Предупреждение",
+    "info": "Инфо",
 }
 
 ENTITY_TYPE_LABELS = {
-    "document": "Document",
-    "interview_prep": "Interview prep",
+    "document": "Документ",
+    "interview_prep": "Подготовка к интервью",
 }
 
 DOCUMENT_KIND_LABELS = {
-    "resume": "Tailored Resume",
-    "cover_letter": "Cover Letter",
+    "resume": "Резюме",
+    "cover_letter": "Сопроводительное письмо",
 }
 
 SEVERITY_TONES = {
@@ -116,6 +137,97 @@ ACTION_GROUP_ORDER = (
     "Prepare interview gaps",
     "Improve confidence",
 )
+
+TRUST_PANEL_TEXT_REPLACEMENTS = {
+    "Unified review summary from a single backend contract. No internal document or interview JSON is shown here.": (
+        "Единая сводка проверки на одном backend-контракте. "
+        "Внутренний JSON документов или интервью здесь не показывается."
+    ),
+    "No generated documents are available yet.": "Пока нет доступных сгенерированных документов.",
+    "No active scoped documents available.": "Пока нет активных привязанных документов.",
+    "No active document.": "Активный документ отсутствует.",
+    "Current active scoped application": "Текущее активное приложение",
+    "Active scoped documents": "Активные привязанные документы",
+    "Demo scenarios": "Демо-сценарии",
+    "Reset and verify commands": "Команды сброса и проверки",
+    "Select document": "Выберите документ",
+    "Select interview prep session": "Выберите сессию подготовки к интервью",
+    "No interview prep sessions are available yet.": "Пока нет доступных сессий подготовки к интервью.",
+    "No valid interview prep sessions are available.": "Нет валидных сессий подготовки к интервью.",
+    "Entity id is missing.": "Не указан идентификатор сущности.",
+    "Backend returned an unexpected response": "Backend вернул неожиданный ответ",
+    "Backend returned an unexpected review summary payload": "Backend вернул неожиданный payload сводки проверки",
+    "Unable to connect to backend": "Не удалось подключиться к backend",
+    "No blockers detected. All critical claims confirmed. Interview prep readiness acceptable.": (
+        "Блокеров не обнаружено. Все критичные утверждения подтверждены. "
+        "Подготовка к интервью приемлема."
+    ),
+    "No blockers detected.": "Блокеров не обнаружено.",
+    "No warnings detected.": "Предупреждений не обнаружено.",
+    "All critical claims confirmed.": "Все критичные утверждения подтверждены.",
+    "Interview prep readiness acceptable.": "Подготовка к интервью приемлема.",
+    "No selected evidence was returned by the backend.": "Backend не вернул выбранные доказательства.",
+    "No recommended actions. The review looks stable.": "Рекомендованных действий нет. Проверка выглядит стабильной.",
+    "No confirmed Python evidence": "Нет подтверждённых доказательств по Python",
+    "No confirmed Kubernetes evidence": "Нет подтверждённых доказательств по Kubernetes",
+    "How would you honestly answer about the weak area: No confirmed Python evidence": (
+        "Как вы честно ответите на вопрос о слабой зоне: Нет подтверждённых доказательств по Python"
+    ),
+    "How would you honestly answer about the weak area: No confirmed Kubernetes evidence": (
+        "Как вы честно ответите на вопрос о слабой зоне: Нет подтверждённых доказательств по Kubernetes"
+    ),
+    "Resolve blockers": "Устранить блокеры",
+    "Review unsupported claims": "Проверить неподтверждённые утверждения",
+    "Prepare interview gaps": "Подготовить ответы на пробелы",
+    "Improve confidence": "Повысить уверенность",
+    "Resolve blocker": "Устранить блокер",
+    "Interview Prep": "Подготовка к интервью",
+    "Interview Question": "Вопрос интервью",
+    "Prepare a careful gap-risk response": "Подготовьте аккуратный ответ на вопрос о пробеле",
+    "Strong evidence": "Сильные доказательства",
+    "Medium evidence": "Средние доказательства",
+    "No confirmed evidence": "Нет подтверждённых доказательств",
+    "Show evidence provenance": "Показать provenance доказательств",
+    "Document": "Документ",
+    "Interview prep": "Подготовка к интервью",
+    "draft": "черновик",
+    "Target id": "целевой ID",
+    "Resume": "Резюме",
+    "Cover Letter": "Сопроводительное письмо",
+    "Claims requiring confirmation": "Утверждения, требующие подтверждения",
+    "Gap-risk items": "Пункты с риском по пробелам",
+    "Selected evidence": "Выбранные доказательства",
+    "Recommended actions": "Рекомендованные действия",
+    "Blockers": "Блокеры",
+    "Warnings": "Предупреждения",
+    "Risk": "Риск",
+    "Ready": "Готово",
+    "Human review": "Человеческая проверка",
+    "Confidence": "Уверенность",
+    "Required": "Требуется",
+    "Not required": "Не требуется",
+    "Ready": "Готово",
+    "Blocked": "Есть блокировка",
+    "No items.": "Элементов нет.",
+    "Source": "Источник",
+    "Generation mode": "Режим генерации",
+    "Confidence level": "Уровень уверенности",
+    "Requires human review": "Требуется ручная проверка",
+    "Analysis id": "ID анализа",
+    "Application id": "ID заявки",
+    "Vacancy id": "ID вакансии",
+    "Document id": "ID документа",
+    "Question generation mode": "Режим генерации вопросов",
+    "Selected achievement ids": "Выбранные ID достижений",
+    "Selected evidence ids": "Выбранные ID доказательств",
+    "Competency sources": "Источники компетенций",
+    "Question source counts": "Количество источников вопросов",
+    "target id": "целевой ID",
+    "Backend": "Backend",
+    "Ready": "Готово",
+    "No active scoped application found yet.": "Активное приложение пока не найдено.",
+    "No active scoped documents available.": "Активные привязанные документы пока не найдены.",
+}
 
 
 def format_application_status(value: str | None) -> str:
@@ -159,6 +271,13 @@ def _format_label(value: str | None, labels: dict[str, str]) -> str:
         return "—"
     normalized = str(value).strip().lower()
     return labels.get(normalized, value)
+
+
+def _translate_trust_text(value: str | None) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return TRUST_PANEL_TEXT_REPLACEMENTS.get(text, text)
 
 
 def _format_confidence_value(provenance_summary: dict[str, Any] | None) -> str:
@@ -235,17 +354,17 @@ def _action_badge_tone(severity: str | None) -> str:
 
 
 def _render_trust_panel_list(title: str, items: list[str]) -> None:
-    st.markdown(f"**{title}**")
+    st.markdown(f"**{_translate_trust_text(title)}**")
     if not items:
-        st.caption("No items.")
+        st.caption(_translate_trust_text("No items."))
         return
     for item in items:
-        st.markdown(f"- {item}")
+        st.markdown(f"- {_translate_trust_text(item)}")
 
 
 def _humanize_document_kind_for_trust_panel(document_kind: str | None) -> str:
     if not document_kind:
-        return "Document"
+        return "Документ"
     normalized = str(document_kind).strip().lower()
     return DOCUMENT_KIND_LABELS.get(normalized, document_kind)
 
@@ -289,22 +408,32 @@ def _group_review_actions(actions: list[dict[str, Any]]) -> dict[str, list[dict[
 
 def _render_action_card(action: dict[str, Any]) -> None:
     with st.container(border=True):
-        st.markdown(f"**{action.get('label') or action.get('code') or 'Action'}**")
+        st.markdown(
+            f"**{_translate_trust_text(str(action.get('label') or action.get('code') or 'Action'))}**"
+        )
         badge_parts = [
-            (str(action.get("severity") or "neutral").title(), _action_badge_tone(action.get("severity"))),
+            (
+                _translate_trust_text(
+                    ACTION_SEVERITY_LABELS.get(
+                        str(action.get("severity") or "").strip().lower(),
+                        str(action.get("severity") or "neutral").title(),
+                    )
+                ),
+                _action_badge_tone(action.get("severity")),
+            ),
         ]
         target_type = str(action.get("target_type") or "").strip()
         if target_type:
-            badge_parts.append((target_type.replace("_", " ").title(), "neutral"))
+            badge_parts.append((_translate_trust_text(target_type.replace("_", " ").title()), "neutral"))
         _render_inline_badges(badge_parts)
 
         reason = str(action.get("reason") or "").strip()
         if reason:
-            st.write(reason)
+            st.write(_translate_trust_text(reason))
 
         target_id = str(action.get("target_id") or "").strip()
         if target_id:
-            st.caption(f"target_id: {target_id}")
+            st.caption(f"{_translate_trust_text('Target id')}: {target_id}")
 
 
 def _render_grouped_actions(actions: list[dict[str, Any]]) -> None:
@@ -316,17 +445,21 @@ def _render_grouped_actions(actions: list[dict[str, Any]]) -> None:
         if not group_actions:
             continue
         rendered_any = True
-        with st.expander(f"{group_name} ({len(group_actions)})", expanded=group_name != "Improve confidence"):
+        translated_group_name = _translate_trust_text(group_name)
+        with st.expander(
+            f"{translated_group_name} ({len(group_actions)})",
+            expanded=group_name != "Improve confidence",
+        ):
             for action in group_actions:
                 _render_action_card(action)
 
     if not rendered_any:
-        st.success("No recommended actions. The review looks stable.")
+        st.success(_translate_trust_text("No recommended actions. The review looks stable."))
 
 
 def _render_provenance_summary(summary: dict[str, Any]) -> None:
     if not summary:
-        st.success("No provenance data returned by the backend.")
+        st.success("Backend не вернул данные provenance.")
         return
 
     provenance_rows = [
@@ -347,12 +480,12 @@ def _render_provenance_summary(summary: dict[str, Any]) -> None:
         for label, value in provenance_rows[: len(provenance_rows) // 2]:
             if value in (None, "", []):
                 continue
-            st.markdown(f"**{label}:** {value}")
+            st.markdown(f"**{_translate_trust_text(label)}:** {value}")
     with cols[1]:
         for label, value in provenance_rows[len(provenance_rows) // 2 :]:
             if value in (None, "", []):
                 continue
-            st.markdown(f"**{label}:** {value}")
+            st.markdown(f"**{_translate_trust_text(label)}:** {value}")
 
     selected_achievement_ids = summary.get("selected_achievement_ids") or []
     selected_evidence_ids = summary.get("selected_evidence_ids") or []
@@ -360,12 +493,18 @@ def _render_provenance_summary(summary: dict[str, Any]) -> None:
     question_source_counts = summary.get("question_source_counts") or {}
 
     if selected_achievement_ids:
-        st.caption("Selected achievement ids: " + ", ".join(str(item) for item in selected_achievement_ids))
+        st.caption(
+            f"{_translate_trust_text('Selected achievement ids')}: "
+            + ", ".join(str(item) for item in selected_achievement_ids)
+        )
     if selected_evidence_ids:
-        st.caption("Selected evidence ids: " + ", ".join(str(item) for item in selected_evidence_ids))
+        st.caption(
+            f"{_translate_trust_text('Selected evidence ids')}: "
+            + ", ".join(str(item) for item in selected_evidence_ids)
+        )
     if competency_sources:
         st.caption(
-            "Competency sources: "
+            f"{_translate_trust_text('Competency sources')}: "
             + ", ".join(
                 str(item.get("competency_key") or item.get("label") or "—")
                 for item in competency_sources
@@ -374,31 +513,28 @@ def _render_provenance_summary(summary: dict[str, Any]) -> None:
         )
     if question_source_counts:
         st.caption(
-            "Question source counts: "
+            f"{_translate_trust_text('Question source counts')}: "
             + ", ".join(f"{key}={value}" for key, value in question_source_counts.items())
         )
 
 
 def _render_system_health(client: CareerCopilotApiClient, *, token: str | None) -> None:
-    st.header("System Health")
+    st.header("Состояние системы")
     st.caption(
-        "Operational snapshot for pilot demos: backend, DB, seeded data, counts, "
-        "and the current active scoped application."
+        "Оперативный снимок для пилотных демо: backend, база данных, "
+        "seeded-данные, счётчики и текущее активное приложение в контексте."
     )
 
     backend_check = client.check_backend()
     _render_inline_badges(
         [
-            (
-                "Backend reachable" if backend_check.ok else "Backend unavailable",
-                "success" if backend_check.ok else "blocker",
-            ),
-            ("Login token present" if token else "Login required", "success" if token else "warning"),
+            ("Backend доступен" if backend_check.ok else "Backend недоступен", "success" if backend_check.ok else "blocker"),
+            ("Токен входа есть" if token else "Требуется вход", "success" if token else "warning"),
         ]
     )
 
     if not token:
-        st.info("Log in to inspect current seeded demo state and scoped application data.")
+        st.info("Войдите, чтобы посмотреть текущее seeded-состояние и данные по scoped-приложению.")
         return
 
     try:
@@ -408,7 +544,7 @@ def _render_system_health(client: CareerCopilotApiClient, *, token: str | None) 
         st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
-        st.error("Unable to connect to backend")
+        st.error("Не удалось подключиться к backend")
         st.code(str(exc))
         return
     except ValueError as exc:
@@ -430,35 +566,35 @@ def _render_system_health(client: CareerCopilotApiClient, *, token: str | None) 
     col_backend, col_db, col_seeded, col_user = st.columns(4)
     with col_backend:
         st.metric(
-            "Backend",
-            "Reachable" if diagnostics.get("backend_reachable") else "Unavailable",
+            "Бэкенд",
+            "Доступен" if diagnostics.get("backend_reachable") else "Недоступен",
         )
     with col_db:
         st.metric(
-            "DB",
-            "Reachable" if diagnostics.get("db_reachable") else "Unavailable",
+            "База данных",
+            "Доступна" if diagnostics.get("db_reachable") else "Недоступна",
         )
     with col_seeded:
         st.metric(
-            "Seeded demo state",
-            "Ready" if demo_state.get("has_demo_data") else "Empty",
+            "Состояние демо",
+            "Готово" if demo_state.get("has_demo_data") else "Пусто",
         )
     with col_user:
         current_user_id = str(diagnostics.get("current_user_id") or "").strip()
-        st.metric("Current user", current_user_id[:8] if current_user_id else "—")
+        st.metric("Текущий пользователь", current_user_id[:8] if current_user_id else "—")
 
     col_vacancies, col_applications, col_documents, col_sessions = st.columns(4)
     with col_vacancies:
-        st.metric("Vacancies", counts.get("vacancies", 0))
+        st.metric("Вакансии", counts.get("vacancies", 0))
     with col_applications:
-        st.metric("Applications", counts.get("applications", 0))
+        st.metric("Отклики", counts.get("applications", 0))
     with col_documents:
-        st.metric("Documents", counts.get("documents", 0))
+        st.metric("Документы", counts.get("documents", 0))
     with col_sessions:
-        st.metric("Interview sessions", counts.get("interview_sessions", 0))
+        st.metric("Сессии интервью", counts.get("interview_sessions", 0))
 
     with st.container(border=True):
-        st.markdown("### Current active scoped application")
+        st.markdown("### Текущее активное приложение в контексте")
         if current_application:
             st.json(
                 {
@@ -473,22 +609,22 @@ def _render_system_health(client: CareerCopilotApiClient, *, token: str | None) 
                 }
             )
         else:
-            st.info("No active scoped application found yet.")
+            st.info("Активное приложение в контексте пока не найдено.")
 
     with st.container(border=True):
-        st.markdown("### Active scoped documents")
+        st.markdown("### Активные документы в контексте")
         resume_document = active_documents.get("resume")
         cover_letter_document = active_documents.get("cover_letter")
         if not resume_document and not cover_letter_document:
-            st.caption("No active scoped documents available.")
+            st.caption("Активные документы в контексте пока недоступны.")
         else:
             for label, document in (
-                ("Resume", resume_document),
-                ("Cover Letter", cover_letter_document),
+                ("Резюме", resume_document),
+                ("Сопроводительное письмо", cover_letter_document),
             ):
                 with st.expander(label, expanded=False):
                     if not document:
-                        st.caption("No active document.")
+                        st.caption("Активный документ отсутствует.")
                         continue
                     st.json(
                         {
@@ -503,7 +639,7 @@ def _render_system_health(client: CareerCopilotApiClient, *, token: str | None) 
                         }
                     )
 
-    with st.expander("Demo scenarios", expanded=True):
+    with st.expander("Демо-сценарии", expanded=True):
         for scenario in scenario_identifiers:
             if not isinstance(scenario, dict):
                 continue
@@ -517,7 +653,7 @@ def _render_system_health(client: CareerCopilotApiClient, *, token: str | None) 
                 if description:
                     st.write(description)
 
-    with st.expander("Reset and verify commands", expanded=False):
+    with st.expander("Команды сброса и проверки", expanded=False):
         st.code(
             "python scripts/reset_demo_environment.py\n"
             "python scripts/check_demo_trust_states.py",
@@ -530,14 +666,29 @@ def _render_trust_panel(
     *,
     token: str | None,
 ) -> None:
-    st.header("Trust Panel")
+    st.header("Панель доверия")
     st.caption(
-        "Unified review summary from a single backend contract. "
-        "No internal document or interview JSON is shown here."
+        "Единая сводка проверки по одному backend-контракту. "
+        "Внутренний JSON документов или интервью здесь не показывается."
     )
 
+    if not token:
+        st.info("Войдите, чтобы посмотреть панели доверия и review-summary.")
+        return
+
+    diagnostics: dict[str, Any] = {}
+    active_documents: dict[str, Any] = {}
+    current_application: dict[str, Any] = {}
+    try:
+        diagnostics = client.get_system_health_diagnostics(token=token)
+    except Exception:
+        diagnostics = {}
+    if isinstance(diagnostics, dict):
+        active_documents = diagnostics.get("active_documents") or {}
+        current_application = diagnostics.get("current_active_application") or {}
+
     entity_type = st.radio(
-        "Entity type",
+        "Тип сущности",
         options=["document", "interview_prep"],
         horizontal=True,
         format_func=lambda value: ENTITY_TYPE_LABELS.get(value, value),
@@ -545,19 +696,19 @@ def _render_trust_panel(
     )
 
     entity_id = ""
-    entity_label = "Entity"
+    entity_label = "Сущность"
 
     if entity_type == "document":
         candidates: list[dict[str, Any]] = []
-        for source_document in (
-            st.session_state.get("generated_resume"),
-            st.session_state.get("generated_cover_letter"),
-        ):
+        seen_document_ids: set[str] = set()
+
+        def _add_document_candidate(source_document: dict[str, Any] | None) -> None:
             if not isinstance(source_document, dict):
-                continue
-            document_id = str(source_document.get("document_id") or "").strip()
-            if not document_id:
-                continue
+                return
+            document_id = str(source_document.get("document_id") or source_document.get("id") or "").strip()
+            if not document_id or document_id in seen_document_ids:
+                return
+            seen_document_ids.add(document_id)
             candidates.append(
                 {
                     "id": document_id,
@@ -568,8 +719,20 @@ def _render_trust_panel(
                 }
             )
 
+        for source_document in (
+            st.session_state.get("generated_resume"),
+            st.session_state.get("generated_cover_letter"),
+        ):
+            _add_document_candidate(source_document)
+
+        for source_document in (
+            active_documents.get("resume"),
+            active_documents.get("cover_letter"),
+        ):
+            _add_document_candidate(source_document)
+
         if not candidates:
-            application_context = st.session_state.get("application")
+            application_context = st.session_state.get("application") or current_application
             vacancy_id = None
             if isinstance(application_context, dict):
                 vacancy_id = str(application_context.get("vacancy_id") or "").strip() or None
@@ -591,15 +754,15 @@ def _render_trust_panel(
                 if not document_id:
                     continue
 
-                candidates.append(
+                _add_document_candidate(
                     {
-                        "id": document_id,
-                        "label": f"{fallback_title} · {document_id[:8]}",
+                        "document_id": document_id,
+                        "document_kind": document_kind,
                     }
                 )
 
         if not candidates:
-            st.info("No generated documents are available yet.")
+            st.info(_translate_trust_text("No generated documents are available yet."))
             return
 
         options = [item["id"] for item in candidates]
@@ -608,24 +771,24 @@ def _render_trust_panel(
         if selected_document_id not in options:
             selected_document_id = options[0]
         selected_option = st.selectbox(
-            "Select document",
+            "Выберите документ",
             options=options,
             index=options.index(selected_document_id),
             format_func=lambda value: labels.get(value, value),
             key="trust_panel_document_id",
         )
         entity_id = str(selected_option).strip()
-        entity_label = labels.get(entity_id, "Document")
+        entity_label = labels.get(entity_id, "Документ")
 
     else:
         try:
             sessions = client.list_interview_prep_sessions(token=token)
         except Exception as exc:
-            st.error(f"Unable to load interview prep sessions: {exc}")
+            st.error(f"Не удалось загрузить сессии подготовки к интервью: {exc}")
             return
 
         if not isinstance(sessions, list) or not sessions:
-            st.info("No interview prep sessions are available yet.")
+            st.info(_translate_trust_text("No interview prep sessions are available yet."))
             return
 
         candidates = []
@@ -635,18 +798,19 @@ def _render_trust_panel(
             session_id = str(item.get("id") or "").strip()
             if not session_id:
                 continue
+            status_label = _translate_trust_text(str(item.get("prep_status") or "draft"))
             candidates.append(
                 {
                     "id": session_id,
                     "label": (
-                        f"{item.get('prep_status') or 'draft'} · "
-                        f"{session_id[:8]} · app {str(item.get('application_id') or '')[:8]}"
+                        f"{status_label} · "
+                        f"{session_id[:8]} · заявка {str(item.get('application_id') or '')[:8]}"
                     ),
                 }
             )
 
         if not candidates:
-            st.info("No valid interview prep sessions are available.")
+            st.info(_translate_trust_text("No valid interview prep sessions are available."))
             return
 
         options = [item["id"] for item in candidates]
@@ -655,31 +819,34 @@ def _render_trust_panel(
         if selected_session_id not in options:
             selected_session_id = options[0]
         selected_option = st.selectbox(
-            "Select interview prep session",
+            "Выберите сессию подготовки к интервью",
             options=options,
             index=options.index(selected_session_id),
             format_func=lambda value: labels.get(value, value),
             key="trust_panel_interview_prep_id",
         )
         entity_id = str(selected_option).strip()
-        entity_label = labels.get(entity_id, "Interview prep session")
+        entity_label = labels.get(entity_id, "Сессия подготовки к интервью")
 
     if not entity_id:
-        st.warning("Entity id is missing.")
+        st.warning(_translate_trust_text("Entity id is missing."))
         return
 
     try:
-        summary = client.get_review_summary(
-            entity_type=entity_type,
-            entity_id=entity_id,
-            token=token,
-        )
+        if entity_type == "document":
+            summary = client.get_document_review_summary(entity_id, token=token)
+        else:
+            summary = client.get_review_summary(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                token=token,
+            )
     except httpx.HTTPStatusError as exc:
         st.error(f"Backend returned HTTP {exc.response.status_code}")
         st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
-        st.error("Unable to connect to backend")
+        st.error("Не удалось подключиться к backend")
         st.code(str(exc))
         return
     except ValueError as exc:
@@ -706,30 +873,30 @@ def _render_trust_panel(
 
     st.markdown(f"### {entity_label}")
     st.caption(
-        f"{entity_type} · {entity_id} · "
-        f"requires_human_review={summary.get('requires_human_review', True)}"
+        f"{ENTITY_TYPE_LABELS.get(entity_type, entity_type)} · {entity_id} · "
+        f"требуется ручная проверка={summary.get('requires_human_review', True)}"
     )
 
     col_risk, col_ready, col_review, col_confidence = st.columns(4)
     with col_risk:
-        st.metric("Risk", _format_label(risk_level, RISK_LEVEL_LABELS))
+        st.metric("Риск", _format_label(risk_level, RISK_LEVEL_LABELS))
     with col_ready:
-        st.metric("Ready", "Yes" if ready else "No")
+        st.metric("Готово", "Да" if ready else "Нет")
     with col_review:
         st.metric(
-            "Human review",
-            "Required" if summary.get("requires_human_review", True) else "Not required",
+            "Человеческая проверка",
+            "Требуется" if summary.get("requires_human_review", True) else "Не требуется",
         )
     with col_confidence:
-        st.metric("Confidence", _format_confidence_value(provenance))
+        st.metric("Уверенность", _format_confidence_value(provenance))
 
-    st.markdown("### Status badges")
+    st.markdown("### Статусные бейджи")
     _render_inline_badges(
         [
-            (f"Risk: {_format_label(risk_level, RISK_LEVEL_LABELS)}", _risk_badge_tone(risk_level)),
-            ("Ready" if ready else "Blocked", "success" if ready else "blocker"),
+            (f"Риск: {_format_label(risk_level, RISK_LEVEL_LABELS)}", _risk_badge_tone(risk_level)),
+            ("Готово" if ready else "Блокировка", "success" if ready else "blocker"),
             (
-                "Human review required" if summary.get("requires_human_review", True) else "Human review not required",
+                "Требуется ручная проверка" if summary.get("requires_human_review", True) else "Ручная проверка не требуется",
                 "warning" if summary.get("requires_human_review", True) else "success",
             ),
             (
@@ -742,20 +909,24 @@ def _render_trust_panel(
     st.divider()
 
     if ready and not blockers and not warnings and not claims and not gap_risk_items:
-        st.success("No blockers detected. All critical claims confirmed. Interview prep readiness acceptable.")
+        st.success(
+            _translate_trust_text(
+                "No blockers detected. All critical claims confirmed. Interview prep readiness acceptable."
+            )
+        )
     else:
         col_left, col_right = st.columns(2)
         with col_left:
             if blockers:
                 _render_trust_panel_list("Blockers", [str(item) for item in blockers if str(item).strip()])
             else:
-                st.success("No blockers detected.")
+                st.success(_translate_trust_text("No blockers detected."))
 
             if warnings:
                 st.markdown("---")
                 _render_trust_panel_list("Warnings", [str(item) for item in warnings if str(item).strip()])
             else:
-                st.success("No warnings detected.")
+                st.success(_translate_trust_text("No warnings detected."))
 
         with col_right:
             if claims:
@@ -774,7 +945,7 @@ def _render_trust_panel(
                     ],
                 )
             else:
-                st.success("All critical claims confirmed.")
+                st.success(_translate_trust_text("All critical claims confirmed."))
 
             if gap_risk_items:
                 st.markdown("---")
@@ -787,12 +958,12 @@ def _render_trust_panel(
                     ],
                 )
             else:
-                st.success("Interview prep readiness acceptable.")
+                st.success(_translate_trust_text("Interview prep readiness acceptable."))
 
     st.divider()
-    st.markdown("### Selected evidence")
+    st.markdown("### Выбранные доказательства")
     if not selected_evidence:
-        st.caption("No selected evidence was returned by the backend.")
+        st.caption(_translate_trust_text("No selected evidence was returned by the backend."))
     else:
         evidence_rows = []
         for item in selected_evidence:
@@ -801,20 +972,20 @@ def _render_trust_panel(
             evidence_rows.append(
                 {
                     "ID": item.get("id") or "—",
-                    "Title": item.get("title") or "—",
-                    "Source": item.get("source_type") or "—",
-                    "Fact status": item.get("fact_status") or "—",
-                    "Reason": item.get("reason") or "—",
+                    "Заголовок": item.get("title") or "—",
+                    "Источник": item.get("source_type") or "—",
+                    "Статус факта": item.get("fact_status") or "—",
+                    "Причина": item.get("reason") or "—",
                 }
             )
         if evidence_rows:
-            st.dataframe(evidence_rows, use_container_width=True, hide_index=True)
+            st.dataframe(evidence_rows, width="stretch", hide_index=True)
 
     st.divider()
-    st.markdown("### Recommended actions")
+    st.markdown("### Рекомендованные действия")
     _render_grouped_actions([item for item in actions if isinstance(item, dict)])
 
-    with st.expander("Show evidence provenance", expanded=False):
+    with st.expander(_translate_trust_text("Show evidence provenance"), expanded=False):
         _render_provenance_summary(provenance)
 
 
@@ -904,28 +1075,95 @@ def render_sidebar() -> tuple[str, CareerCopilotApiClient, str | None]:
     st.sidebar.markdown("### 🔐 Авторизация")
 
     if not token:
-        email = st.sidebar.text_input("Email", key="auth_email")
-        password = st.sidebar.text_input("Пароль", type="password", key="auth_password")
-        if st.sidebar.button("Войти", use_container_width=True, type="primary"):
-            try:
-                result = client.login(email.strip(), password)
-                st.session_state.auth_token = result.get("access_token")
-                st.session_state.user_email = email.strip()
-                st.sidebar.success("✅ Авторизация успешна")
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"Ошибка входа: {e}")
+        auth_mode = st.sidebar.radio(
+            "Режим",
+            options=["login", "register"],
+            horizontal=True,
+            format_func=lambda value: "Вход" if value == "login" else "Регистрация",
+            key="auth_mode",
+        )
+
+        demo_email = os.getenv("DEMO_EMAIL", "demo.candidate@example.com")
+        demo_password = os.getenv("DEMO_PASSWORD", "DemoPass123!")
+
+        default_email = demo_email if auth_mode == "login" else ""
+        default_password = demo_password if auth_mode == "login" else ""
+
+        email = st.sidebar.text_input(
+            "Email",
+            value=default_email,
+            key=f"auth_email_{auth_mode}",
+        )
+        password = st.sidebar.text_input(
+            "Пароль",
+            value=default_password,
+            type="password",
+            key=f"auth_password_{auth_mode}",
+        )
+
+        if auth_mode == "register":
+            password_confirm = st.sidebar.text_input(
+                "Повторите пароль",
+                value="",
+                type="password",
+                key="auth_password_confirm",
+            )
+        else:
+            password_confirm = password
+
+        if auth_mode == "login":
+            button_label = "Войти"
+            success_message = "✅ Авторизация успешна"
+        else:
+            button_label = "Зарегистрироваться"
+            success_message = "✅ Пользователь зарегистрирован. Теперь можно войти."
+
+        if st.sidebar.button(button_label, width="stretch", type="primary"):
+            normalized_email = email.strip().lower()
+
+            if not normalized_email:
+                st.sidebar.error("Укажите email.")
+            elif not password:
+                st.sidebar.error("Укажите пароль.")
+            elif auth_mode == "register" and password != password_confirm:
+                st.sidebar.error("Пароли не совпадают.")
+            else:
+                try:
+                    if auth_mode == "login":
+                        result = client.login(normalized_email, password)
+                        st.session_state.auth_token = result.get("access_token")
+                        st.session_state.user_email = normalized_email
+                        st.sidebar.success(success_message)
+                        st.rerun()
+                    else:
+                        client.register(normalized_email, password)
+                        st.sidebar.success(success_message)
+
+                except httpx.HTTPStatusError as exc:
+                    if auth_mode == "register" and exc.response.status_code == 409:
+                        st.sidebar.error("Пользователь с таким email уже существует.")
+                    elif auth_mode == "login" and exc.response.status_code == 401:
+                        st.sidebar.error("Неверный email или пароль.")
+                    else:
+                        st.sidebar.error(f"Backend вернул HTTP {exc.response.status_code}")
+                        st.sidebar.code(exc.response.text)
+                except httpx.RequestError as exc:
+                    st.sidebar.error("Не удалось подключиться к backend.")
+                    st.sidebar.code(str(exc))
+                except ValueError as exc:
+                    st.sidebar.error("Backend вернул неожиданный ответ.")
+                    st.sidebar.code(str(exc))
     else:
         st.sidebar.success(f"👤 {st.session_state.get('user_email', 'user')}")
         st.sidebar.caption(f"Токен активен до завершения сессии")
-        if st.sidebar.button("Выйти", use_container_width=True):
+        if st.sidebar.button("Выйти", width="stretch"):
             st.session_state.pop("auth_token", None)
             st.session_state.pop("user_email", None)
             st.rerun()
 
     st.sidebar.markdown("---")
 
-    if st.sidebar.button("Проверить соединение", use_container_width=True):
+    if st.sidebar.button("Проверить соединение", width="stretch"):
         result = client.check_backend()
         if result.ok:
             st.sidebar.success("✅ Backend доступен")
@@ -956,7 +1194,7 @@ def render_home() -> None:
 - подтверждение документов человеком;
 - создание записи отклика;
 - подготовка к собеседованию;
-- Interview Prep Workspace;
+- Подготовка к интервью;
 - сохранение ответов на вопросы интервью и базовая обратная связь.
 """
     )
@@ -984,7 +1222,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
     st.caption(f"Тип: {uploaded_file.type or 'не определён'}")
     st.caption(f"Размер: {uploaded_file.size} байт")
 
-    if st.button("Загрузить резюме", type="primary", use_container_width=True):
+    if st.button("Загрузить резюме", type="primary", width="stretch"):
         try:
             result = client.upload_file(path="/files/upload",
                 file_kind="resume",
@@ -1046,7 +1284,7 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
 
     st.caption(f"source_file_id: {source_file_id}")
 
-    if st.button("Импортировать резюме", type="primary", use_container_width=True):
+    if st.button("Импортировать резюме", type="primary", width="stretch"):
         try:
             result = client.post_json("/profile/import-resume",
                 {
@@ -1118,7 +1356,7 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
 
     st.caption(f"extraction_id: {extraction_id}")
 
-    if st.button("Извлечь структурированный профиль", type="primary", use_container_width=True):
+    if st.button("Извлечь структурированный профиль", type="primary", width="stretch"):
         try:
             result = client.post_json("/profile/extract-structured",
                 {
@@ -1154,6 +1392,12 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
 
     if st.session_state.structured_profile:
         profile = st.session_state.structured_profile
+        warning_labels = {
+            "contacts, achievements, metrics and proof-status mapping are not extracted in v1": (
+                "В этой версии контакты, метрики и подтверждения фактов извлекаются частично. "
+                "Проверьте достижения на следующем шаге."
+            ),
+        }
 
         st.markdown("### Структурированный профиль")
 
@@ -1194,9 +1438,9 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
         if warnings:
             st.markdown("#### Предупреждения")
             for warning in warnings:
-                st.warning(warning)
+                st.warning(warning_labels.get(str(warning), str(warning)))
 
-        with st.expander("Raw JSON результата", expanded=False):
+        with st.expander("Технический JSON результата", expanded=False):
             st.json(profile)
 
 
@@ -1221,7 +1465,7 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
 
     st.caption(f"extraction_id: {extraction_id}")
 
-    if st.button("Извлечь достижения", type="primary", use_container_width=True):
+    if st.button("Извлечь достижения", type="primary", width="stretch"):
         try:
             result = client.post_json("/profile/extract-achievements",
                 {
@@ -1368,7 +1612,7 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
                 submitted_review = st.form_submit_button(
                     "Сохранить проверку достижений",
                     type="primary",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if submitted_review:
@@ -1435,7 +1679,7 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
             for warning in warnings:
                 st.warning(warning)
 
-        with st.expander("Raw JSON результата", expanded=False):
+        with st.expander("Технический JSON результата", expanded=False):
             st.json(achievements_result)
 
 
@@ -1459,6 +1703,57 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
         )
         return
 
+    st.markdown("#### Быстрый импорт по ссылке HH")
+
+    hh_source_url = st.text_input(
+        "Ссылка на вакансию HH",
+        value="",
+        placeholder="https://barnaul.hh.ru/vacancy/133412268",
+        key="hh_vacancy_import_url",
+    )
+
+    if st.button("Загрузить вакансию по ссылке HH", type="primary", width="stretch"):
+        if not hh_source_url.strip():
+            st.error("Вставьте ссылку на вакансию HH.")
+        else:
+            try:
+                result = client.import_vacancy_from_url(
+                    source_url=hh_source_url.strip(),
+                    token=token,
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 502:
+                    st.warning(
+                        "HH не отдал вакансию по API. "
+                        "Скопируйте текст вакансии и вставьте его в ручную форму ниже."
+                    )
+                else:
+                    st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+                    st.code(exc.response.text)
+            except httpx.RequestError as exc:
+                st.error("Не удалось подключиться к backend")
+                st.code(str(exc))
+            except ValueError as exc:
+                st.error("Backend вернул неожиданный ответ")
+                st.code(str(exc))
+            else:
+                if not isinstance(result, dict):
+                    st.error("Backend вернул неожиданный формат ответа")
+                    st.json(result)
+                else:
+                    st.session_state.vacancy = result
+                    st.session_state.vacancy_analysis = None
+                    st.session_state.generated_resume = None
+                    st.session_state.generated_cover_letter = None
+                    st.session_state.approved_resume = None
+                    st.session_state.approved_cover_letter = None
+                    st.session_state.application = None
+                    st.success("Вакансия загружена по ссылке HH")
+                    st.rerun()
+
+    st.divider()
+    st.markdown("#### Ручной импорт")
+
     default_description = """Требования:
 - Python
 - FastAPI
@@ -1469,18 +1764,29 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
 - Docker
 """
 
+    use_demo_vacancy = st.checkbox(
+        "Заполнить демо-вакансией",
+        value=False,
+        help="Используйте только для проверки demo-flow.",
+    )
+
     with st.form("vacancy_import_form"):
+        title_default = "Backend-разработчик" if use_demo_vacancy else ""
+        company_default = "Тестовая компания" if use_demo_vacancy else ""
+        location_default = "Удалённо" if use_demo_vacancy else ""
+        description_default = default_description if use_demo_vacancy else ""
+
         title = st.text_input(
             "Название вакансии",
-            value="Backend-разработчик",
+            value=title_default,
         )
         company = st.text_input(
             "Компания",
-            value="Тестовая компания",
+            value=company_default,
         )
         location = st.text_input(
             "Локация",
-            value="Удалённо",
+            value=location_default,
         )
         source_url = st.text_input(
             "Ссылка на вакансию",
@@ -1489,7 +1795,7 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
         )
         description_raw = st.text_area(
             "Текст вакансии",
-            value=default_description,
+            value=description_default,
             height=220,
             help="Вставьте требования и описание вакансии вручную.",
         )
@@ -1497,7 +1803,7 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
         submitted = st.form_submit_button(
             "Импортировать вакансию",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if submitted:
@@ -1578,7 +1884,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
 
     st.caption(f"vacancy_id: {vacancy_id}")
 
-    if st.button("Проанализировать вакансию", type="primary", use_container_width=True):
+    if st.button("Проанализировать вакансию", type="primary", width="stretch"):
         try:
             result = client.post_json(f"/vacancies/{vacancy_id}/analyze",
                 {}, token=token)
@@ -1685,7 +1991,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
             with st.expander("Ключевые слова", expanded=False):
                 st.write(", ".join(keywords))
 
-        with st.expander("Raw JSON результата", expanded=False):
+        with st.expander("Технический JSON результата", expanded=False):
             st.json(analysis)
 
     if vacancy_id:
@@ -1699,29 +2005,29 @@ def _render_vacancy_intelligence_block(
     vacancy_id: str,
     token: str | None = None,
 ) -> None:
-    st.markdown("### Vacancy Intelligence")
-    st.caption("Deterministic fit breakdown for operational guidance, not hiring probability.")
+    st.markdown("### Анализ вакансии")
+    st.caption("Детерминированный разбор соответствия для операционных подсказок, а не вероятность найма.")
 
     try:
         fit = client.get_vacancy_fit(vacancy_id, token=token)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in {400, 404}:
-            st.info("Vacancy intelligence is available after vacancy analysis and profile extraction.")
+            st.info("Анализ вакансии доступен после анализа вакансии и извлечения профиля.")
         else:
-            st.warning(f"Vacancy intelligence unavailable: HTTP {exc.response.status_code}")
+            st.warning(f"Анализ вакансии недоступен: HTTP {exc.response.status_code}")
             st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
-        st.warning("Unable to connect to backend for vacancy intelligence.")
+        st.warning("Не удалось подключиться к backend для анализа вакансии.")
         st.code(str(exc))
         return
     except ValueError as exc:
-        st.warning("Vacancy intelligence returned an unexpected response.")
+        st.warning("Анализ вакансии вернул неожиданный ответ.")
         st.code(str(exc))
         return
 
     if not isinstance(fit, dict):
-        st.warning("Vacancy intelligence returned an unexpected payload.")
+        st.warning("Анализ вакансии вернул неожиданный payload.")
         st.json(fit)
         return
 
@@ -1729,32 +2035,32 @@ def _render_vacancy_intelligence_block(
     gap_severity = str(fit.get("gap_severity") or "—")
 
     if recommendation == "Ready to apply":
-        st.success(recommendation)
+        st.success("Готово к отклику")
     elif recommendation == "Apply with caution":
-        st.warning(recommendation)
+        st.warning("Отклик с осторожностью")
     else:
-        st.error(recommendation)
+        st.error("Требует доработки")
 
     col_overall, col_skills, col_evidence, col_experience, col_leadership = st.columns(5)
     with col_overall:
-        st.metric("Overall fit", fit.get("overall_fit_score", 0))
+        st.metric("Общий fit", fit.get("overall_fit_score", 0))
     with col_skills:
-        st.metric("Skills", fit.get("skills_fit", 0))
+        st.metric("Навыки", fit.get("skills_fit", 0))
     with col_evidence:
-        st.metric("Evidence", fit.get("evidence_fit", 0))
+        st.metric("Доказательства", fit.get("evidence_fit", 0))
     with col_experience:
-        st.metric("Experience", fit.get("experience_fit", 0))
+        st.metric("Опыт", fit.get("experience_fit", 0))
     with col_leadership:
-        st.metric("Leadership", fit.get("leadership_fit", 0))
+        st.metric("Лидерство", fit.get("leadership_fit", 0))
 
-    st.caption(f"gap_severity: {gap_severity}")
+    st.caption(f"Серьёзность пробелов: {gap_severity}")
     if fit.get("analysis_version"):
-        st.caption(f"analysis_version: {fit.get('analysis_version')}")
+        st.caption(f"Версия анализа: {fit.get('analysis_version')}")
 
     coverage = fit.get("evidence_coverage") or {}
     required = coverage.get("required") or []
     if required:
-        st.markdown("#### This vacancy requires")
+        st.markdown("#### Эта вакансия требует")
         for item in required:
             st.markdown(f"- {item}")
 
@@ -1780,13 +2086,13 @@ def _render_vacancy_intelligence_block(
                 else:
                     st.info(requirement)
                 st.caption(f"scope: {scope} · severity: {severity}")
-                st.caption(f"reason: {reason}")
+                st.caption(f"причина: {reason}")
                 st.caption(
                     "evidence_ids: " + (", ".join(evidence_ids) if evidence_ids else "—")
                 )
 
                 if supporting_evidence:
-                    with st.expander("Supporting evidence", expanded=False):
+                    with st.expander("Поддерживающие доказательства", expanded=False):
                         for evidence in supporting_evidence:
                             title = str(evidence.get("title") or "Evidence").strip()
                             evidence_id = str(evidence.get("evidence_id") or "").strip() or "—"
@@ -1796,13 +2102,13 @@ def _render_vacancy_intelligence_block(
                             st.markdown(f"**{title}**")
                             st.caption(f"evidence_id: {evidence_id}")
                             st.caption(
-                                f"score: {round(float(score)) if score is not None else '—'} · "
-                                f"fact_status: {fact_status} · strength: {evidence_strength}"
+                                f"оценка: {round(float(score)) if score is not None else '—'} · "
+                                f"статус факта: {fact_status} · сила: {evidence_strength}"
                             )
                             star_preview = evidence.get("star_preview") or {}
                             if isinstance(star_preview, dict) and star_preview:
                                 st.caption(
-                                    "STAR preview: "
+                                    "STAR-превью: "
                                     + ", ".join(
                                         f"{key}={value}"
                                         for key, value in star_preview.items()
@@ -1813,9 +2119,9 @@ def _render_vacancy_intelligence_block(
                             if snippet_text:
                                 st.write(snippet_text)
 
-    _render_coverage_group("Strong evidence", coverage.get("strong") or [], "strong")
-    _render_coverage_group("Medium evidence", coverage.get("medium") or [], "medium")
-    _render_coverage_group("No confirmed evidence", coverage.get("missing") or [], "missing")
+    _render_coverage_group("Сильные доказательства", coverage.get("strong") or [], "strong")
+    _render_coverage_group("Средние доказательства", coverage.get("medium") or [], "medium")
+    _render_coverage_group("Без подтверждённых доказательств", coverage.get("missing") or [], "missing")
 
 
 def render_resume_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -1847,7 +2153,7 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
         "Резюме будет создано как draft. Перед использованием его нужно проверить и подтвердить человеком."
     )
 
-    if st.button("Сгенерировать адаптированное резюме", type="primary", use_container_width=True):
+    if st.button("Сгенерировать адаптированное резюме", type="primary", width="stretch"):
         try:
             result = client.post_json("/documents/resumes/generate",
                 {
@@ -1944,7 +2250,7 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
     if st.button(
         "Сгенерировать сопроводительное письмо",
         type="primary",
-        use_container_width=True,
+        width="stretch",
     ):
         try:
             result = client.post_json("/documents/letters/generate",
@@ -2094,7 +2400,7 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
         height=90,
     )
 
-    if st.button("Создать запись отклика", type="primary", use_container_width=True):
+    if st.button("Создать запись отклика", type="primary", width="stretch"):
         try:
             result = client.post_json("/applications",
                 {
@@ -2209,7 +2515,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
             "Ручная отметка отправки недоступна для текущего статуса. "
             "Backend сам определяет, когда submit доступен."
         )
-        with st.expander("Workflow metadata", expanded=False):
+        with st.expander("Метаданные workflow", expanded=False):
             st.json(workflow)
         return
 
@@ -2227,7 +2533,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
     if st.button(
         "Отметить как отправленный вручную",
         type="primary",
-        use_container_width=True,
+        width="stretch",
     ):
         try:
             result = client.post_json(f"/applications/{application_id}/submit",
@@ -2273,7 +2579,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
 
 
 def render_interview_preparation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("13. Interview Prep Workspace")
+    st.subheader("13. Подготовка к интервью")
     st.caption(
         "Новый deterministic prep-слой вынесен в отдельный workspace. "
         "Здесь остался короткий вход без дублирования логики ответов на mock interview."
@@ -2306,6 +2612,10 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
     st.caption(
         "Список внутренних записей откликов. Это не отправляет отклики на HH и не выполняет внешних действий."
     )
+
+    if not token:
+        st.warning("Войдите, чтобы открыть дашборд откликов.")
+        return
 
     status_labels = {
         "draft": "Черновик",
@@ -2378,12 +2688,12 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
             application = applications_by_id.get(application_id, {})
             reminder_rows.append(
                 {
-                    "Type": APPLICATION_REMINDER_LABELS.get(
+                    "Тип": APPLICATION_REMINDER_LABELS.get(
                         str(reminder.get("reminder_type") or ""),
                         str(reminder.get("reminder_type") or ""),
                     ),
-                    "Vacancy": format_vacancy_title(application.get("vacancy_title")),
-                    "Age": f"{reminder.get('days_since_event', 0)}d",
+                    "Вакансия": format_vacancy_title(application.get("vacancy_title")),
+                    "Возраст": f"{reminder.get('days_since_event', 0)}d",
                 }
             )
 
@@ -2423,11 +2733,11 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
         with col_conversion:
             conversion_to_applied = analytics.get("conversion_to_applied") or 0
-            st.metric("Conversion to applied", f"{round(conversion_to_applied * 100)}%")
+            st.metric("Конверсия в applied", f"{round(conversion_to_applied * 100)}%")
 
         with col_avg:
             avg = analytics.get("average_time_to_apply_hours")
-            st.metric("Avg time to apply", f"{avg}h" if avg is not None else "—")
+            st.metric("Среднее время до отклика", f"{avg}h" if avg is not None else "—")
 
         with col_offer:
             st.metric("Офферы", analytics.get("offers_count", 0))
@@ -2591,7 +2901,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
     else:
         st.caption("История статусов пока пуста.")
 
-    st.markdown("### Activity log")
+    st.markdown("### Журнал действий")
     activity_log: list[dict[str, object]] = []
     try:
         activity_log_result = client.get_json(
@@ -2599,24 +2909,24 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
             token=token,
         )
     except httpx.HTTPStatusError as exc:
-        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при загрузке activity log")
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code} при загрузке журнала действий")
         st.code(exc.response.text)
     except httpx.RequestError as exc:
-        st.error("Не удалось подключиться к backend для загрузки activity log")
+        st.error("Не удалось подключиться к backend для загрузки журнала действий")
         st.code(str(exc))
     except ValueError as exc:
-        st.error("Backend вернул неожиданный ответ для activity log")
+        st.error("Backend вернул неожиданный ответ для журнала действий")
         st.code(str(exc))
     else:
         if not isinstance(activity_log_result, list):
-            st.error("Backend вернул неожиданный формат activity log")
+            st.error("Backend вернул неожиданный формат журнала действий")
             st.json(activity_log_result)
         else:
             activity_log = activity_log_result
 
     def _render_activity_meta(meta_json: dict[str, object] | None) -> None:
         if not meta_json:
-            st.caption("meta: —")
+            st.caption("мета: —")
             return
 
         important_keys = [
@@ -2636,20 +2946,20 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
                 important_parts.append(f"{key}={value}")
 
         if important_parts:
-            st.caption("meta: " + ", ".join(important_parts))
+            st.caption("мета: " + ", ".join(important_parts))
         else:
-            st.caption("meta: " + ", ".join(f"{key}={value}" for key, value in meta_json.items()))
+            st.caption("мета: " + ", ".join(f"{key}={value}" for key, value in meta_json.items()))
 
     if activity_log:
         for item in activity_log:
             with st.container(border=True):
-                st.markdown(f"**{item.get('title') or item.get('event_type') or 'Event'}**")
+                st.markdown(f"**{item.get('title') or item.get('event_type') or 'Событие'}**")
                 st.caption(format_optional_datetime(item.get("created_at")))
                 if item.get("description"):
                     st.write(item.get("description"))
                 _render_activity_meta(item.get("meta_json") or {})
     else:
-        st.caption("Activity log пока пуст.")
+        st.caption("Журнал действий пока пуст.")
 
     current_status = str(selected_application.get("status") or "").strip().lower()
 
@@ -2692,7 +3002,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
             "Для текущего статуса нет разрешённых следующих переходов. "
             "Финальные статусы не переоткрываются автоматически."
         )
-        with st.expander("Workflow metadata", expanded=False):
+        with st.expander("Метаданные workflow", expanded=False):
             st.json(workflow)
         return
 
@@ -2712,7 +3022,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         submitted = st.form_submit_button(
             "Сохранить новый статус",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if submitted:
@@ -2746,6 +3056,10 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
 def render_mvp_flow(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("MVP-сценарий")
+
+    if not token:
+        st.warning("Войдите или зарегистрируйтесь, чтобы пройти MVP-сценарий.")
+        return
 
     render_resume_upload_step(client, token=token)
 
@@ -2815,13 +3129,13 @@ def main() -> None:
     tab_home, tab_health, tab_flow, tab_review, tab_prep, tab_trust, tab_evidence, tab_strategy, tab_applications = st.tabs(
         [
             "Главная",
-            "System Health",
+            "Состояние системы",
             "MVP-сценарий",
-            "Document Review Workspace",
-            "Interview Prep Workspace",
-            "Trust Panel",
-            "Evidence Workspace",
-            "Career Strategy",
+            "Проверка документов",
+            "Подготовка к интервью",
+            "Панель доверия",
+            "Источники доказательств",
+            "Стратегия карьеры",
             "Отклики",
         ]
     )

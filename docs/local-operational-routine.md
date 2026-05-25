@@ -5,7 +5,7 @@
 1. очистить PostgreSQL;
 2. убедиться, что таблицы пустые;
 3. очистить bucket в MinIO;
-4. поднять backend;
+4. поднять local stack;
 5. прогнать smoke flow.
 
 Если нужен deterministic reset для demo-последовательности, используйте:
@@ -17,9 +17,25 @@ python scripts/reset_demo_environment.py
 Для one-click local startup доступны цели:
 
 ```powershell
-make demo
+make local-start
+make local-health
 make backend
 make streamlit
+```
+
+## Test execution
+
+Правило для локального и CI-запуска тестов:
+
+- полный test suite запускать sequentially против shared PostgreSQL test DB;
+- parallel runs допустимы только при использовании отдельной isolated DB per worker;
+- если тесты используют общий PostgreSQL test DB, не включайте parallel execution по умолчанию.
+
+Для быстрых проверок доступны цели:
+
+```powershell
+make test
+make test-contracts
 ```
 
 ## 1. Очистить БД
@@ -76,16 +92,16 @@ docker run --rm minio/mc rm --recursive --force local/career-copilot
 
 ## 4. Поднять backend
 
-Если сервисы ещё не запущены, поднимите их через compose:
+Для локального старта используйте:
 
 ```powershell
-docker compose -f infra/docker/docker-compose.yml up -d postgres redis minio api
+make local-start
 ```
 
-Если backend уже собран и нужен только рестарт:
+Если нужно только повторно проверить состояние без нового запуска:
 
 ```powershell
-docker compose -f infra/docker/docker-compose.yml restart api
+make local-health
 ```
 
 ## 5. Smoke flow
@@ -113,3 +129,5 @@ python -m pytest
 - Команды выше рассчитаны на локальный запуск из корня репозитория.
 - Если `psycopg` не установлен в `.venv`, сначала поставьте зависимости проекта.
 - Имя bucket сейчас берётся из настройки `MINIO_BUCKET`; по умолчанию это `career-copilot`.
+- HH import зависит от доступности внешнего HH API и может вернуть `403`/`502`.
+- Ручной импорт вакансии остаётся надёжным fallback-путём для MVP.

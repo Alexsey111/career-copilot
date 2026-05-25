@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from app.domain.recommendation_models import RecommendationTask
+from app.domain.recommendation_models import RecommendationTask
 
 
 class RecommendationCategory(str, Enum):

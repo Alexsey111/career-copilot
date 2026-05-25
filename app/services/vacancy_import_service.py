@@ -10,6 +10,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Vacancy
+from app.services.hh_vacancy_import_service import HHVacancyImportService
 from app.repositories.vacancy_repository import VacancyRepository
 from app.services.vacancy_text_extractors.contracts import (
     VacancyExtractionResult,
@@ -26,8 +27,12 @@ class VacancyImportService:
     def __init__(
         self,
         vacancy_repository: VacancyRepository | None = None,
+        hh_vacancy_import_service: HHVacancyImportService | None = None,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
+        self.hh_vacancy_import_service = (
+            hh_vacancy_import_service or HHVacancyImportService()
+        )
         self.extractor = TrafilaturaVacancyExtractor()
 
     async def import_vacancy(
@@ -46,6 +51,7 @@ class VacancyImportService:
         final_description = (description_raw or "").strip()
         fetched_title: str | None = None
         extraction_result: VacancyExtractionResult | None = None
+        normalized_source = source.strip().lower() or "manual"
 
         if not final_description:
             if not source_url:
@@ -53,9 +59,27 @@ class VacancyImportService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="either description_raw or source_url must be provided",
                 )
-            extraction_result = await self._fetch_url_text(source_url)
-            fetched_title = extraction_result.title
-            final_description = extraction_result.text
+            if self._is_hh_vacancy_url(source_url):
+                hh_payload = await self.hh_vacancy_import_service.fetch_vacancy(source_url)
+                mapped_payload = self.hh_vacancy_import_service.map_to_import_payload(
+                    hh_payload,
+                    source_url=source_url,
+                )
+                fetched_title = mapped_payload.get("title")
+                final_description = str(mapped_payload.get("description_raw") or "")
+                normalized_source = "hh"
+                if not title:
+                    title = mapped_payload.get("title")
+                if not company:
+                    company = mapped_payload.get("company")
+                if not location:
+                    location = mapped_payload.get("location")
+                if not external_id:
+                    external_id = mapped_payload.get("external_id")
+            else:
+                extraction_result = await self._fetch_url_text(source_url)
+                fetched_title = extraction_result.title
+                final_description = extraction_result.text
 
         if not final_description:
             raise HTTPException(
@@ -86,7 +110,7 @@ class VacancyImportService:
         vacancy = await self.vacancy_repository.create(
             session,
             user_id=user_id,
-            source=source.strip().lower() or "manual",
+            source=normalized_source,
             source_url=source_url,
             external_id=external_id,
             title=final_title,
@@ -99,6 +123,10 @@ class VacancyImportService:
         await session.commit()
         await session.refresh(vacancy)
         return vacancy
+
+    def _is_hh_vacancy_url(self, source_url: str) -> bool:
+        normalized_url = source_url.strip().lower()
+        return "hh.ru" in normalized_url and "/vacancy/" in normalized_url
 
     async def _fetch_url_text(
         self,

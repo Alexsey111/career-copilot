@@ -26,12 +26,17 @@ async def upload_file(
     session: AsyncSession = Depends(get_db_session),
 ) -> SourceFileRead:
     service = SourceFileService()
-    source_file = await service.upload_source_file(
-        session,
-        user_id=current_user.id,
-        file_kind=file_kind,
-        upload_file=file,
-    )
+    try:
+        source_file = await service.upload_source_file(
+            session,
+            user_id=current_user.id,
+            file_kind=file_kind,
+            upload_file=file,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
     return SourceFileRead.model_validate(source_file)
 
 

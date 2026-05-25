@@ -40,7 +40,7 @@ class CareerCopilotApiClient:
         return self.api_base_url
 
     def check_backend(self) -> BackendCheckResult:
-        url = f"{self.api_root_url}/openapi.json"
+        url = f"{self.api_root_url}/health"
 
         try:
             response = httpx.get(url, timeout=self.timeout_seconds)
@@ -74,15 +74,12 @@ class CareerCopilotApiClient:
                 error=f"Backend response is not valid JSON: {exc}",
             )
 
-        paths = payload.get("paths")
-        info = payload.get("info", {})
-
         return BackendCheckResult(
             ok=True,
             status_code=response.status_code,
-            app_title=info.get("title"),
-            api_version=info.get("version"),
-            path_count=len(paths) if isinstance(paths, dict) else None,
+            app_title=str(payload.get("status") or "ok"),
+            api_version=None,
+            path_count=None,
             error=None,
         )
 
@@ -100,6 +97,31 @@ class CareerCopilotApiClient:
         if "access_token" not in result and "token" in result:
             result["access_token"] = result["token"]
         return result
+
+    def register(self, email: str, password: str) -> dict[str, Any]:
+        payload = {"email": email, "password": password}
+        response = httpx.post(
+            self._build_url("/auth/register"),
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        result = response.json()
+        if not isinstance(result, dict):
+            raise ValueError("Expected JSON object from register endpoint")
+        return result
+
+    def import_vacancy_from_url(
+        self,
+        *,
+        source_url: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/vacancies/import-from-url",
+            {"source_url": source_url},
+            token=token,
+        )
 
     def _build_headers(self, token: str | None) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}

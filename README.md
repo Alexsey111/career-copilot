@@ -34,16 +34,12 @@ python -m venv .venv
 pip install -e ".[dev,frontend]"
 ```
 
-### 4. Примените миграции БД
+### 4. Поднимите локальный stack
+
+Один шаг для Docker Compose, миграций и health-check:
 
 ```powershell
-alembic upgrade head
-```
-
-### 5. Запустите backend
-
-```powershell
-uvicorn app.main:app --reload
+make local-start
 ```
 
 Backend API по умолчанию:
@@ -64,13 +60,26 @@ OpenAPI:
 http://localhost:8000/docs
 ```
 
-### 6. Запустите Streamlit frontend
+### 5. Запустите Streamlit frontend
 
 В отдельном PowerShell-окне:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 streamlit run .\frontend\streamlit\app.py
+```
+
+В сайдбаре Streamlit теперь есть два режима авторизации:
+
+- `Вход` для существующего пользователя;
+- `Регистрация` для создания нового локального пользователя через `POST /api/v1/auth/register`.
+
+После регистрации нужно переключиться обратно на `Вход` и войти тем же email и паролем.
+
+Если нужен контролируемый demo-state после старта, выполните:
+
+```powershell
+python scripts/reset_demo_environment.py
 ```
 
 Если backend запущен не на стандартном адресе, можно указать API URL через переменную окружения:
@@ -138,3 +147,22 @@ python .\scripts\smoke_mvp_flow.py
 Подробный MVP runbook находится в [MVP_RUNBOOK.md](MVP_RUNBOOK.md).
 
 Дополнительная локальная проверка backend описана в [RUNBOOK.md](RUNBOOK.md).
+
+Контракт провайдеров LLM зафиксирован в [docs/llm_provider_contract.md](docs/llm_provider_contract.md).
+Streamlit smoke checklist: [docs/streamlit_smoke_checklist.md](docs/streamlit_smoke_checklist.md).
+
+## Portfolio / Demo Package
+
+Для advisor demo, portfolio video и controlled pilot walkthrough используйте:
+
+- [docs/portfolio/index.md](docs/portfolio/index.md)
+- [docs/demo_walkthrough.md](docs/demo_walkthrough.md)
+- [docs/architecture/index.md](docs/architecture/index.md)
+
+В пакете есть:
+
+- deterministic 5-7 minute walkthrough;
+- architecture diagram;
+- trust flow diagram;
+- media checklist for screenshots and GIFs;
+- clear `what to show` / `what not to claim` guidance.

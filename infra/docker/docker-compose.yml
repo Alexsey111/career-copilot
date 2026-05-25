@@ -23,6 +23,9 @@ services:
       - postgres
       - redis
       - minio
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
   postgres:
     image: postgres:16-alpine

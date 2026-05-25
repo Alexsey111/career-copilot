@@ -21,7 +21,10 @@ class AIOrchestratorConfig(BaseModel):
     default_model: str = Field(default="gigachat-pro", description="Default LLM model")
     
     # Fallback модель (для резервного провайдера/модели)
-    fallback_model: str | None = Field(default=None, description="Fallback LLM model if primary fails")
+    fallback_model: str | None = Field(
+        default=None,
+        description="Fallback LLM model if primary fails",
+    )
     
     # Таймауты и ретраи
     request_timeout_sec: float = Field(default=30.0)
@@ -44,6 +47,7 @@ class AIOrchestratorConfig(BaseModel):
         settings = get_settings()
         return cls(
             default_model=settings.ai_default_model,
+            fallback_model=settings.ai_fallback_model,
             request_timeout_sec=settings.ai_request_timeout,
             max_retries=settings.ai_max_retries,
             temperature=settings.ai_temperature,

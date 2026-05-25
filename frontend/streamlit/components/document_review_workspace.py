@@ -20,8 +20,8 @@ class ReviewDocumentDescriptor:
 
 def _humanize_document_kind(document_kind: str) -> str:
     mapping = {
-        "resume": "Tailored Resume",
-        "cover_letter": "Cover Letter",
+        "resume": "Резюме",
+        "cover_letter": "Сопроводительное письмо",
     }
     return mapping.get(document_kind, document_kind.replace("_", " ").title())
 
@@ -30,8 +30,8 @@ def _humanize_review_status(review_status: str | None) -> str:
     if not review_status:
         return "—"
     return {
-        "draft": "draft",
-        "approved": "approved",
+        "draft": "черновик",
+        "approved": "утверждён",
     }.get(review_status, review_status)
 
 
@@ -46,25 +46,25 @@ def _format_readiness_score(score: Any) -> str:
 
 def _diff_item_prefix(section: str, kind: str) -> str:
     labels = {
-        "skills": "skill",
-        "matched_keywords": "keyword",
-        "summary_bullets": "summary bullet",
-        "selected_achievements": "achievement",
-        "claims_needing_confirmation": "claim requiring confirmation",
-        "warnings": "warning",
+        "skills": "навык",
+        "matched_keywords": "ключевое слово",
+        "summary_bullets": "пункт summary",
+        "selected_achievements": "достижение",
+        "claims_needing_confirmation": "утверждение, требующее подтверждения",
+        "warnings": "предупреждение",
     }
     label = labels.get(section, section.replace("_", " "))
 
     if section == "claims_needing_confirmation" and kind == "added":
-        return "⚠ Added claim requiring confirmation:"
+        return "⚠ Добавлено утверждение, требующее подтверждения:"
     if section == "warnings" and kind == "added":
-        return "⚠ Added warning:"
+        return "⚠ Добавлено предупреждение:"
     if kind == "added":
-        return f"+ Added {label}:"
+        return f"+ Добавлено {label}:"
     if kind == "removed":
-        return f"- Removed {label}:"
+        return f"- Удалено {label}:"
     if kind == "changed":
-        return f"~ Updated {label}:"
+        return f"~ Обновлено {label}:"
     return f"{label}:"
 
 
@@ -127,28 +127,28 @@ def _render_readiness_panel(summary: dict[str, Any]) -> None:
     warnings = readiness.get("warnings") or []
 
     if readiness.get("ready"):
-        st.success("Ready for submission ✅")
+        st.success("Готово к отправке ✅")
     else:
-        st.error("Blocked ❌")
+        st.error("Есть блокировка ❌")
 
     col_ready, col_blockers, col_warnings, col_score = st.columns(4)
 
     with col_ready:
-        st.metric("Ready", "Yes" if readiness.get("ready") else "No")
+        st.metric("Готово", "Да" if readiness.get("ready") else "Нет")
     with col_blockers:
-        st.metric("Blockers", len(blockers))
+        st.metric("Блокеры", len(blockers))
     with col_warnings:
-        st.metric("Warnings", len(warnings))
+        st.metric("Предупреждения", len(warnings))
     with col_score:
-        st.metric("Score", _format_readiness_score(readiness.get("score")))
+        st.metric("Оценка", _format_readiness_score(readiness.get("score")))
 
     if blockers:
-        st.markdown("**Blockers**")
+        st.markdown("**Блокеры**")
         for blocker in blockers:
             st.markdown(f"- {blocker}")
 
     if warnings:
-        st.markdown("**Warnings**")
+        st.markdown("**Предупреждения**")
         for warning in warnings:
             st.markdown(f"- {warning}")
 
@@ -156,11 +156,11 @@ def _render_readiness_panel(summary: dict[str, Any]) -> None:
 def _render_ai_changes_panel(diff: dict[str, Any]) -> None:
     sections = diff.get("sections") or []
     if not sections:
-        st.caption("No structured changes detected.")
+        st.caption("Структурных изменений не обнаружено.")
         return
 
-    st.markdown("#### AI Changes")
-    st.caption("Section-aware diff based on `content_json[\"sections\"]`.")
+    st.markdown("#### Изменения ИИ")
+    st.caption("Структурный diff на основе `content_json[\"sections\"]`.")
 
     rendered_lines: list[str] = []
     for section in sections:
@@ -177,7 +177,7 @@ def _render_ai_changes_panel(diff: dict[str, Any]) -> None:
             rendered_lines.append(f"{_diff_item_prefix(section_name, 'changed')} {item}")
 
     if not rendered_lines:
-        st.caption("No structured changes detected.")
+        st.caption("Структурных изменений не обнаружено.")
         return
 
     for line in rendered_lines:
@@ -187,12 +187,12 @@ def _render_ai_changes_panel(diff: dict[str, Any]) -> None:
 def _render_claims_panel(summary: dict[str, Any]) -> None:
     claims = summary.get("claims_needing_confirmation") or []
 
-    st.markdown("#### Claims requiring confirmation")
+    st.markdown("#### Утверждения, требующие подтверждения")
     if not claims:
-        st.success("No claims require confirmation.")
+        st.success("Утверждений, требующих подтверждения, нет.")
         return
 
-    st.warning(f"{len(claims)} claim(s) need confirmation before approve.")
+    st.warning(f"{len(claims)} утверждений нужно подтвердить перед утверждением.")
 
     for claim in claims:
         claim_text = (
@@ -204,18 +204,18 @@ def _render_claims_panel(summary: dict[str, Any]) -> None:
         with st.container(border=True):
             st.write(claim_text)
             if claim.get("source"):
-                st.caption(f"source: {claim.get('source')}")
+                st.caption(f"источник: {claim.get('source')}")
             if claim.get("fact_status"):
-                st.caption(f"fact_status: {claim.get('fact_status')}")
+                st.caption(f"статус факта: {claim.get('fact_status')}")
 
 
 def _render_selected_achievements_panel(summary: dict[str, Any]) -> None:
     selected_achievements = summary.get("selected_achievements") or []
     rationale_items = summary.get("selection_rationale") or []
 
-    st.markdown("#### Selected achievements")
+    st.markdown("#### Выбранные достижения")
     if not selected_achievements:
-        st.caption("No selected achievements.")
+        st.caption("Выбранных достижений нет.")
         return
 
     for item in selected_achievements:
@@ -231,12 +231,12 @@ def _render_selected_achievements_panel(summary: dict[str, Any]) -> None:
         with st.container(border=True):
             st.markdown(f"**{title}**")
             if fact_status:
-                st.caption(f"fact_status: {fact_status}")
+                st.caption(f"статус факта: {fact_status}")
             metric_text = item.get("metric_text") or item.get("impact") or item.get("result")
             if metric_text:
                 st.write(metric_text)
             if reason:
-                st.caption(f"why selected: {reason}")
+                st.caption(f"почему выбрано: {reason}")
 
 
 def _render_evidence_used_panel(
@@ -251,8 +251,8 @@ def _render_evidence_used_panel(
         if str(value).strip()
     ]
     if not selected_evidence_ids:
-        st.markdown("#### Evidence used")
-        st.caption("No selected evidence ids were returned by the backend.")
+        st.markdown("#### Использованные доказательства")
+        st.caption("Backend не вернул выбранные ID доказательств.")
         return
 
     selected_achievements = summary.get("selected_achievements") or []
@@ -308,28 +308,28 @@ def _render_evidence_used_panel(
                 detail_row["star_summary"] = star_summary
         detail_rows.append(detail_row)
 
-    st.markdown("#### Evidence used")
-    st.caption("Ids and selection reasons come from `content_json.meta`.")
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.markdown("#### Использованные доказательства")
+    st.caption("ID и причины выбора приходят из `content_json.meta`.")
+    st.dataframe(rows, width="stretch", hide_index=True)
 
-    with st.expander("Evidence details", expanded=False):
+    with st.expander("Детали доказательств", expanded=False):
         for detail in detail_rows:
             with st.container(border=True):
                 st.markdown(f"**{detail.get('title') or detail.get('evidence_id')}**")
                 st.caption(f"evidence_id: {detail.get('evidence_id')}")
-                st.caption(f"reason: {detail.get('reason')}")
+                st.caption(f"причина: {detail.get('reason')}")
 
                 if detail.get("lookup_error"):
-                    st.warning(f"Unable to load snippet details: {detail.get('lookup_error')}")
+                    st.warning(f"Не удалось загрузить детали сниппета: {detail.get('lookup_error')}")
                     continue
 
                 st.caption(
                     " / ".join(
                         part
                         for part in [
-                            f"fact_status: {detail.get('fact_status')}",
-                            f"strength: {detail.get('evidence_strength')}",
-                            f"usage_count: {detail.get('usage_count', 0)}",
+                            f"статус факта: {detail.get('fact_status')}",
+                            f"сила: {detail.get('evidence_strength')}",
+                            f"использований: {detail.get('usage_count', 0)}",
                         ]
                         if part
                     )
@@ -355,11 +355,11 @@ def _render_keywords_panel(summary: dict[str, Any]) -> None:
     matched_keywords = summary.get("matched_keywords") or []
     missing_keywords = summary.get("missing_keywords") or []
 
-    st.markdown("#### Keywords coverage")
+    st.markdown("#### Покрытие ключевых слов")
     col_matched, col_missing = st.columns(2)
 
     with col_matched:
-        st.markdown("**Matched keywords**")
+        st.markdown("**Совпавшие ключевые слова**")
         if matched_keywords:
             for keyword in matched_keywords:
                 st.markdown(f"- {keyword}")
@@ -367,7 +367,7 @@ def _render_keywords_panel(summary: dict[str, Any]) -> None:
             st.caption("—")
 
     with col_missing:
-        st.markdown("**Missing keywords**")
+        st.markdown("**Отсутствующие ключевые слова**")
         if missing_keywords:
             for keyword in missing_keywords:
                 st.markdown(f"- {keyword}")
@@ -375,18 +375,20 @@ def _render_keywords_panel(summary: dict[str, Any]) -> None:
             st.caption("—")
 
 
-def _render_final_preview_panel(document: dict[str, Any]) -> None:
+def _render_final_preview_panel(document: dict[str, Any], *, key_suffix: str) -> None:
     rendered_text = document.get("rendered_text") or ""
-    st.markdown("#### Final preview")
+    document_id = str(document.get("id") or "").strip() or "document"
+    st.markdown("#### Итоговый предпросмотр")
     if not rendered_text.strip():
-        st.caption("No rendered_text available.")
+        st.caption("rendered_text пока недоступен.")
         return
 
     st.text_area(
-        "Rendered text",
+        "Отрендеренный текст",
         value=rendered_text,
         height=420,
         disabled=True,
+        key=f"document_review_preview_{key_suffix}_{document_id}",
     )
 
 
@@ -395,39 +397,43 @@ def _render_export_controls(
     *,
     document_id: str,
     token: str | None,
+    key_suffix: str,
 ) -> None:
     try:
         txt_content = client.get_text(f"/documents/{document_id}/export/txt", token=token)
         md_content = client.get_text(f"/documents/{document_id}/export/md", token=token)
         docx_content = client.get_bytes(f"/documents/{document_id}/export/docx", token=token)
     except Exception as exc:
-        st.error(f"Export unavailable: {exc}")
+        st.error(f"Экспорт недоступен: {exc}")
         return
 
     col_txt, col_md, col_docx = st.columns(3)
     with col_txt:
         st.download_button(
-            "Export TXT",
+            "Экспорт TXT",
             data=txt_content,
             file_name=f"{document_id}.txt",
             mime="text/plain",
-            use_container_width=True,
+            width="stretch",
+            key=f"document_review_export_txt_{key_suffix}_{document_id}",
         )
     with col_md:
         st.download_button(
-            "Export MD",
+            "Экспорт MD",
             data=md_content,
             file_name=f"{document_id}.md",
             mime="text/markdown",
-            use_container_width=True,
+            width="stretch",
+            key=f"document_review_export_md_{key_suffix}_{document_id}",
         )
     with col_docx:
         st.download_button(
-            "Export DOCX",
+            "Экспорт DOCX",
             data=docx_content,
             file_name=f"{document_id}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
+            width="stretch",
+            key=f"document_review_export_docx_{key_suffix}_{document_id}",
         )
 
 
@@ -441,32 +447,36 @@ def _render_action_bar(
     document_id = str(document.get("id") or "").strip()
     document_kind = str(document.get("document_kind") or "").strip()
     rendered_text = document.get("rendered_text") or ""
+    key_suffix = f"{selection_state_key or 'document'}_{document_id}"
 
     if not document_id:
-        st.warning("Document id is missing, action bar unavailable.")
+        st.warning("Не указан ID документа, панель действий недоступна.")
         return
 
     col_approve, col_enhance, col_back = st.columns(3)
 
     with col_approve:
         approve_clicked = st.button(
-            "Approve",
+            "Утвердить",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=str(document.get("review_status") or "") == "approved",
+            key=f"document_review_approve_{key_suffix}",
         )
 
     with col_enhance:
         enhance_clicked = st.button(
-            "Create enhanced version",
-            use_container_width=True,
+            "Создать улучшенную версию",
+            width="stretch",
+            key=f"document_review_enhance_{key_suffix}",
         )
 
     with col_back:
         back_clicked = st.button(
-            "Back",
-            use_container_width=True,
+            "Назад",
+            width="stretch",
             disabled=selection_state_key is None,
+            key=f"document_review_back_{key_suffix}",
         )
 
     if approve_clicked:
@@ -481,7 +491,7 @@ def _render_action_bar(
                 token=token,
             )
         except Exception as exc:
-            st.error(f"Approve failed: {exc}")
+            st.error(f"Не удалось утвердить: {exc}")
         else:
             if isinstance(approved_document, dict):
                 if document_kind == "resume":
@@ -491,7 +501,7 @@ def _render_action_bar(
                 st.session_state["application"] = None
                 st.session_state["interview_session"] = None
                 st.session_state["interview_answers_result"] = None
-                st.success("Document approved")
+                st.success("Документ утверждён")
             st.rerun()
 
     if enhance_clicked:
@@ -502,13 +512,13 @@ def _render_action_bar(
             payload = {"cover_letter_text": rendered_text}
             path = f"/documents/letters/{document_id}/enhance"
         else:
-            st.error(f"Unsupported document_kind for enhancement: {document_kind}")
+            st.error(f"Неподдерживаемый document_kind для улучшения: {document_kind}")
             return
 
         try:
             enhanced_document = client.post_json(path, payload, token=token)
         except Exception as exc:
-            st.error(f"Create enhanced version failed: {exc}")
+            st.error(f"Не удалось создать улучшенную версию: {exc}")
             return
 
         next_document_id = str(enhanced_document.get("document_id") or "").strip()
@@ -522,7 +532,7 @@ def _render_action_bar(
         st.session_state["interview_session"] = None
         st.session_state["interview_answers_result"] = None
 
-        st.success("Enhanced version created")
+        st.success("Улучшенная версия создана")
         st.rerun()
 
     if back_clicked and selection_state_key:
@@ -530,8 +540,8 @@ def _render_action_bar(
         st.session_state.pop(f"{selection_state_key}_picker", None)
         st.rerun()
 
-    st.markdown("### Export")
-    _render_export_controls(client, document_id=document_id, token=token)
+    st.markdown("### Экспорт")
+    _render_export_controls(client, document_id=document_id, token=token, key_suffix=selection_state_key or "document")
 
 
 def render_document_review_workspace(
@@ -547,13 +557,13 @@ def render_document_review_workspace(
     try:
         document = client.get_document_version(document_id, token=token)
     except Exception as exc:
-        st.error(f"Unable to load document: {exc}")
+        st.error(f"Не удалось загрузить документ: {exc}")
         return
 
     try:
         summary = client.get_document_review_summary(document_id, token=token)
     except Exception as exc:
-        st.error(f"Unable to load review summary: {exc}")
+        st.error(f"Не удалось загрузить review-summary: {exc}")
         summary = {}
 
     base_document_id = _resolve_document_diff_base_id(
@@ -573,21 +583,21 @@ def render_document_review_workspace(
                 token=token,
             )
         except Exception as exc:
-            st.caption(f"Structured diff unavailable: {exc}")
+            st.caption(f"Структурный diff недоступен: {exc}")
 
-    st.markdown(f"## Document: {title}")
+    st.markdown(f"## Документ: {title}")
     st.caption(
-        f"Version: {document.get('version_label') or '—'} · "
-        f"Status: {_humanize_review_status(document.get('review_status'))} · "
-        f"Kind: {_humanize_document_kind(str(document.get('document_kind') or document_kind))}"
+        f"Версия: {document.get('version_label') or '—'} · "
+        f"Статус: {_humanize_review_status(document.get('review_status'))} · "
+        f"Тип: {_humanize_document_kind(str(document.get('document_kind') or document_kind))}"
     )
 
     readiness = summary.get("readiness") or {}
-    st.markdown("### Readiness panel")
+    st.markdown("### Панель готовности")
     _render_readiness_panel(summary)
 
     st.divider()
-    st.markdown("### AI Changes panel")
+    st.markdown("### Панель изменений ИИ")
     _render_ai_changes_panel(diff)
 
     st.divider()
@@ -603,10 +613,10 @@ def render_document_review_workspace(
     _render_keywords_panel(summary)
 
     st.divider()
-    _render_final_preview_panel(document)
+    _render_final_preview_panel(document, key_suffix=selection_state_key or "document")
 
     st.divider()
-    st.markdown("### Action bar")
+    st.markdown("### Панель действий")
     _render_action_bar(
         client,
         document=document,
@@ -624,7 +634,7 @@ def render_document_review_workspace_selector(
 ) -> None:
     available_documents = [doc for doc in documents if doc.document_id]
     if not available_documents:
-        st.info("No documents are available for review yet.")
+        st.info("Пока нет документов для проверки.")
         return
 
     options = [doc.document_id for doc in available_documents]
@@ -638,7 +648,7 @@ def render_document_review_workspace_selector(
         selected_document_id = options[0]
 
     selected_document_id = st.selectbox(
-        "Choose a document",
+        "Выберите документ",
         options=options,
         index=options.index(selected_document_id),
         format_func=lambda value: labels.get(value, value),
@@ -652,8 +662,8 @@ def render_document_review_workspace_selector(
     )
 
     st.caption(
-        "This workspace aggregates readiness, structured diff, confirmation claims, "
-        "keywords coverage, preview, and actions in one place."
+        "Здесь собраны готовность, структурный diff, утверждения для подтверждения, "
+        "покрытие ключевых слов, предпросмотр и действия."
     )
 
     render_document_review_workspace(
@@ -673,13 +683,29 @@ def render_document_review_workspace_tab(
     token: str | None = None,
     selection_state_key: str = "document_review_workspace_tab_selection",
 ) -> None:
-    st.header("Document Review Workspace")
+    st.header("Проверка документов")
     st.caption(
-        "Focused single-document workspace for approval review, fallback navigation, "
-        "and version creation."
+        "Рабочая область для проверки одного документа: подтверждение, "
+        "fallback-навигация и создание версий."
     )
 
+    if not token:
+        st.warning("Войдите, чтобы проверять и подтверждать документы.")
+        return
+
     documents: list[ReviewDocumentDescriptor] = []
+    diagnostics: dict[str, Any] = {}
+    active_documents: dict[str, Any] = {}
+    current_application: dict[str, Any] = {}
+
+    if token:
+        try:
+            diagnostics = client.get_system_health_diagnostics(token=token)
+        except Exception:
+            diagnostics = {}
+        if isinstance(diagnostics, dict):
+            active_documents = diagnostics.get("active_documents") or {}
+            current_application = diagnostics.get("current_active_application") or {}
 
     generated_resume = st.session_state.get("generated_resume")
     if generated_resume and generated_resume.get("document_id"):
@@ -703,14 +729,42 @@ def render_document_review_workspace_tab(
             )
         )
 
+    seen_document_ids = {doc.document_id for doc in documents if doc.document_id}
+    for document_kind, title in (
+        ("resume", "Резюме"),
+        ("cover_letter", "Сопроводительное письмо"),
+    ):
+        source_document = active_documents.get(document_kind)
+        if not isinstance(source_document, dict):
+            continue
+
+        document_id = str(source_document.get("id") or source_document.get("document_id") or "").strip()
+        if not document_id or document_id in seen_document_ids:
+            continue
+
+        seen_document_ids.add(document_id)
+        documents.append(
+            ReviewDocumentDescriptor(
+                document_id=document_id,
+                title=f"{title} · {document_id[:8]}",
+                document_kind=str(source_document.get("document_kind") or document_kind),
+                vacancy_id=str(source_document.get("vacancy_id") or "") or None,
+            )
+        )
+
     if not documents:
+        vacancy_id = None
+        if isinstance(current_application, dict):
+            vacancy_id = str(current_application.get("vacancy_id") or "").strip() or None
+
         for document_kind, title in (
-            ("resume", "Tailored Resume"),
-            ("cover_letter", "Cover Letter"),
+            ("resume", "Резюме"),
+            ("cover_letter", "Сопроводительное письмо"),
         ):
             try:
                 active_document = client.get_active_document(
                     document_kind=document_kind,
+                    vacancy_id=vacancy_id,
                     token=token,
                 )
             except Exception:
@@ -730,7 +784,7 @@ def render_document_review_workspace_tab(
             )
 
     if not documents:
-        st.info("No generated documents are ready for review yet.")
+        st.info("Пока нет документов, готовых к проверке.")
         return
 
     render_document_review_workspace_selector(

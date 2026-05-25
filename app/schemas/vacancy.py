@@ -27,6 +27,10 @@ class VacancyImportRequest(StrictBaseModel):
         return self
 
 
+class VacancyImportFromUrlRequest(StrictBaseModel):
+    source_url: str = Field(min_length=1)
+
+
 class VacancyImportResponse(StrictBaseModel):
     # Keep both for now:
     # - id is the consistent public API name

@@ -1,20 +1,43 @@
-# app\ai\factory.py
-
 from __future__ import annotations
 
+from app.ai.clients.base import BaseLLMClient
 from app.ai.clients.gigachat import GigaChatClient
+from app.ai.clients.mock import MockLLMClient
+from app.ai.clients.openai import OpenAILLMClient
+from app.ai.config import AIOrchestratorConfig
 from app.ai.orchestrator import AIOrchestrator
+from app.core.config import get_settings
+from app.repositories.ai_run_repository import AIRunRepository
+
+
+def create_llm_client(provider: str) -> BaseLLMClient:
+    normalized = provider.strip().lower()
+
+    if normalized == "gigachat":
+        return GigaChatClient()
+
+    if normalized == "openai":
+        return OpenAILLMClient()
+
+    if normalized == "mock":
+        return MockLLMClient()
+
+    raise ValueError(f"Unsupported AI provider: {provider}")
 
 
 def create_ai_orchestrator() -> AIOrchestrator:
-    """Единая точка создания AI-оркестратора.
+    settings = get_settings()
+    config = AIOrchestratorConfig.from_settings()
 
-    Используется во всех сервисах и роутах, которым нужен AI.
-    Гарантирует единую конфигурацию клиента и упрощает
-    добавление fallback / multi-provider в будущем.
+    client = create_llm_client(settings.ai_provider)
 
-    Returns:
-        Настроенный экземпляр AIOrchestrator.
-    """
-    client = GigaChatClient()
-    return AIOrchestrator(client=client)
+    fallback_client = None
+    if settings.ai_fallback_provider:
+        fallback_client = create_llm_client(settings.ai_fallback_provider)
+
+    orchestrator = AIOrchestrator.__new__(AIOrchestrator)
+    orchestrator.client = client
+    orchestrator.config = config
+    orchestrator.fallback_client = fallback_client
+    orchestrator.ai_run_repo = AIRunRepository()
+    return orchestrator

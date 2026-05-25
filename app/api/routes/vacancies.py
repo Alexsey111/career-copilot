@@ -14,11 +14,13 @@ from app.repositories.vacancy_analysis_repository import VacancyAnalysisReposito
 from app.repositories.vacancy_repository import VacancyRepository
 from app.schemas.vacancy import (
     VacancyAnalysisResponse,
+    VacancyImportFromUrlRequest,
     VacancyImportRequest,
     VacancyImportResponse,
     VacancyFitResponse,
     VacancyRead,
 )
+from app.services.hh_vacancy_import_service import HHVacancyImportService
 from app.services.vacancy_analysis_service import VacancyAnalysisService
 from app.services.vacancy_import_service import VacancyImportService
 from app.services.vacancy_fit_service import VacancyFitService
@@ -55,6 +57,41 @@ async def import_vacancy(
         company=vacancy.company,
         location=vacancy.location,
         description_length=len(vacancy.description_raw),
+        created_at=vacancy.created_at,
+    )
+
+
+@router.post("/import-from-url", response_model=VacancyImportResponse)
+async def import_vacancy_from_url(
+    payload: VacancyImportFromUrlRequest,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user),
+) -> VacancyImportResponse:
+    hh_service = HHVacancyImportService()
+    vacancy_payload = hh_service.map_to_import_payload(
+        await hh_service.fetch_vacancy(
+            payload.source_url,
+            contact_email=current_user.email,
+        ),
+        source_url=payload.source_url,
+    )
+
+    service = VacancyImportService()
+    vacancy = await service.import_vacancy(
+        session,
+        user_id=current_user.id,
+        **vacancy_payload,
+    )
+
+    return VacancyImportResponse(
+        id=vacancy.id,
+        vacancy_id=vacancy.id,
+        source=vacancy.source,
+        source_url=vacancy.source_url,
+        title=vacancy.title,
+        company=vacancy.company,
+        location=vacancy.location,
+        description_length=len(vacancy.description_raw or ""),
         created_at=vacancy.created_at,
     )
 

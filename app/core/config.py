@@ -11,6 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 AppEnv = Literal["local", "test", "staging", "prod"]
 StorageMode = Literal["local", "minio", "s3"]
+LLMProvider = Literal["gigachat", "openai", "mock"]
 
 
 class Settings(BaseSettings):
@@ -85,6 +86,13 @@ class Settings(BaseSettings):
 
     sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+    openai_timeout: float = Field(default=30.0, alias="OPENAI_TIMEOUT")
+
+    hh_user_agent: str = Field(
+        default="career-copilot/0.1 contact@example.com",
+        alias="HH_USER_AGENT",
+    )
 
     jwt_secret: str = Field(alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
@@ -92,6 +100,9 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = Field(default=30, alias="REFRESH_TOKEN_EXPIRE_DAYS")
 
     ai_default_model: str = Field(default="gigachat-pro", alias="AI_DEFAULT_MODEL")
+    ai_provider: LLMProvider = Field(default="gigachat", alias="AI_PROVIDER")
+    ai_fallback_provider: LLMProvider | None = Field(default=None, alias="AI_FALLBACK_PROVIDER")
+    ai_fallback_model: str | None = Field(default=None, alias="AI_FALLBACK_MODEL")
     ai_request_timeout: float = Field(default=30.0, alias="AI_REQUEST_TIMEOUT")
     ai_max_retries: int = Field(default=3, alias="AI_MAX_RETRIES")
     ai_temperature: float = Field(default=0.1, alias="AI_TEMPERATURE")
@@ -153,6 +164,12 @@ class Settings(BaseSettings):
 
             if "*" in self.cors_allowed_origins:
                 raise ValueError("CORS_ALLOWED_ORIGINS cannot contain '*' in production")
+
+            if self.ai_provider == "mock":
+                raise ValueError("AI_PROVIDER=mock is not allowed in production")
+
+            if self.ai_fallback_provider == "mock":
+                raise ValueError("AI_FALLBACK_PROVIDER=mock is not allowed in production")
 
         return self
 

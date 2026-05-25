@@ -328,9 +328,10 @@ async def test_review_summary_document_payload_is_unified(client, db_session, te
     assert payload["selected_evidence"][0]["source_type"] == "achievement"
     assert payload["provenance_summary"]["source"] == "extracted"
     assert payload["provenance_summary"]["requires_human_review"] is True
-    assert payload["provenance_summary"]["confidence_level"] == "high"
+    assert payload["provenance_summary"]["confidence_level"] == "needs_review"
     action_codes = {item["code"] for item in payload["recommended_actions"]}
     assert "confirm_claim" in action_codes
+    assert "review_low_confidence" in action_codes
     assert "review_warning" in action_codes
     assert "resolve_blocker" in action_codes
 

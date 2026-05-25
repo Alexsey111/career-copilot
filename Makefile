@@ -1,4 +1,4 @@
-.PHONY: demo demo-reset demo-seed demo-check backend streamlit
+.PHONY: demo demo-reset demo-seed demo-check local-health local-start backend streamlit test test-contracts
 
 PYTHON ?= python
 
@@ -11,11 +11,28 @@ demo-seed:
 demo-check:
 	$(PYTHON) scripts/check_demo_trust_states.py
 
+local-health:
+	$(PYTHON) scripts/check_local_health.py
+
+local-start:
+	docker compose -f infra/docker/docker-compose.yml up -d --build api postgres redis minio
+	$(PYTHON) scripts/check_local_health.py
+
 backend:
 	$(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 streamlit:
 	$(PYTHON) -m streamlit run frontend/streamlit/app.py
+
+test:
+	$(PYTHON) -m pytest -q
+
+test-contracts:
+	$(PYTHON) -m pytest -q \
+		tests/test_api_contract_snapshots.py \
+		tests/test_api_error_contract.py \
+		tests/test_error_contract_hardening.py \
+		tests/test_health_diagnostics.py
 
 demo: demo-reset
 	@echo "Demo environment is ready."

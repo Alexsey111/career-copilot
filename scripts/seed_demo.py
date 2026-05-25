@@ -64,7 +64,7 @@ from app.services.vacancy_analysis_service import VacancyAnalysisService
 from app.services.vacancy_import_service import VacancyImportService
 
 
-DEMO_EMAIL = "demo.candidate@career-copilot.local"
+DEMO_EMAIL = "demo.candidate@example.com"
 DEMO_PASSWORD = "DemoPass123!"
 
 RESUME_TEXT = """Анна
@@ -208,7 +208,7 @@ async def _seed_source_resume(
         session,
         user_id=user.id,
         file_kind="resume",
-        storage_key="demo/demo-resume-source.txt",
+        storage_key=f"demo/{user.id}/demo-resume-source.txt",
         original_name="demo_resume.txt",
         mime_type="text/plain; charset=utf-8",
         size_bytes=len(RESUME_TEXT.encode("utf-8")),

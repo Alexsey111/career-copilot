@@ -13,7 +13,7 @@ from frontend.streamlit.api_client import CareerCopilotApiClient, DEFAULT_API_BA
 
 
 API_BASE_URL = os.getenv("API_BASE_URL", DEFAULT_API_BASE_URL)
-DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo.candidate@career-copilot.local")
+DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo.candidate@example.com")
 DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "DemoPass123!")
 
 

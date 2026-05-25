@@ -173,7 +173,6 @@ class VacancyAnalysisService:
         )
 
         await session.commit()
-        await session.refresh(analysis)
         return analysis
 
     async def match_vacancy(
@@ -382,7 +381,7 @@ class VacancyAnalysisService:
                 items.append(
                     RequirementKeyword(
                         keyword=keyword,
-                        scope="keyword",
+                        scope="must_have",
                         requirement_text=None,
                         weight=2,
                     )

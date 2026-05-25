@@ -81,6 +81,14 @@ class ReviewSummaryService:
             dict(summary.get("provenance") or {}),
             evidence_items=summary.get("selected_achievements") or [],
         )
+        claims_requiring_confirmation = list(summary.get("claims_needing_confirmation") or [])
+        if claims_requiring_confirmation:
+            provenance_summary["confidence"] = min(
+                float(provenance_summary.get("confidence") or 1.0),
+                0.49,
+            )
+            provenance_summary["confidence_level"] = "needs_review"
+            provenance_summary["requires_human_review"] = True
         warnings = self._merge_unique_strings(
             list(readiness.get("warnings") or []),
             [
@@ -98,7 +106,7 @@ class ReviewSummaryService:
             ready=bool(readiness["ready"]),
             blockers=list(readiness.get("blockers") or []),
             warnings=warnings,
-            claims_requiring_confirmation=list(summary.get("claims_needing_confirmation") or []),
+            claims_requiring_confirmation=claims_requiring_confirmation,
             gap_risk_items=gap_risk_items,
             selected_evidence=selected_evidence,
             provenance_summary=provenance_summary,
@@ -107,7 +115,7 @@ class ReviewSummaryService:
                 ready=bool(readiness["ready"]),
                 blockers=list(readiness.get("blockers") or []),
                 warnings=warnings,
-                claims_requiring_confirmation=list(summary.get("claims_needing_confirmation") or []),
+                claims_requiring_confirmation=claims_requiring_confirmation,
                 gap_risk_items=gap_risk_items,
                 provenance_summary=provenance_summary,
                 selected_evidence=selected_evidence,

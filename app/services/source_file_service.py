@@ -102,8 +102,6 @@ class SourceFileService:
             size_bytes=len(file_bytes),
         )
 
-        await session.commit()
-        await session.refresh(source_file)
         return source_file
 
     async def get_source_file(

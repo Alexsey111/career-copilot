@@ -46,17 +46,17 @@ def _render_metrics(snippets: list[dict[str, Any]]) -> None:
     col_total, col_strong, col_medium, col_weak, col_confirmed, col_unverified = st.columns(6)
 
     with col_total:
-        st.metric("Total", len(snippets))
+        st.metric("Всего", len(snippets))
     with col_strong:
-        st.metric("Strong", strength_counts["strong"])
+        st.metric("Сильные", strength_counts["strong"])
     with col_medium:
-        st.metric("Medium", strength_counts["medium"])
+        st.metric("Средние", strength_counts["medium"])
     with col_weak:
-        st.metric("Weak", strength_counts["weak"])
+        st.metric("Слабые", strength_counts["weak"])
     with col_confirmed:
-        st.metric("Confirmed", fact_counts["confirmed"])
+        st.metric("Подтверждённые", fact_counts["confirmed"])
     with col_unverified:
-        st.metric("Unverified", fact_counts["unverified"])
+        st.metric("Неподтверждённые", fact_counts["unverified"])
 
 
 def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
@@ -200,8 +200,8 @@ def _render_insights_section(
     insights: dict[str, Any] | None,
     snippets: list[dict[str, Any]],
 ) -> None:
-    st.markdown("### Evidence Quality Insights")
-    st.caption("Deterministic quality signals for the reusable evidence layer.")
+    st.markdown("### Инсайты по качеству доказательств")
+    st.caption("Детерминированные сигналы качества для слоя переиспользуемых доказательств.")
 
     data = insights if isinstance(insights, dict) else _local_insights(snippets)
 
@@ -210,27 +210,27 @@ def _render_insights_section(
     col_unverified, col_recommendations, col_spacer = st.columns([1, 1, 1])
 
     with col_total:
-        st.metric("Total snippets", len(snippets))
+        st.metric("Всего сниппетов", len(snippets))
     with col_weak:
-        st.metric("Weak evidence", data.get("weak_evidence_count", 0))
+        st.metric("Слабые доказательства", data.get("weak_evidence_count", 0))
     with col_metrics:
-        st.metric("Missing metrics", data.get("missing_metrics_count", 0))
+        st.metric("Нет метрик", data.get("missing_metrics_count", 0))
 
     with col_star:
-        st.metric("Incomplete STAR", data.get("missing_star_fields_count", 0))
+        st.metric("Неполный STAR", data.get("missing_star_fields_count", 0))
     with col_unused:
-        st.metric("Never used", data.get("unused_evidence_count", 0))
+        st.metric("Не использовались", data.get("unused_evidence_count", 0))
     with col_overused:
-        st.metric("Overused", data.get("overused_evidence_count", 0))
+        st.metric("Слишком часто", data.get("overused_evidence_count", 0))
 
     with col_unverified:
-        st.metric("Requires confirmation", data.get("unverified_evidence_count", 0))
+        st.metric("Требуют подтверждения", data.get("unverified_evidence_count", 0))
 
     recommendations = data.get("recommendations") or []
     if not isinstance(recommendations, list):
         recommendations = []
 
-    st.markdown("#### Needs attention")
+    st.markdown("#### Нуждаются во внимании")
     if recommendations:
         rows = []
         for item in recommendations:
@@ -247,11 +247,11 @@ def _render_insights_section(
             )
 
         if rows:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
-            st.info("No actionable recommendations yet.")
+            st.info("Пока нет рекомендаций к действию.")
     else:
-        st.success("No evidence needs attention right now.")
+        st.success("Сейчас ни одно доказательство не требует внимания.")
 
 
 def _build_rows(snippets: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -272,22 +272,22 @@ def _build_rows(snippets: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _render_detail_panel(snippet: dict[str, Any], usages: list[dict[str, Any]]) -> None:
-    st.markdown("### Evidence detail")
+    st.markdown("### Детали доказательства")
     st.write(snippet.get("title") or "—")
 
     col_source, col_strength, col_fact, col_usage = st.columns(4)
     with col_source:
-        st.metric("Source", snippet.get("source_type") or "—")
+        st.metric("Источник", snippet.get("source_type") or "—")
     with col_strength:
-        st.metric("Strength", snippet.get("evidence_strength") or "—")
+        st.metric("Сила", snippet.get("evidence_strength") or "—")
     with col_fact:
-        st.metric("Fact status", snippet.get("fact_status") or "—")
+        st.metric("Статус факта", snippet.get("fact_status") or "—")
     with col_usage:
-        st.metric("Usage", _format_count(snippet.get("usage_count")))
+        st.metric("Использований", _format_count(snippet.get("usage_count")))
 
-    st.markdown("#### Snippet text")
+    st.markdown("#### Текст сниппета")
     st.text_area(
-        "Snippet",
+        "Сниппет",
         value=str(snippet.get("snippet_text") or ""),
         height=180,
         disabled=True,
@@ -295,20 +295,20 @@ def _render_detail_panel(snippet: dict[str, Any], usages: list[dict[str, Any]]) 
     )
 
     star_summary = snippet.get("star_summary") or snippet.get("star_summary_json") or {}
-    st.markdown("#### STAR summary")
+    st.markdown("#### STAR-сводка")
     if isinstance(star_summary, dict) and any(str(value or "").strip() for value in star_summary.values()):
         st.json(star_summary)
     else:
-        st.caption("No STAR summary available.")
+        st.caption("STAR-сводка недоступна.")
 
     col_docs, col_interviews = st.columns(2)
     with col_docs:
-        st.metric("Used in documents", _format_count(snippet.get("used_in_documents_count")))
+        st.metric("Использовано в документах", _format_count(snippet.get("used_in_documents_count")))
     with col_interviews:
-        st.metric("Used in interviews", _format_count(snippet.get("used_in_interviews_count")))
+        st.metric("Использовано в интервью", _format_count(snippet.get("used_in_interviews_count")))
 
     if usages:
-        with st.expander("Recent usages", expanded=False):
+        with st.expander("Недавние использования", expanded=False):
             rows = []
             for usage in usages[:20]:
                 rows.append(
@@ -328,29 +328,33 @@ def render_evidence_workspace_tab(
     *,
     token: str | None = None,
 ) -> None:
-    st.header("Evidence Workspace")
+    st.header("Источники доказательств")
     st.caption(
-        "Read-only evidence catalog for documents, cover letters, interview prep, "
-        "and future recommendations."
+        "Каталог доказательств только для чтения: документы, cover letters, интервью "
+        "и будущие рекомендации."
     )
+
+    if not token:
+        st.warning("Войдите, чтобы открыть источники доказательств.")
+        return
 
     try:
         snippets = client.list_evidence_snippets(token=token)
     except httpx.HTTPStatusError as exc:
-        st.error(f"Backend returned HTTP {exc.response.status_code}")
+        st.error(f"Backend вернул HTTP {exc.response.status_code}")
         st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
-        st.error("Unable to connect to backend")
+        st.error("Не удалось подключиться к backend")
         st.code(str(exc))
         return
     except ValueError as exc:
-        st.error("Backend returned an unexpected response")
+        st.error("Backend вернул неожиданный ответ")
         st.code(str(exc))
         return
 
     if not isinstance(snippets, list):
-        st.error("Backend returned an unexpected evidence snippet list")
+        st.error("Backend вернул неожиданный список сниппетов")
         st.json(snippets)
         return
 
@@ -362,14 +366,14 @@ def render_evidence_workspace_tab(
     try:
         insights = client.get_evidence_insights(token=token)
     except httpx.HTTPStatusError as exc:
-        st.warning(f"Insights endpoint returned HTTP {exc.response.status_code}. Showing local fallback signals.")
+        st.warning(f"Insights endpoint вернул HTTP {exc.response.status_code}. Показываю локальные сигналы fallback.")
         insights = None
     except httpx.RequestError as exc:
-        st.warning("Unable to connect to insights endpoint. Showing local fallback signals.")
+        st.warning("Не удалось подключиться к insights endpoint. Показываю локальные сигналы fallback.")
         st.code(str(exc))
         insights = None
     except ValueError as exc:
-        st.warning("Insights endpoint returned an unexpected response. Showing local fallback signals.")
+        st.warning("Insights endpoint вернул неожиданный ответ. Показываю локальные сигналы fallback.")
         st.code(str(exc))
         insights = None
 
@@ -378,20 +382,20 @@ def render_evidence_workspace_tab(
     _render_metrics(snippet_rows)
 
     if not snippet_rows:
-        st.info("No evidence snippets available yet.")
+        st.info("Сниппеты доказательств пока недоступны.")
         return
 
-    st.markdown("### Evidence catalog")
-    st.dataframe(_build_rows(snippet_rows), use_container_width=True, hide_index=True)
+    st.markdown("### Каталог доказательств")
+    st.dataframe(_build_rows(snippet_rows), width="stretch", hide_index=True)
 
     snippet_ids = [str(item.get("id") or "").strip() for item in snippet_rows if item.get("id")]
     if not snippet_ids:
-        st.warning("No valid evidence snippet ids found.")
+        st.warning("Не найдено валидных ID сниппетов доказательств.")
         return
 
     snippets_by_id = {str(item.get("id")): item for item in snippet_rows if item.get("id")}
     selected_snippet_id = st.selectbox(
-        "Select evidence snippet",
+        "Выберите сниппет доказательства",
         options=snippet_ids,
         format_func=lambda value: (
             f"{snippets_by_id[value].get('title') or 'Evidence'} "
@@ -407,20 +411,20 @@ def render_evidence_workspace_tab(
     try:
         snippet = client.get_evidence_snippet(selected_snippet_id, token=token)
     except httpx.HTTPStatusError as exc:
-        st.error(f"Backend returned HTTP {exc.response.status_code}")
+        st.error(f"Backend вернул HTTP {exc.response.status_code}")
         st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
-        st.error("Unable to connect to backend")
+        st.error("Не удалось подключиться к backend")
         st.code(str(exc))
         return
     except ValueError as exc:
-        st.error("Backend returned an unexpected response")
+        st.error("Backend вернул неожиданный ответ")
         st.code(str(exc))
         return
 
     if not isinstance(snippet, dict):
-        st.error("Backend returned an unexpected evidence snippet payload")
+        st.error("Backend вернул неожиданный payload сниппета")
         st.json(snippet)
         return
 
