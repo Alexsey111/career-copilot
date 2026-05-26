@@ -55,6 +55,24 @@ class StructuredExperienceDraft:
 
 
 @dataclass
+class StructuredContactDraft:
+    email: str | None = None
+    phone: str | None = None
+    github: str | None = None
+    telegram: str | None = None
+    address: str | None = None
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {
+            "email": self.email,
+            "phone": self.phone,
+            "github": self.github,
+            "telegram": self.telegram,
+            "address": self.address,
+        }
+
+
+@dataclass
 class StructuredResumeSignal:
     title: str
     category: str
@@ -77,6 +95,7 @@ class StructuredProfileDraft:
     full_name: str | None = None
     headline: str | None = None
     location: str | None = None
+    contacts: StructuredContactDraft = field(default_factory=StructuredContactDraft)
     summary: str | None = None
     target_roles: list[str] = field(default_factory=list)
     experiences: list[StructuredExperienceDraft] = field(default_factory=list)
@@ -159,6 +178,7 @@ class ProfileStructuringService:
 
         draft.full_name = self._extract_full_name(lines)
         draft.location = self._extract_location(lines)
+        draft.contacts = self._extract_contacts(lines)
         draft.summary = self._extract_skills_summary(lines)
         draft.target_roles = self._extract_target_roles(lines)
         draft.headline = ", ".join(draft.target_roles[:3]) if draft.target_roles else None
@@ -711,6 +731,50 @@ class ProfileStructuringService:
             if re.match(r"^г\.\s*[A-Za-zА-Яа-яЁё-]+", line):
                 return line
         return None
+
+    def _extract_contacts(self, lines: list[str]) -> StructuredContactDraft:
+        text = "\n".join(lines)
+
+        email = self._extract_email(text)
+        phone = self._extract_phone(text)
+        github = self._extract_github(text)
+        telegram = self._extract_telegram(text)
+        address = self._extract_address(lines)
+
+        return StructuredContactDraft(
+            email=email,
+            phone=phone,
+            github=github,
+            telegram=telegram,
+            address=address,
+        )
+
+    def _extract_email(self, text: str) -> str | None:
+        match = re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", text)
+        return match.group(0).strip() if match else None
+
+    def _extract_phone(self, text: str) -> str | None:
+        match = re.search(r"(?:\+?\d[\d\s().-]{8,}\d)", text)
+        if not match:
+            return None
+        return re.sub(r"\s+", " ", match.group(0)).strip()
+
+    def _extract_github(self, text: str) -> str | None:
+        match = re.search(r"https?://github\.com/[A-Za-z0-9_.-]+/?", text, re.IGNORECASE)
+        return match.group(0).rstrip("/") if match else None
+
+    def _extract_telegram(self, text: str) -> str | None:
+        match = re.search(r"(?<![\w.+-])(?:https?://t\.me/[A-Za-z0-9_]+|@[A-Za-z0-9_]{5,})", text, re.IGNORECASE)
+        return match.group(0).strip() if match else None
+
+    def _extract_address(self, lines: list[str]) -> str | None:
+        address_markers = ("ул.", "улица", "проспект", "пр-т", "д.", "дом", "кв.", "квартира")
+        candidates = []
+        for line in lines[:20]:
+            lowered = line.lower()
+            if any(marker in lowered for marker in address_markers):
+                candidates.append(line.strip())
+        return ", ".join(candidates[:2]) if candidates else None
 
     def _extract_target_roles(self, lines: list[str]) -> list[str]:
         section_lines = self._lines_after_heading(lines, "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ", max_lines=3)

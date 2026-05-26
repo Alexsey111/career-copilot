@@ -126,6 +126,15 @@ class CoverLetterGenerationService:
                 detail="candidate profile not found for vacancy user",
             )
 
+        latest_extraction = await self.file_extraction_repository.get_latest_for_active_source_file_kind(
+            session,
+            user_id,
+            file_kind="resume",
+        )
+        contact_info = self._extract_contact_info(
+            latest_extraction.extracted_text if latest_extraction else ""
+        )
+
         keyword_set = ensure_keyword_set(self._extract_match_keywords_from_analysis(
             strengths_json=analysis.strengths_json,
             gaps_json=analysis.gaps_json,
@@ -147,6 +156,7 @@ class CoverLetterGenerationService:
             achievements=confirmed_achievements,
         )
         evidence_snippets = [item.as_dict() for item in evidence_bank.snippets]
+        evidence_snippets = self._filter_document_usable_evidence(evidence_snippets)
 
         evidence_by_title = {
             re.sub(r"\s+", " ", str(snippet.get("title") or "").strip()).lower(): snippet
@@ -174,7 +184,9 @@ class CoverLetterGenerationService:
                     "achievement_id": str(item.get("id") or "").strip() or None,
                     "title": str(item.get("title") or "").strip(),
                     "reason": str(item.get("reason") or "").strip() or "profile_core",
-                    "fact_status": str(item.get("fact_status") or "").strip() or "confirmed",
+                    "fact_status": str(
+                        snippet.get("fact_status") or item.get("fact_status") or ""
+                    ).strip() or "confirmed",
                     "evidence_strength": str(snippet.get("evidence_strength") or "").strip() or None,
                 }
             )
@@ -263,6 +275,7 @@ class CoverLetterGenerationService:
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
             selected_achievements=selected_achievements,
+            selected_evidence_reason=selected_evidence_reason,
         )
 
         # Опциональный AI-усиленный шаг для всего письма
@@ -308,6 +321,7 @@ class CoverLetterGenerationService:
                 "full_name": profile.full_name,
                 "headline": profile.headline,
                 "location": profile.location,
+                "contacts": contact_info,
             },
             target_vacancy={
                 "vacancy_id": str(vacancy.id),
@@ -1008,6 +1022,7 @@ class CoverLetterGenerationService:
         matched_keywords: list[str],
         missing_keywords: list[str],
         selected_achievements: list[dict],
+        selected_evidence_reason: list[dict[str, Any]] | None = None,
     ) -> list[dict]:
         warnings: list[dict] = []
 
@@ -1018,6 +1033,17 @@ class CoverLetterGenerationService:
                     message=(
                         "selected achievements remain in needs_confirmation status "
                         "and require user review"
+                    ),
+                    severity="warning",
+                )
+            )
+
+        if selected_evidence_reason and self._has_unconfirmed_selected_evidence(selected_evidence_reason):
+            warnings.append(
+                build_warning(
+                    code="unconfirmed_selected_evidence",
+                    message=(
+                        "selected evidence includes snippets that still require human confirmation"
                     ),
                     severity="warning",
                 )
@@ -1055,6 +1081,26 @@ class CoverLetterGenerationService:
             )
         )
         return warnings
+
+    def _filter_document_usable_evidence(
+        self,
+        evidence_snippets: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in evidence_snippets
+            if str(item.get("fact_status") or "").strip().lower() != "rejected"
+        ]
+
+    def _has_unconfirmed_selected_evidence(
+        self,
+        selected_evidence_reason: list[dict[str, Any]],
+    ) -> bool:
+        return any(
+            str(item.get("fact_status") or "").strip().lower()
+            in {"needs_confirmation", "unverified", "partial"}
+            for item in selected_evidence_reason
+        )
 
     def _build_confidence_assessment(
         self,
@@ -1123,6 +1169,43 @@ class CoverLetterGenerationService:
             result.append(value.strip())
 
         return result
+
+    def _extract_contact_info(self, raw_text: str) -> dict[str, str | None]:
+        if not raw_text:
+            return {}
+
+        return {
+            "email": self._extract_email(raw_text),
+            "phone": self._extract_phone(raw_text),
+            "github": self._extract_github(raw_text),
+            "telegram": self._extract_telegram(raw_text),
+        }
+
+    def _extract_email(self, text: str) -> str | None:
+        match = re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", text)
+        return match.group(0).strip() if match else None
+
+    def _extract_phone(self, text: str) -> str | None:
+        match = re.search(r"(?:\+?\d[\d\s().-]{8,}\d)", text)
+        if not match:
+            return None
+        return re.sub(r"\s+", " ", match.group(0)).strip()
+
+    def _extract_github(self, text: str) -> str | None:
+        match = re.search(
+            r"(?:https?://)?github\.com/[A-Za-z0-9_.-]+/?",
+            text,
+            re.IGNORECASE,
+        )
+        return match.group(0).rstrip("/") if match else None
+
+    def _extract_telegram(self, text: str) -> str | None:
+        match = re.search(
+            r"(?<![\w.+-])(?:https?://t\.me/[A-Za-z0-9_]+|t\.me/[A-Za-z0-9_]+|@[A-Za-z0-9_]{5,})",
+            text,
+            re.IGNORECASE,
+        )
+        return match.group(0).strip() if match else None
 
     def _build_draft(
         self,

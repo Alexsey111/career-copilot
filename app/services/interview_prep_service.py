@@ -168,6 +168,7 @@ class InterviewPrepService:
             achievements=confirmed_achievements,
         )
         evidence_snippets = [item.as_dict() for item in evidence_bank.snippets]
+        evidence_snippets = self._filter_interview_usable_evidence(evidence_snippets)
         competency_map = self.question_service.build_competency_map(
             vacancy=vacancy,
             analysis=analysis,
@@ -286,6 +287,17 @@ class InterviewPrepService:
         if ordered:
             return ordered
         return evidence_snippets
+
+    def _filter_interview_usable_evidence(
+        self,
+        evidence_snippets: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in evidence_snippets
+            if str(item.get("fact_status") or "").strip().lower()
+            in {"confirmed", "user_provided", "needs_confirmation"}
+        ]
 
     async def list_sessions(self, session: AsyncSession, *, user_id: UUID) -> list[dict]:
         items = await self.prep_session_repository.list_by_user_id(

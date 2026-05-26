@@ -1,3 +1,5 @@
+# app\services\github_public_import_service.py
+
 from __future__ import annotations
 
 import base64
@@ -32,6 +34,18 @@ GITHUB_SIGNAL_KEYWORDS = [
     "cv",
 ]
 
+STACK_SIGNAL_PATTERNS = {
+    "FastAPI": ["fastapi", "APIRouter"],
+    "SQLAlchemy": ["sqlalchemy"],
+    "Alembic": ["alembic"],
+    "PostgreSQL": ["postgres", "postgresql", "psycopg", "asyncpg"],
+    "Redis": ["redis"],
+    "Docker": ["docker-compose", "Dockerfile", "FROM python"],
+    "Pytest": ["pytest", "tests/"],
+    "OpenAI": ["openai"],
+    "Telegram Bot": ["aiogram", "python-telegram-bot", "telegram"],
+}
+
 
 @dataclass(frozen=True)
 class GitHubProjectDraft:
@@ -41,6 +55,8 @@ class GitHubProjectDraft:
     languages: list[str]
     topics: list[str]
     readme_snippet: str | None
+    dependency_files: dict[str, str]
+    repo_files: list[str]
 
 
 class GitHubPublicImportError(RuntimeError):
@@ -187,6 +203,8 @@ class GitHubPublicImportService:
                     if include_readme
                     else None
                 )
+                dependency_files = await self._fetch_dependency_files(client, repo)
+                repo_files = await self._fetch_repo_files(client, repo)
                 projects.append(
                     GitHubProjectDraft(
                         name=str(repo.get("name") or ""),
@@ -195,6 +213,8 @@ class GitHubPublicImportService:
                         languages=languages,
                         topics=[str(item) for item in (repo.get("topics") or []) if str(item).strip()],
                         readme_snippet=readme,
+                        dependency_files=dependency_files,
+                        repo_files=repo_files,
                     )
                 )
             return projects
@@ -239,6 +259,80 @@ class GitHubPublicImportService:
         except Exception:
             return None
         return " ".join(decoded.split())[:700] or None
+
+    async def _fetch_dependency_files(self, client: httpx.AsyncClient, repo: dict[str, Any]) -> dict[str, str]:
+        full_name = str(repo.get("full_name") or "").strip()
+        if not full_name:
+            return {}
+
+        candidates = [
+            "pyproject.toml",
+            "requirements.txt",
+            "requirements-dev.txt",
+            "docker-compose.yml",
+            "docker-compose.yaml",
+            "Dockerfile",
+        ]
+
+        result: dict[str, str] = {}
+        for path in candidates:
+            try:
+                response = await client.get(f"https://api.github.com/repos/{full_name}/contents/{path}")
+            except httpx.RequestError:
+                continue
+
+            if response.status_code >= 400:
+                continue
+
+            try:
+                payload = response.json()
+            except ValueError:
+                continue
+
+            encoded = str(payload.get("content") or "")
+            if not encoded:
+                continue
+
+            try:
+                decoded = base64.b64decode(encoded, validate=False).decode("utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            result[path] = decoded[:5000]
+
+        return result
+
+    async def _fetch_repo_files(self, client: httpx.AsyncClient, repo: dict[str, Any]) -> list[str]:
+        full_name = str(repo.get("full_name") or "").strip()
+        if not full_name:
+            return []
+
+        try:
+            response = await client.get(
+                f"https://api.github.com/repos/{full_name}/git/trees/HEAD",
+                params={"recursive": "1"},
+            )
+        except httpx.RequestError:
+            return []
+
+        if response.status_code >= 400:
+            return []
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return []
+
+        tree = payload.get("tree") or []
+        if not isinstance(tree, list):
+            return []
+
+        paths = [
+            str(item.get("path") or "")
+            for item in tree
+            if str(item.get("path") or "").strip()
+        ]
+        return paths[:300]
 
     async def _upsert_github_public_evidence(
         self,
@@ -290,6 +384,7 @@ class GitHubPublicImportService:
         source_url: str | None,
     ) -> dict[str, Any]:
         extracted_skills = self.profile_intake_service._dedupe([*skills, *extract_skill_tags(title, text)])
+        detected_stack = [skill for skill in extracted_skills if skill in STACK_SIGNAL_PATTERNS]
         fact_status = "needs_confirmation"
         source_type = "github_public"
         return {
@@ -305,7 +400,7 @@ class GitHubPublicImportService:
             "snippet_text": text,
             "source_type": source_type,
             "skills": extracted_skills,
-            "evidence_strength": "medium" if extracted_skills else "weak",
+            "evidence_strength": "strong" if detected_stack else "medium" if extracted_skills else "weak",
             "fact_status": fact_status,
             "star_summary": {
                 "category": category,
@@ -316,12 +411,19 @@ class GitHubPublicImportService:
         }
 
     def _project_text(self, project: GitHubProjectDraft) -> str:
+        detected_stack = self._detected_stack_from_repo_files(project)
         return " ".join(
             part
             for part in [
                 project.description or "",
                 "Languages: " + ", ".join(project.languages) if project.languages else "",
                 "Topics: " + ", ".join(project.topics) if project.topics else "",
+                "Detected stack: " + ", ".join(detected_stack)
+                if detected_stack
+                else "",
+                "Repository files: " + ", ".join(project.repo_files[:30])
+                if project.repo_files
+                else "",
                 project.readme_snippet or "",
                 project.url or "",
             ]
@@ -329,7 +431,30 @@ class GitHubPublicImportService:
         ) or project.name
 
     def _project_skills(self, project: GitHubProjectDraft) -> list[str]:
-        return self.profile_intake_service._dedupe([*project.languages, *project.topics])
+        return self.profile_intake_service._dedupe(
+            [
+                *project.languages,
+                *project.topics,
+                *self._detected_stack_from_repo_files(project),
+            ]
+        )
+
+    def _detected_stack_from_repo_files(self, project: GitHubProjectDraft) -> list[str]:
+        corpus_parts = [
+            project.readme_snippet or "",
+            "\n".join(project.repo_files),
+            "\n".join(project.dependency_files.values()),
+            " ".join(project.topics),
+            " ".join(project.languages),
+        ]
+        corpus = "\n".join(corpus_parts).casefold()
+
+        detected: list[str] = []
+        for skill, patterns in STACK_SIGNAL_PATTERNS.items():
+            if any(pattern.casefold() in corpus for pattern in patterns):
+                detected.append(skill)
+
+        return self.profile_intake_service._dedupe(detected)
 
     def _signal_skills(self, project: GitHubProjectDraft) -> list[str]:
         text = self._project_text(project).lower()
@@ -362,6 +487,8 @@ class GitHubPublicImportService:
                     f"Description: {project.description or ''}",
                     "Languages: " + ", ".join(project.languages),
                     "Topics: " + ", ".join(project.topics),
+                    "Detected stack: " + ", ".join(self._detected_stack_from_repo_files(project)),
+                    "Repository files: " + ", ".join(project.repo_files[:30]),
                     f"README: {project.readme_snippet or ''}",
                     f"URL: {project.url or ''}",
                 ]

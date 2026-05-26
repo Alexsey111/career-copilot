@@ -180,6 +180,9 @@ class CandidateInfo(StrictBaseModel):
     full_name: str | None = None
     headline: str | None = None
     location: str | None = None
+
+    contacts: dict[str, str | None] = Field(default_factory=dict)
+
     target_roles: list[str] = Field(default_factory=list)
 
 

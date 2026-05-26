@@ -19,6 +19,7 @@ from app.schemas.evidence import (
 )
 from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_insights_service import EvidenceInsightsService
+from app.services.evidence_review_service import EvidenceReviewService
 
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
@@ -79,6 +80,46 @@ async def get_evidence_snippet(
     if snippet is None:
         raise HTTPException(status_code=404, detail="Evidence snippet not found")
 
+    return EvidenceSnippetItem.model_validate(snippet)
+
+
+@router.post("/{snippet_id}/confirm", response_model=EvidenceSnippetItem)
+async def confirm_evidence_snippet(
+    snippet_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> EvidenceSnippetItem:
+    service = EvidenceReviewService()
+    snippet = await service.confirm(
+        session,
+        user_id=current_user.id,
+        snippet_id=snippet_id,
+    )
+    if snippet is None:
+        raise HTTPException(status_code=404, detail="Evidence snippet not found")
+
+    await session.commit()
+    await session.refresh(snippet)
+    return EvidenceSnippetItem.model_validate(snippet)
+
+
+@router.post("/{snippet_id}/reject", response_model=EvidenceSnippetItem)
+async def reject_evidence_snippet(
+    snippet_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> EvidenceSnippetItem:
+    service = EvidenceReviewService()
+    snippet = await service.reject(
+        session,
+        user_id=current_user.id,
+        snippet_id=snippet_id,
+    )
+    if snippet is None:
+        raise HTTPException(status_code=404, detail="Evidence snippet not found")
+
+    await session.commit()
+    await session.refresh(snippet)
     return EvidenceSnippetItem.model_validate(snippet)
 
 

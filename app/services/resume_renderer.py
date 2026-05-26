@@ -16,6 +16,16 @@ def render_resume(content_json: dict) -> str:
         lines.append(candidate["headline"])
     if candidate.get("location"):
         lines.append(candidate["location"])
+    contacts = candidate.get("contacts") or {}
+    contact_parts = [
+        contacts.get("email"),
+        contacts.get("phone"),
+        contacts.get("github"),
+        contacts.get("telegram"),
+    ]
+    contact_line = " | ".join(str(item) for item in contact_parts if item)
+    if contact_line:
+        lines.append(contact_line)
 
     lines.append("")
     lines.append("ЦЕЛЕВАЯ ПОЗИЦИЯ")

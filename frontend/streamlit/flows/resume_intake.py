@@ -1,3 +1,5 @@
+# frontend\streamlit\flows\resume_intake.py
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,6 +13,26 @@ from ui.state import (
     _split_csv,
     _store_intake_result_as_resume_import,
 )
+
+
+def _restore_resume_pipeline_state(client: CareerCopilotApiClient, token: str | None) -> bool:
+    try:
+        state = client.get_resume_pipeline_state(token=token)
+    except Exception:
+        return False
+
+    if not isinstance(state, dict):
+        return False
+
+    restored = False
+    for key in ("resume_import", "structured_profile", "achievements"):
+        value = state.get(key)
+        if isinstance(value, dict) and value:
+            st.session_state[key] = value
+            restored = True
+
+    return restored
+
 
 def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("1. Источник резюме / профиля")
@@ -45,6 +67,17 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
             "или импортировать публичный GitHub-профиль."
         )
 
+    github_notice = st.session_state.get("github_enrichment_notice")
+    if isinstance(github_notice, dict):
+        st.success(github_notice.get("message") or "GitHub evidence добавлен к текущему профилю")
+        st.json(
+            {
+                "source": github_notice.get("source"),
+                "project_count": github_notice.get("project_count"),
+                "evidence_snippet_count": github_notice.get("evidence_snippet_count"),
+            }
+        )
+
     options = []
     if active_resume:
         options.append("Использовать текущее")
@@ -60,10 +93,25 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
     )
 
     if mode == "Использовать текущее":
-        if st.button("Использовать текущее резюме", type="primary", use_container_width=True):
+        st.info(
+            "Будет использовано уже загруженное активное резюме. "
+            "Повторная загрузка файла не нужна."
+        )
+
+        if st.button("Использовать текущее резюме и продолжить", type="primary", use_container_width=True):
             st.session_state.source_file = active_resume
-            _reset_downstream_resume_state()
-            st.success("Активное резюме выбрано. Теперь импортируйте его на шаге 2.")
+            restored = _restore_resume_pipeline_state(client, token)
+            if not restored and not st.session_state.get("resume_import"):
+                _reset_downstream_resume_state()
+            st.session_state["reuse_existing_resume"] = True
+            if restored and st.session_state.get("achievements"):
+                st.success("Активное резюме выбрано. Готовое состояние восстановлено, можно переходить к вакансии.")
+            else:
+                st.success(
+                    "Активное резюме выбрано. Если импорт уже был выполнен ранее, "
+                    "шаги анализа можно пропустить и перейти к вакансии."
+                )
+            st.rerun()
         return
 
     if mode == "Создать вручную":
@@ -111,6 +159,8 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
             return
 
         st.session_state.source_file = result
+        st.session_state["reuse_existing_resume"] = False
+        st.session_state.pop("github_enrichment_notice", None)
         _reset_downstream_resume_state()
         if result.get("lifecycle_status") == "active" and result.get("content_sha256"):
             st.success("Резюме выбрано. Если такой файл уже был загружен, backend переиспользовал существующий SourceFile.")
@@ -225,6 +275,7 @@ def render_manual_profile_intake_step(client: CareerCopilotApiClient, token: str
         "file_kind": "manual_profile",
         "original_name": "manual-profile-intake.json",
     }
+    st.session_state.pop("github_enrichment_notice", None)
     _reset_downstream_resume_state()
     _store_intake_result_as_resume_import(result)
     st.success("Профиль создан вручную и evidence bank обновлён. Можно продолжать со структурированного профиля.")
@@ -232,7 +283,24 @@ def render_manual_profile_intake_step(client: CareerCopilotApiClient, token: str
 
 def render_github_public_intake_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.markdown("### Импортировать публичный GitHub")
-    st.caption("MVP импортирует public repositories, languages, topics и README snippets. Claims не подтверждаются автоматически.")
+    st.caption(
+        "GitHub дополняет текущий профиль и evidence bank проектными сигналами. "
+        "Claims не подтверждаются автоматически."
+    )
+
+    current_source_file = st.session_state.get("source_file")
+    has_resume_context = bool(
+        st.session_state.get("resume_import")
+        or (
+            isinstance(current_source_file, dict)
+            and current_source_file.get("file_kind") == "resume"
+        )
+    )
+    if has_resume_context:
+        st.info(
+            "Будет дополнен текущий профиль. Загруженное резюме останется основным источником, "
+            "а GitHub добавит project evidence для генерации документов."
+        )
 
     github_url = st.text_input("GitHub profile URL", placeholder="https://github.com/username")
     target_role = st.text_input("Целевая роль для контекста", placeholder="Python Automation Developer")
@@ -281,11 +349,27 @@ def render_github_public_intake_step(client: CareerCopilotApiClient, token: str 
         st.code(str(exc))
         return
 
+    if has_resume_context:
+        _restore_resume_pipeline_state(client, token)
+        st.session_state["github_enrichment_notice"] = {
+            "message": "GitHub evidence добавлен к текущему профилю",
+            "project_count": result.get("project_count"),
+            "evidence_snippet_count": result.get("evidence_snippet_count"),
+            "source": result.get("source"),
+        }
+        st.success(
+            "GitHub evidence добавлен к текущему профилю. "
+            "Резюме остаётся активным источником, можно продолжать к вакансии."
+        )
+        st.rerun()
+        return
+
     st.session_state.source_file = {
         "id": result.get("source_file_id"),
         "file_kind": "github_public_profile",
         "original_name": "github-public-profile-intake.json",
     }
+    st.session_state.pop("github_enrichment_notice", None)
     _reset_downstream_resume_state()
     _store_intake_result_as_resume_import(result)
     st.success("GitHub evidence импортирован. Факты помечены как needs_confirmation.")
@@ -319,6 +403,27 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
         return
 
     st.caption(f"source_file_id: {source_file_id}")
+
+    if st.session_state.get("reuse_existing_resume") and st.session_state.resume_import:
+        st.success("Импорт активного резюме уже готов. Повторный импорт не нужен.")
+        resume_import = st.session_state.resume_import
+        st.json(
+            {
+                "profile_id": resume_import.get("profile_id"),
+                "source_file_id": resume_import.get("source_file_id"),
+                "extraction_id": resume_import.get("extraction_id"),
+                "status": resume_import.get("status"),
+                "detected_format": resume_import.get("detected_format"),
+                "text_length": resume_import.get("text_length"),
+            }
+        )
+        return
+
+    if st.session_state.get("reuse_existing_resume") and not st.session_state.resume_import:
+        st.info(
+            "Используется активное резюме. Backend проверит существующий extraction "
+            "и не будет повторно парсить файл, если extraction уже есть."
+        )
 
     if st.button("Импортировать резюме", type="primary", use_container_width=True):
         try:
@@ -391,6 +496,20 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
         return
 
     st.caption(f"extraction_id: {extraction_id}")
+
+    if st.session_state.get("reuse_existing_resume") and st.session_state.structured_profile:
+        st.success("Структурированный профиль уже готов. Повторное извлечение не нужно.")
+        profile = st.session_state.structured_profile
+        st.json(
+            {
+                "profile_id": profile.get("profile_id"),
+                "extraction_id": profile.get("extraction_id"),
+                "full_name": profile.get("full_name"),
+                "headline": profile.get("headline"),
+                "experience_count": profile.get("experience_count", 0),
+            }
+        )
+        return
 
     if st.button("Извлечь структурированный профиль", type="primary", use_container_width=True):
         try:
@@ -501,7 +620,14 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
 
     st.caption(f"extraction_id: {extraction_id}")
 
-    if st.button("Извлечь достижения", type="primary", use_container_width=True):
+    achievements_already_ready = (
+        st.session_state.get("reuse_existing_resume")
+        and st.session_state.achievements
+    )
+    if achievements_already_ready:
+        st.success("Достижения уже извлечены. Повторный анализ не нужен.")
+
+    if not achievements_already_ready and st.button("Извлечь достижения", type="primary", use_container_width=True):
         try:
             result = client.post_json("/profile/extract-achievements",
                 {

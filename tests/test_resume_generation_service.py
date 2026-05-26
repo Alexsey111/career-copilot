@@ -572,7 +572,7 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
     )
 
     summary = tailoring["vacancy_aligned_summary"]
-    assert summary.startswith("AI Automation Specialist candidate")
+    assert summary.startswith("Кандидат на позицию AI Automation Specialist")
     assert "Prompt engineering" in summary
     assert "AI tooling" in summary
     assert "Workflow automation" in tailoring["relevant_to_vacancy"]

@@ -1,3 +1,5 @@
+# frontend\streamlit\flows\mvp_flow.py
+
 from __future__ import annotations
 
 import streamlit as st
@@ -6,6 +8,7 @@ from api_client import CareerCopilotApiClient
 from flows.document_application_flow import (
     render_application_creation_step,
     render_application_status_update_step,
+    render_application_tracking_step,
     render_cover_letter_generation_step,
     render_document_approval_step,
     render_interview_preparation_step,
@@ -71,6 +74,10 @@ def render_mvp_flow(client: CareerCopilotApiClient, token: str | None = None) ->
     st.divider()
 
     render_application_status_update_step(client, token=token)
+
+    st.divider()
+
+    render_application_tracking_step(client, token=token)
 
     st.divider()
 

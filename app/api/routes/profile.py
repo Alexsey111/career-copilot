@@ -11,6 +11,8 @@ from app.api.dependencies import get_current_active_user
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
+from app.repositories.candidate_profile_repository import CandidateProfileRepository
+from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.schemas.achievement_extract import (
     AchievementExtractRequest,
     AchievementExtractResponse,
@@ -91,6 +93,81 @@ def _intake_result_to_response(result) -> ProfileIntakeResponse:
         raw_text_preview=result.raw_text[:1000],
         created_at=result.profile.created_at,
     )
+
+
+@router.get("/resume-state")
+async def get_resume_pipeline_state(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    extraction_repository = FileExtractionRepository()
+    profile_repository = CandidateProfileRepository()
+
+    extraction = await extraction_repository.get_latest_for_active_source_file_kind(
+        session,
+        current_user.id,
+        file_kind="resume",
+    )
+    profile = await profile_repository.get_with_related_by_user_id(
+        session,
+        current_user.id,
+    )
+
+    resume_import = None
+    if extraction is not None:
+        detected_format = str(
+            (extraction.extracted_metadata_json or {}).get("detected_format") or ""
+        )
+        resume_import = {
+            "profile_id": profile.id if profile is not None else None,
+            "source_file_id": extraction.source_file_id,
+            "extraction_id": extraction.id,
+            "status": extraction.status,
+            "detected_format": detected_format,
+            "text_length": len(extraction.extracted_text or ""),
+            "text_preview": (extraction.extracted_text or "")[:1000],
+            "created_at": extraction.created_at,
+        }
+
+    structured_profile = None
+    achievements = None
+    if profile is not None:
+        structured_profile = {
+            "profile_id": profile.id,
+            "extraction_id": extraction.id if extraction is not None else None,
+            "full_name": profile.full_name,
+            "headline": profile.headline,
+            "location": profile.location,
+            "target_roles": profile.target_roles_json or [],
+            "experience_count": len(profile.experiences or []),
+            "project_count": 0,
+            "internship_count": 0,
+            "achievement_signal_count": len(profile.achievements or []),
+            "evidence_snippet_count": 0,
+            "technologies": [],
+            "ai_tools": [],
+            "automation_tools": [],
+            "competency_signal_count": 0,
+            "structured_evidence": [],
+            "warnings": [],
+        }
+        achievements = {
+            "profile_id": profile.id,
+            "extraction_id": extraction.id if extraction is not None else None,
+            "achievement_count": len(profile.achievements or []),
+            "achievements": [
+                _achievement_item_to_read(item).model_dump(mode="json")
+                for item in (profile.achievements or [])
+                if item.id is not None
+            ],
+            "warnings": [],
+        }
+
+    return {
+        "resume_import": resume_import,
+        "structured_profile": structured_profile,
+        "achievements": achievements,
+    }
 
 
 @router.post("/intake/manual", response_model=ProfileIntakeResponse)
@@ -224,6 +301,7 @@ async def extract_structured_profile(
         full_name=profile.full_name,
         headline=profile.headline,
         location=profile.location,
+        contacts=draft.contacts.as_dict(),
         target_roles=profile.target_roles_json,
         experience_count=len(draft.experiences),
         project_count=len(draft.projects),

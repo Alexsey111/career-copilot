@@ -16,6 +16,8 @@ class ReviewDocumentDescriptor:
     title: str
     document_kind: str
     vacancy_id: str | None = None
+    review_status: str | None = None
+    created_at: str | None = None
 
 
 def _humanize_document_kind(document_kind: str) -> str:
@@ -33,6 +35,28 @@ def _humanize_review_status(review_status: str | None) -> str:
         "draft": "черновик",
         "approved": "утверждён",
     }.get(review_status, review_status)
+
+
+def _document_picker_label(doc: ReviewDocumentDescriptor) -> str:
+    kind_label = {
+        "resume": "Резюме",
+        "cover_letter": "Сопроводительное письмо",
+    }.get(doc.document_kind, doc.document_kind)
+
+    scope = "для текущей вакансии" if doc.vacancy_id else "без вакансии"
+    parts = [f"{kind_label} {scope}"]
+
+    if doc.review_status:
+        parts.append(_humanize_review_status(doc.review_status))
+
+    if doc.created_at:
+        created_at = str(doc.created_at).strip()
+        if len(created_at) >= 16:
+            parts.append(f"{created_at[8:10]}.{created_at[5:7]} {created_at[11:16]}")
+        else:
+            parts.append(created_at)
+
+    return " · ".join(part for part in parts if part)
 
 
 def _format_readiness_score(score: Any) -> str:
@@ -125,16 +149,22 @@ def _render_readiness_panel(summary: dict[str, Any]) -> None:
     readiness = summary.get("readiness") or {}
     blockers = readiness.get("blockers") or []
     warnings = readiness.get("warnings") or []
+    ready = bool(readiness.get("ready"))
 
-    if readiness.get("ready"):
+    if ready:
         st.success("Готово к отправке ✅")
-    else:
+    elif blockers:
         st.error("Есть блокировка ❌")
+    else:
+        st.warning(
+            "Не финализировано / требуется review. "
+            "Критичных блокеров нет, поэтому документ можно использовать как draft."
+        )
 
     col_ready, col_blockers, col_warnings, col_score = st.columns(4)
 
     with col_ready:
-        st.metric("Готово", "Да" if readiness.get("ready") else "Нет")
+        st.metric("Готово", "Да" if ready else "Нет")
     with col_blockers:
         st.metric("Блокеры", len(blockers))
     with col_warnings:
@@ -399,42 +429,70 @@ def _render_export_controls(
     token: str | None,
     key_suffix: str,
 ) -> None:
-    try:
-        txt_content = client.get_text(f"/documents/{document_id}/export/txt", token=token)
-        md_content = client.get_text(f"/documents/{document_id}/export/md", token=token)
-        docx_content = client.get_bytes(f"/documents/{document_id}/export/docx", token=token)
-    except Exception as exc:
-        st.error(f"Экспорт недоступен: {exc}")
+    export_specs = [
+        ("txt", "Экспорт TXT", "text/plain", "txt", client.get_text),
+        ("md", "Экспорт MD", "text/markdown", "md", client.get_text),
+        (
+            "docx",
+            "Экспорт DOCX",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "docx",
+            client.get_bytes,
+        ),
+    ]
+
+    cols = st.columns(3)
+    for column, (export_format, label, mime, extension, getter) in zip(cols, export_specs, strict=False):
+        with column:
+            try:
+                content = getter(
+                    f"/documents/{document_id}/export/{export_format}",
+                    token=token,
+                )
+            except Exception as exc:
+                st.caption(f"{label} недоступен: {exc}")
+                continue
+
+            st.download_button(
+                label,
+                data=content,
+                file_name=f"{document_id}.{extension}",
+                mime=mime,
+                use_container_width=True,
+                key=f"document_review_export_{export_format}_{key_suffix}_{document_id}",
+            )
+
+
+def _render_workflow_selection_status() -> None:
+    resume_ready = bool(st.session_state.get("approved_resume"))
+    cover_letter_ready = bool(st.session_state.get("approved_cover_letter"))
+
+    if resume_ready and cover_letter_ready:
+        st.success("Оба документа выбраны. Можно переходить к шагу 10.")
         return
 
-    col_txt, col_md, col_docx = st.columns(3)
-    with col_txt:
-        st.download_button(
-            "Экспорт TXT",
-            data=txt_content,
-            file_name=f"{document_id}.txt",
-            mime="text/plain",
-            use_container_width=True,
-            key=f"document_review_export_txt_{key_suffix}_{document_id}",
-        )
-    with col_md:
-        st.download_button(
-            "Экспорт MD",
-            data=md_content,
-            file_name=f"{document_id}.md",
-            mime="text/markdown",
-            use_container_width=True,
-            key=f"document_review_export_md_{key_suffix}_{document_id}",
-        )
-    with col_docx:
-        st.download_button(
-            "Экспорт DOCX",
-            data=docx_content,
-            file_name=f"{document_id}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
-            key=f"document_review_export_docx_{key_suffix}_{document_id}",
-        )
+    missing = []
+    if not resume_ready:
+        missing.append("резюме")
+    if not cover_letter_ready:
+        missing.append("сопроводительное письмо")
+
+    st.info(
+        "Для продолжения workflow ещё нужно выбрать: "
+        + ", ".join(missing)
+    )
+
+
+def _return_to_document_selector(selection_state_key: str | None, document_kind: str) -> None:
+    if not selection_state_key:
+        return
+    st.session_state.pop(selection_state_key, None)
+    st.session_state.pop(f"{selection_state_key}_picker", None)
+    if document_kind == "resume" and not st.session_state.get("approved_cover_letter"):
+        st.session_state[f"{selection_state_key}_preferred_kind"] = "cover_letter"
+    elif document_kind == "cover_letter" and not st.session_state.get("approved_resume"):
+        st.session_state[f"{selection_state_key}_preferred_kind"] = "resume"
+    st.session_state["document_review_step9_return_notice"] = True
 
 
 def _render_action_bar(
@@ -453,6 +511,11 @@ def _render_action_bar(
         st.warning("Не указан ID документа, панель действий недоступна.")
         return
 
+    st.caption(
+        "Чтобы продолжить workflow, нужно отдельно выбрать "
+        "резюме и сопроводительное письмо."
+    )
+
     col_approve, col_enhance, col_back = st.columns(3)
 
     with col_approve:
@@ -462,6 +525,16 @@ def _render_action_bar(
             use_container_width=True,
             disabled=str(document.get("review_status") or "") == "approved",
             key=f"document_review_approve_{key_suffix}",
+        )
+
+        use_draft_clicked = st.button(
+            "Использовать как draft",
+            use_container_width=True,
+            help=(
+                "Не утверждает документ как финальный. "
+                "Позволяет продолжить workflow, а отклик будет помечен как review_required."
+            ),
+            key=f"document_review_use_draft_{key_suffix}",
         )
 
     with col_enhance:
@@ -502,7 +575,31 @@ def _render_action_bar(
                 st.session_state["interview_session"] = None
                 st.session_state["interview_answers_result"] = None
                 st.success("Документ утверждён")
+                _render_workflow_selection_status()
+                _return_to_document_selector(selection_state_key, document_kind)
             st.rerun()
+
+    if use_draft_clicked:
+        document_payload = {
+            "document_id": document_id,
+            "review_status": "draft",
+            "used_as_draft": True,
+            "requires_human_review": True,
+        }
+
+        if document_kind == "resume":
+            st.session_state["approved_resume"] = document_payload
+        elif document_kind == "cover_letter":
+            st.session_state["approved_cover_letter"] = document_payload
+
+        st.session_state["application"] = None
+        st.session_state["interview_session"] = None
+        st.session_state["interview_answers_result"] = None
+
+        st.success("Документ выбран как draft. Отклик будет создан с пометкой review_required.")
+        _render_workflow_selection_status()
+        _return_to_document_selector(selection_state_key, document_kind)
+        st.rerun()
 
     if enhance_clicked:
         if document_kind == "resume":
@@ -639,13 +736,25 @@ def render_document_review_workspace_selector(
 
     options = [doc.document_id for doc in available_documents]
     labels = {
-        doc.document_id: f"{doc.title} · {doc.document_kind} · {doc.document_id[:8]}"
+        doc.document_id: _document_picker_label(doc)
         for doc in available_documents
     }
 
     selected_document_id = st.session_state.get(selection_state_key)
     if selected_document_id not in options:
-        selected_document_id = options[0]
+        preferred_kind = st.session_state.pop(f"{selection_state_key}_preferred_kind", None)
+        preferred_document = next(
+            (
+                doc for doc in available_documents
+                if preferred_kind and doc.document_kind == preferred_kind
+            ),
+            None,
+        )
+        selected_document_id = (
+            preferred_document.document_id
+            if preferred_document is not None
+            else options[0]
+        )
 
     selected_document_id = st.selectbox(
         "Выберите документ",
@@ -682,6 +791,8 @@ def render_document_review_workspace_tab(
     *,
     token: str | None = None,
     selection_state_key: str = "document_review_workspace_tab_selection",
+    current_vacancy_id: str | None = None,
+    show_only_current_vacancy: bool = False,
 ) -> None:
     st.header("Проверка документов")
     st.caption(
@@ -782,6 +893,13 @@ def render_document_review_workspace_tab(
                     vacancy_id=str(active_document.get("vacancy_id") or "") or None,
                 )
             )
+
+    if show_only_current_vacancy and current_vacancy_id:
+        documents = [
+            doc
+            for doc in documents
+            if str(doc.vacancy_id or "") == str(current_vacancy_id)
+        ]
 
     if not documents:
         st.info("Пока нет документов, готовых к проверке.")

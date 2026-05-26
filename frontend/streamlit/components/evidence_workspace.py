@@ -33,7 +33,13 @@ def _format_short_uuid(value: Any) -> str:
 
 def _render_metrics(snippets: list[dict[str, Any]]) -> None:
     strength_counts = {"strong": 0, "medium": 0, "weak": 0}
-    fact_counts = {"confirmed": 0, "partial": 0, "unverified": 0}
+    fact_counts = {
+        "confirmed": 0,
+        "needs_confirmation": 0,
+        "rejected": 0,
+        "user_provided": 0,
+        "unverified": 0,
+    }
 
     for item in snippets:
         strength = str(item.get("evidence_strength") or "weak").strip().lower()
@@ -42,6 +48,11 @@ def _render_metrics(snippets: list[dict[str, Any]]) -> None:
             strength_counts[strength] += 1
         if fact_status in fact_counts:
             fact_counts[fact_status] += 1
+
+    unverified_total = (
+        fact_counts["needs_confirmation"]
+        + fact_counts["unverified"]
+    )
 
     col_total, col_strong, col_medium, col_weak, col_confirmed, col_unverified = st.columns(6)
 
@@ -56,7 +67,7 @@ def _render_metrics(snippets: list[dict[str, Any]]) -> None:
     with col_confirmed:
         st.metric("Подтверждённые", fact_counts["confirmed"])
     with col_unverified:
-        st.metric("Неподтверждённые", fact_counts["unverified"])
+        st.metric("Неподтверждённые", unverified_total)
 
 
 def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
@@ -271,7 +282,13 @@ def _build_rows(snippets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-def _render_detail_panel(snippet: dict[str, Any], usages: list[dict[str, Any]]) -> None:
+def _render_detail_panel(
+    client: CareerCopilotApiClient,
+    *,
+    snippet: dict[str, Any],
+    usages: list[dict[str, Any]],
+    token: str | None,
+) -> None:
     st.markdown("### Детали доказательства")
     st.write(snippet.get("title") or "—")
 
@@ -284,6 +301,68 @@ def _render_detail_panel(snippet: dict[str, Any], usages: list[dict[str, Any]]) 
         st.metric("Статус факта", snippet.get("fact_status") or "—")
     with col_usage:
         st.metric("Использований", _format_count(snippet.get("usage_count")))
+
+    st.markdown("#### Review действия")
+
+    snippet_id = str(snippet.get("id") or "").strip()
+    fact_status = str(snippet.get("fact_status") or "").strip().lower()
+
+    col_confirm, col_reject = st.columns(2)
+
+    with col_confirm:
+        confirm_clicked = st.button(
+            "Подтвердить доказательство",
+            type="primary",
+            use_container_width=True,
+            disabled=not snippet_id or fact_status == "confirmed",
+            key=f"evidence_confirm_{snippet_id}",
+        )
+
+    with col_reject:
+        reject_clicked = st.button(
+            "Отклонить доказательство",
+            use_container_width=True,
+            disabled=not snippet_id or fact_status == "rejected",
+            key=f"evidence_reject_{snippet_id}",
+        )
+
+    if confirm_clicked:
+        try:
+            client.confirm_evidence(snippet_id, token=token)
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        st.toast("Доказательство подтверждено", icon="✅")
+        st.rerun()
+
+    if reject_clicked:
+        try:
+            client.reject_evidence(snippet_id, token=token)
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        st.toast("Доказательство отклонено", icon="🛑")
+        st.rerun()
 
     st.markdown("#### Текст сниппета")
     st.text_area(
@@ -439,4 +518,9 @@ def render_evidence_workspace_tab(
             if str(usage.get("evidence_snippet_id") or "") == selected_snippet_id:
                 relevant_usages.append(usage)
 
-    _render_detail_panel(snippet, relevant_usages)
+    _render_detail_panel(
+        client,
+        snippet=snippet,
+        usages=relevant_usages,
+        token=token,
+    )

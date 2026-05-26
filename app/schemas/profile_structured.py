@@ -17,6 +17,7 @@ class StructuredProfileExtractResponse(BaseModel):
     full_name: str | None
     headline: str | None
     location: str | None
+    contacts: dict[str, str | None] = Field(default_factory=dict)
     target_roles: list[str]
     experience_count: int
     project_count: int = 0

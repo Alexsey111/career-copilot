@@ -178,6 +178,97 @@ async def test_get_evidence_snippet_api_returns_404_for_unknown_id(client) -> No
     assert response.json()["detail"] == "Evidence snippet not found"
 
 
+async def test_confirm_evidence_promotes_non_github_medium_to_strong(
+    client,
+    db_session,
+    test_user,
+) -> None:
+    seed = await _seed_custom_snippet(
+        db_session,
+        user_id=test_user.id,
+        title="Reviewed backend delivery",
+        text="Built a FastAPI backend with PostgreSQL.",
+        source_type=EvidenceSourceType.MANUAL,
+        evidence_strength="medium",
+        fact_status="needs_confirmation",
+        skills=["fastapi", "postgresql"],
+    )
+
+    response = await client.post(f"{API_PREFIX}/evidence/{seed['snippet'].id}/confirm")
+    assert response.status_code == 200, response.text
+
+    payload = response.json()
+    assert payload["fact_status"] == "confirmed"
+    assert payload["evidence_strength"] == "strong"
+
+
+async def test_confirm_github_evidence_only_promotes_weak_to_medium(
+    client,
+    db_session,
+    test_user,
+) -> None:
+    weak_seed = await _seed_custom_snippet(
+        db_session,
+        user_id=test_user.id,
+        title="GitHub FastAPI repo",
+        text="Repository contains FastAPI and Docker config.",
+        source_type=EvidenceSourceType.GITHUB_PUBLIC,
+        evidence_strength="weak",
+        fact_status="needs_confirmation",
+        skills=["fastapi", "docker"],
+    )
+    medium_seed = await _seed_custom_snippet(
+        db_session,
+        user_id=test_user.id,
+        title="GitHub PostgreSQL repo",
+        text="Repository contains PostgreSQL integration.",
+        source_type=EvidenceSourceType.GITHUB_PUBLIC,
+        evidence_strength="medium",
+        fact_status="needs_confirmation",
+        skills=["postgresql"],
+    )
+
+    weak_response = await client.post(f"{API_PREFIX}/evidence/{weak_seed['snippet'].id}/confirm")
+    assert weak_response.status_code == 200, weak_response.text
+    assert weak_response.json()["fact_status"] == "confirmed"
+    assert weak_response.json()["evidence_strength"] == "medium"
+
+    medium_response = await client.post(f"{API_PREFIX}/evidence/{medium_seed['snippet'].id}/confirm")
+    assert medium_response.status_code == 200, medium_response.text
+    assert medium_response.json()["fact_status"] == "confirmed"
+    assert medium_response.json()["evidence_strength"] == "medium"
+
+
+async def test_reject_evidence_marks_snippet_rejected(client, db_session, test_user) -> None:
+    seed = await _seed_custom_snippet(
+        db_session,
+        user_id=test_user.id,
+        title="Untrusted GitHub signal",
+        text="Repository mentions Redis but the claim was rejected by reviewer.",
+        source_type=EvidenceSourceType.GITHUB_PUBLIC,
+        evidence_strength="medium",
+        fact_status="needs_confirmation",
+        skills=["redis"],
+    )
+
+    response = await client.post(f"{API_PREFIX}/evidence/{seed['snippet'].id}/reject")
+    assert response.status_code == 200, response.text
+
+    payload = response.json()
+    assert payload["fact_status"] == "rejected"
+    assert payload["evidence_strength"] == "medium"
+
+
+async def test_evidence_review_returns_404_for_unknown_snippet(client) -> None:
+    confirm_response = await client.post(f"{API_PREFIX}/evidence/{uuid4()}/confirm")
+    assert confirm_response.status_code == 404
+    assert confirm_response.json()["detail"] == "Evidence snippet not found"
+
+    reject_response = await client.post(f"{API_PREFIX}/evidence/{uuid4()}/reject")
+    assert reject_response.status_code == 404
+    assert reject_response.json()["detail"] == "Evidence snippet not found"
+
+
 async def test_evidence_usages_api_returns_user_usages(client, db_session, test_user) -> None:
     seed = await _seed_snippet(
         db_session,

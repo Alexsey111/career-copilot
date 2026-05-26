@@ -1,3 +1,5 @@
+# frontend\streamlit\flows\vacancy_flow.py
+
 from __future__ import annotations
 
 import httpx
@@ -5,26 +7,49 @@ import streamlit as st
 
 from api_client import CareerCopilotApiClient
 
-def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("5. Импорт вакансии")
 
-    achievements = st.session_state.achievements
-    if not achievements:
-        st.info("Сначала извлеките достижения на шаге 4.")
-        return
+def _reset_downstream_vacancy_state() -> None:
+    for key in [
+        "generated_resume",
+        "generated_cover_letter",
+        "application",
+        "interview_session",
+        "interview_answers_result",
+    ]:
+        st.session_state[key] = None
 
-    achievement_items = achievements.get("achievements") or []
-    unconfirmed_achievements = [
-        item for item in achievement_items if item.get("fact_status") != "confirmed"
-    ]
+    for key in [
+        "document_review_workspace_step9_selection",
+        "document_review_workspace_step9_selection_picker",
+        "document_review_workspace_tab_selection",
+        "document_review_workspace_tab_selection_picker",
+        "approved_resume",
+        "approved_cover_letter",
+    ]:
+        st.session_state.pop(key, None)
 
-    if unconfirmed_achievements:
-        st.info(
-            "Перед импортом вакансии подтвердите достижения на шаге 4. "
-            "Это защищает pipeline от использования неподтверждённого опыта в документах."
-        )
-        return
 
+def _vacancy_source_label(source: str | None) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized == "hh":
+        return "HH"
+    if normalized == "file":
+        return "Файл"
+    if normalized == "manual":
+        return "Ручной ввод"
+    return str(source or "—")
+
+
+def _render_vacancy_import_status(notice: dict) -> None:
+    st.success("✅ Вакансия успешно импортирована")
+    st.markdown(f"**Источник:** {_vacancy_source_label(notice.get('source'))}")
+    st.markdown(f"**ID:** {notice.get('vacancy_id') or '—'}")
+    st.markdown(f"**Название:** {notice.get('title') or '—'}")
+    st.markdown(f"**Компания:** {notice.get('company') or '—'}")
+    st.markdown(f"**Длина текста:** {notice.get('description_length') or 0}")
+
+
+def _render_hh_vacancy_import(client: CareerCopilotApiClient, token: str | None) -> None:
     st.markdown("#### Быстрый импорт по ссылке HH")
 
     hh_source_url = st.text_input(
@@ -46,8 +71,12 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code in {502, 504}:
                     st.warning(
-                        "HH не отдал вакансию автоматически. "
-                        "Скопируйте текст вакансии и вставьте его в ручную форму ниже."
+                        "⚠ HH не отдал вакансию автоматически. "
+                        "Это может быть ограничение HH, сети backend или временная недоступность."
+                    )
+                    st.info(
+                        "Скопируйте текст вакансии и вставьте его в ручную форму ниже "
+                        "или загрузите вакансию из файла."
                     )
                     st.code(exc.response.text)
                 else:
@@ -71,16 +100,114 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
                     st.json(result)
                 else:
                     st.session_state.vacancy = result
+                    st.session_state.vacancy_import_notice = {
+                        "message": "Вакансия успешно импортирована",
+                        "vacancy_id": result.get("vacancy_id") or result.get("id"),
+                        "title": result.get("title"),
+                        "company": result.get("company"),
+                        "source": result.get("source"),
+                        "description_length": result.get("description_length"),
+                    }
                     st.session_state.vacancy_analysis = None
-                    st.session_state.generated_resume = None
-                    st.session_state.generated_cover_letter = None
-                    st.session_state.approved_resume = None
-                    st.session_state.approved_cover_letter = None
-                    st.session_state.application = None
-                    st.success("Вакансия загружена по ссылке HH")
+                    _reset_downstream_vacancy_state()
+                    st.success("✅ Вакансия успешно импортирована")
                     st.rerun()
 
-    st.divider()
+
+def _render_file_vacancy_import(client: CareerCopilotApiClient, token: str | None) -> None:
+    st.markdown("#### Импорт вакансии из файла")
+
+    uploaded_vacancy_file = st.file_uploader(
+        "Выберите файл вакансии",
+        type=["txt", "pdf", "docx"],
+        help="Можно загрузить TXT, PDF или DOCX с текстом вакансии.",
+        key="vacancy_file_uploader",
+    )
+
+    file_title = st.text_input(
+        "Название вакансии из файла",
+        value="",
+        key="vacancy_file_title",
+    )
+    file_company = st.text_input(
+        "Компания из файла",
+        value="",
+        key="vacancy_file_company",
+    )
+    file_location = st.text_input(
+        "Локация из файла",
+        value="",
+        key="vacancy_file_location",
+    )
+    file_source_url = st.text_input(
+        "Ссылка на источник файла",
+        value="",
+        key="vacancy_file_source_url",
+        help="Опционально.",
+    )
+
+    if uploaded_vacancy_file is not None:
+        st.caption(f"Файл: {uploaded_vacancy_file.name}")
+        st.caption(f"Тип: {uploaded_vacancy_file.type or 'не определён'}")
+        st.caption(f"Размер: {uploaded_vacancy_file.size} байт")
+
+    if st.button("Импортировать вакансию из файла", type="primary", use_container_width=True):
+        if uploaded_vacancy_file is None:
+            st.error("Выберите файл вакансии.")
+            return
+
+        try:
+            uploaded_source_file = client.upload_file(
+                path="/files/upload",
+                file_kind="vacancy",
+                filename=uploaded_vacancy_file.name,
+                content=uploaded_vacancy_file.getvalue(),
+                content_type=uploaded_vacancy_file.type or "application/octet-stream",
+                token=token,
+            )
+            result = client.import_vacancy_from_file(
+                source_file_id=str(uploaded_source_file.get("id")),
+                title=file_title.strip() or None,
+                company=file_company.strip() or None,
+                location=file_location.strip() or None,
+                source_url=file_source_url.strip() or None,
+                token=token,
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.vacancy = result
+        st.session_state.vacancy_import_notice = {
+            "message": "Вакансия импортирована из файла",
+            "vacancy_id": result.get("vacancy_id") or result.get("id"),
+            "title": result.get("title"),
+            "company": result.get("company"),
+            "source": result.get("source"),
+            "description_length": result.get("description_length"),
+        }
+        st.session_state.vacancy_analysis = None
+        _reset_downstream_vacancy_state()
+        st.success("Вакансия импортирована из файла")
+        st.toast("Вакансия импортирована из файла", icon="✅")
+        st.rerun()
+
+
+def _render_manual_vacancy_import(client: CareerCopilotApiClient, token: str | None) -> None:
     st.markdown("#### Ручной импорт")
 
     default_description = """Требования:
@@ -171,13 +298,53 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
             return
 
         st.session_state.vacancy = result
+        st.session_state.vacancy_import_notice = None
         st.session_state.vacancy_analysis = None
-        st.session_state.generated_resume = None
-        st.session_state.generated_cover_letter = None
-        st.session_state.approved_resume = None
-        st.session_state.approved_cover_letter = None
-        st.session_state.application = None
+        _reset_downstream_vacancy_state()
         st.success("Вакансия импортирована")
+
+
+def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
+    st.subheader("5. Импорт вакансии")
+
+    notice = st.session_state.get("vacancy_import_notice")
+    if isinstance(notice, dict):
+        _render_vacancy_import_status(notice)
+
+    achievements = st.session_state.achievements
+    if not achievements:
+        st.info("Сначала извлеките достижения на шаге 4.")
+        return
+
+    achievement_items = achievements.get("achievements") or []
+    unconfirmed_achievements = [
+        item for item in achievement_items if item.get("fact_status") != "confirmed"
+    ]
+
+    if unconfirmed_achievements:
+        st.info(
+            "Перед импортом вакансии подтвердите достижения на шаге 4. "
+            "Это защищает pipeline от использования неподтверждённого опыта в документах."
+        )
+        return
+
+    mode = st.radio(
+        "Способ импорта вакансии",
+        [
+            "Ссылка HH",
+            "Файл",
+            "Ручной ввод",
+        ],
+        horizontal=True,
+        key="vacancy_import_mode",
+    )
+
+    if mode == "Ссылка HH":
+        _render_hh_vacancy_import(client, token)
+    elif mode == "Файл":
+        _render_file_vacancy_import(client, token)
+    else:
+        _render_manual_vacancy_import(client, token)
 
     if st.session_state.vacancy:
         vacancy = st.session_state.vacancy

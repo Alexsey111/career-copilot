@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from uuid import UUID
 
 import httpx
@@ -10,8 +11,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Vacancy
-from app.services.hh_vacancy_import_service import HHVacancyImportService
+from app.repositories.source_file_repository import SourceFileRepository
 from app.repositories.vacancy_repository import VacancyRepository
+from app.services.hh_vacancy_import_service import HHVacancyImportService
+from app.services.resume_parser_service import ResumeParserService
+from app.services.storage_service import StorageService
 from app.services.vacancy_text_extractors.contracts import (
     VacancyExtractionResult,
 )
@@ -28,11 +32,17 @@ class VacancyImportService:
         self,
         vacancy_repository: VacancyRepository | None = None,
         hh_vacancy_import_service: HHVacancyImportService | None = None,
+        source_file_repository: SourceFileRepository | None = None,
+        storage_service: StorageService | None = None,
+        text_parser_service: ResumeParserService | None = None,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.hh_vacancy_import_service = (
             hh_vacancy_import_service or HHVacancyImportService()
         )
+        self.source_file_repository = source_file_repository or SourceFileRepository()
+        self.storage_service = storage_service or StorageService()
+        self.text_parser_service = text_parser_service or ResumeParserService()
         self.extractor = TrafilaturaVacancyExtractor()
 
     async def import_vacancy(
@@ -123,6 +133,56 @@ class VacancyImportService:
         await session.commit()
         await session.refresh(vacancy)
         return vacancy
+
+    async def import_vacancy_from_source_file(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        source_file_id: UUID,
+        title: str | None = None,
+        company: str | None = None,
+        location: str | None = None,
+        source_url: str | None = None,
+    ) -> Vacancy:
+        source_file = await self.source_file_repository.get_by_id(
+            session,
+            source_file_id,
+            user_id=user_id,
+        )
+        if source_file is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="source file not found",
+            )
+
+        if source_file.file_kind != "vacancy":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="source file is not a vacancy",
+            )
+
+        file_bytes = self.storage_service.download_bytes(
+            storage_key=source_file.storage_key,
+        )
+
+        parsed = self.text_parser_service.parse(
+            file_bytes=file_bytes,
+            mime_type=source_file.mime_type,
+            filename=source_file.original_name,
+        )
+
+        return await self.import_vacancy(
+            session,
+            user_id=user_id,
+            source="file",
+            source_url=source_url,
+            external_id=None,
+            title=title or Path(source_file.original_name).stem,
+            company=company,
+            location=location,
+            description_raw=parsed.text,
+        )
 
     def _is_hh_vacancy_url(self, source_url: str) -> bool:
         normalized_url = source_url.strip().lower()

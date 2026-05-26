@@ -56,6 +56,44 @@ class _FakeAsyncClient:
             return _FakeGitHubResponse(
                 {"content": base64.b64encode(readme.encode()).decode()}
             )
+        if url.endswith("/contents/pyproject.toml"):
+            pyproject = (
+                "[project]\n"
+                "dependencies = [\"fastapi\", \"sqlalchemy\", \"pytest\", \"openai\"]\n"
+            )
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(pyproject.encode()).decode()}
+            )
+        if url.endswith("/contents/requirements.txt"):
+            requirements = "redis\nasyncpg\naiogram\n"
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(requirements.encode()).decode()}
+            )
+        if url.endswith("/contents/requirements-dev.txt"):
+            return _FakeGitHubResponse({}, status_code=404)
+        if url.endswith("/contents/docker-compose.yml"):
+            compose = "services:\n  api:\n    image: python:3.12\n  postgres:\n    image: postgres\n"
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(compose.encode()).decode()}
+            )
+        if url.endswith("/contents/docker-compose.yaml"):
+            return _FakeGitHubResponse({}, status_code=404)
+        if url.endswith("/contents/Dockerfile"):
+            dockerfile = "FROM python:3.12\nRUN pip install fastapi\n"
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(dockerfile.encode()).decode()}
+            )
+        if url.endswith("/git/trees/HEAD"):
+            return _FakeGitHubResponse(
+                {
+                    "tree": [
+                        {"path": "app/main.py"},
+                        {"path": "app/api/routes/bot.py"},
+                        {"path": "tests/test_bot.py"},
+                        {"path": "alembic/versions/001_init.py"},
+                    ]
+                }
+            )
         raise AssertionError(f"Unexpected URL: {url}")
 
 
@@ -108,6 +146,12 @@ async def test_github_public_profile_import_creates_unconfirmed_evidence(
     assert project["source_type"] == "github_public"
     assert project["fact_status"] == "needs_confirmation"
     assert "Python" in project["skills"]
+    assert project["evidence_strength"] == "strong"
+    assert "FastAPI" in project["skills"]
+    assert "Docker" in project["skills"]
+    assert "Pytest" in project["skills"]
+    assert "Redis" in project["skills"]
+    assert "PostgreSQL" in project["skills"]
     assert "OpenAI" in project["skills"] or "openai" in project["skills"]
 
     signal = next(

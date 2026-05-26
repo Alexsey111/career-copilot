@@ -270,3 +270,56 @@ def test_extract_section_items_handles_inline_colon_headings() -> None:
 
     assert must_have == ["Python", "FastAPI", "PostgreSQL"]
     assert nice_to_have == ["Redis", "Docker"]
+
+
+def test_extract_section_items_handles_heading_prefixes_without_colons() -> None:
+    service = VacancyAnalysisService()
+
+    lines = service._clean_lines(
+        """
+Требования:
+- Python
+- FastAPI
+Будет плюсом опыт Redis и Docker
+Условия:
+- Удаленная работа
+После отклика:
+- Созвон с рекрутером
+"""
+    )
+
+    must_have = service._extract_section_items(
+        lines,
+        start_headings=REQUIREMENT_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+    nice_to_have = service._extract_section_items(
+        lines,
+        start_headings=NICE_TO_HAVE_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+
+    assert must_have == ["Python", "FastAPI"]
+    assert nice_to_have == ["опыт Redis и Docker"]
+
+
+def test_soft_ai_interest_is_not_scored_as_technical_must_have() -> None:
+    service = VacancyAnalysisService()
+
+    requirement_keywords = service._build_requirement_keywords(
+        keywords=[],
+        must_have=[
+            "Интерес к AI workflow и желание развиваться в искусственном интеллекте",
+            "Опыт работы с ChatGPT или Claude",
+        ],
+        nice_to_have=[],
+    )
+
+    scoped_keywords = [
+        (item.keyword, item.requirement_text)
+        for item in requirement_keywords
+    ]
+
+    assert ("AI Workflow", "Интерес к AI workflow и желание развиваться в искусственном интеллекте") not in scoped_keywords
+    assert any(item.keyword == "ChatGPT" for item in requirement_keywords)
+    assert any(item.keyword == "LLM" for item in requirement_keywords)

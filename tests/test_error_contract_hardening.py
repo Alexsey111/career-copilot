@@ -102,13 +102,13 @@ async def test_app_error_uses_stable_code_and_detail(client) -> None:
     body = response.json()
 
     assert body["detail"] == {
-        "allowed_file_kinds": ["other", "resume"],
+        "allowed_file_kinds": ["other", "resume", "vacancy"],
     }
     assert body["error"]["code"] == "invalid_file_kind"
-    assert body["error"]["message"] == "file_kind must be one of: ['other', 'resume']"
+    assert body["error"]["message"] == "file_kind must be one of: ['other', 'resume', 'vacancy']"
     assert body["error"]["correlation_id"]
     assert body["error"]["details"] == {
-        "allowed_file_kinds": ["other", "resume"],
+        "allowed_file_kinds": ["other", "resume", "vacancy"],
     }
 
 

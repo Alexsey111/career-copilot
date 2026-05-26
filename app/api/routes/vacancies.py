@@ -14,6 +14,7 @@ from app.repositories.vacancy_analysis_repository import VacancyAnalysisReposito
 from app.repositories.vacancy_repository import VacancyRepository
 from app.schemas.vacancy import (
     VacancyAnalysisResponse,
+    VacancyImportFromFileRequest,
     VacancyImportFromUrlRequest,
     VacancyImportRequest,
     VacancyImportResponse,
@@ -81,6 +82,36 @@ async def import_vacancy_from_url(
         session,
         user_id=current_user.id,
         **vacancy_payload,
+    )
+
+    return VacancyImportResponse(
+        id=vacancy.id,
+        vacancy_id=vacancy.id,
+        source=vacancy.source,
+        source_url=vacancy.source_url,
+        title=vacancy.title,
+        company=vacancy.company,
+        location=vacancy.location,
+        description_length=len(vacancy.description_raw or ""),
+        created_at=vacancy.created_at,
+    )
+
+
+@router.post("/import-from-file", response_model=VacancyImportResponse)
+async def import_vacancy_from_file(
+    payload: VacancyImportFromFileRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> VacancyImportResponse:
+    service = VacancyImportService()
+    vacancy = await service.import_vacancy_from_source_file(
+        session,
+        user_id=current_user.id,
+        source_file_id=payload.source_file_id,
+        title=payload.title,
+        company=payload.company,
+        location=payload.location,
+        source_url=payload.source_url,
     )
 
     return VacancyImportResponse(

@@ -50,6 +50,20 @@ NICE_TO_HAVE_START_HEADINGS = {
     "OPTIONAL",
 }
 
+SOFT_AI_INTEREST_KEYWORDS = {
+    "AI Interaction",
+    "AI Workflow",
+    "LLM",
+}
+
+SOFT_AI_INTEREST_PATTERNS = [
+    r"интерес\s+к\s+(?:ai|ии|искусственн\w+\s+интеллект)",
+    r"интересоваться\s+(?:ai|ии|искусственн\w+\s+интеллект)",
+    r"желани\w+\s+развиваться\s+в\s+(?:ai|ии|искусственн\w+\s+интеллект)",
+    r"curiosity\s+(?:about|for)\s+ai",
+    r"interest\s+in\s+ai",
+]
+
 STOP_HEADINGS = {
     "ТРЕБОВАНИЯ",
     "ТРЕБУЕМЫЕ НАВЫКИ",
@@ -60,6 +74,10 @@ STOP_HEADINGS = {
     "ЗАДАЧИ",
     "МЫ ПРЕДЛАГАЕМ",
     "УСЛОВИЯ",
+    "ПОСЛЕ ОТКЛИКА",
+    "ЭТАПЫ",
+    "ЭТАПЫ ОТБОРА",
+    "ПРОЦЕСС ОТБОРА",
     "БУДЕТ ПЛЮСОМ",
     "БУДЕТ ПРЕИМУЩЕСТВОМ",
     "ПРЕИМУЩЕСТВОМ БУДЕТ",
@@ -356,6 +374,8 @@ class VacancyAnalysisService:
 
         for requirement_text in must_have:
             for keyword in self._extract_keywords("", requirement_text):
+                if self._is_soft_ai_interest_keyword(keyword, requirement_text):
+                    continue
                 items.append(
                     RequirementKeyword(
                         keyword=keyword,
@@ -516,6 +536,14 @@ class VacancyAnalysisService:
     def _expand_inline_heading_line(self, line: str) -> list[str]:
         cleaned = self._clean_bullet(line)
 
+        prefix_match = self._match_heading_prefix(cleaned)
+        if prefix_match is not None:
+            heading_raw, tail = prefix_match
+            expanded = [heading_raw]
+            if tail:
+                expanded.extend(self._split_inline_requirement_tail(tail))
+            return expanded
+
         if ":" not in cleaned and "：" not in cleaned:
             return [line]
 
@@ -555,6 +583,40 @@ class VacancyAnalysisService:
             return parts
 
         return [value]
+
+    def _match_heading_prefix(self, value: str) -> tuple[str, str] | None:
+        known_headings = sorted(
+            REQUIREMENT_START_HEADINGS
+            | NICE_TO_HAVE_START_HEADINGS
+            | STOP_HEADINGS,
+            key=len,
+            reverse=True,
+        )
+        normalized_value = self._normalize_heading(value)
+
+        for heading in known_headings:
+            if not normalized_value.startswith(f"{heading} "):
+                continue
+
+            tail = value[len(heading):].strip(" :-–—")
+            if not tail:
+                continue
+            return heading.title(), tail
+
+        return None
+
+    def _is_soft_ai_interest_keyword(self, keyword: str, requirement_text: str | None) -> bool:
+        if keyword not in SOFT_AI_INTEREST_KEYWORDS:
+            return False
+
+        text = str(requirement_text or "").casefold()
+        if any(tool in text for tool in ["chatgpt", "chat-gpt", "claude", "llm"]):
+            return False
+
+        return any(
+            re.search(pattern, text, re.IGNORECASE)
+            for pattern in SOFT_AI_INTEREST_PATTERNS
+        )
 
     def _clean_bullet(self, line: str) -> str:
         cleaned = re.sub(r"^[•\-\*\u2022–—✓✔]+\s*", "", line).strip()

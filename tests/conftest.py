@@ -237,11 +237,12 @@ async def client(db_session: AsyncSession, test_user: User):
         yield db_session
 
     test_user_id = test_user.id
+    test_user_email = test_user.email
 
     def override_current_user():
         return SimpleNamespace(
             id=test_user_id,
-            email=test_user.email,
+            email=test_user_email,
             is_active=True,
             is_verified=True,
         )

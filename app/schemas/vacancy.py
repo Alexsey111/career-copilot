@@ -31,6 +31,14 @@ class VacancyImportFromUrlRequest(StrictBaseModel):
     source_url: str = Field(min_length=1)
 
 
+class VacancyImportFromFileRequest(StrictBaseModel):
+    source_file_id: UUID
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    source_url: str | None = None
+
+
 class VacancyImportResponse(StrictBaseModel):
     # Keep both for now:
     # - id is the consistent public API name

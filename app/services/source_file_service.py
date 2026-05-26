@@ -18,7 +18,7 @@ from app.repositories.source_file_repository import SourceFileRepository
 from app.services.storage_service import StorageService
 
 
-ALLOWED_FILE_KINDS = {"resume", "other"}
+ALLOWED_FILE_KINDS = {"resume", "vacancy", "other"}
 
 
 class SourceFileService:

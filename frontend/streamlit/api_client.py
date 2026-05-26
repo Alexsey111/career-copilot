@@ -124,6 +124,28 @@ class CareerCopilotApiClient:
             timeout_seconds=max(self.timeout_seconds, 45.0),
         )
 
+    def import_vacancy_from_file(
+        self,
+        *,
+        source_file_id: str,
+        title: str | None = None,
+        company: str | None = None,
+        location: str | None = None,
+        source_url: str | None = None,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/vacancies/import-from-file",
+            {
+                "source_file_id": source_file_id,
+                "title": title,
+                "company": company,
+                "location": location,
+                "source_url": source_url,
+            },
+            token=token,
+        )
+
     def intake_manual_profile(
         self,
         payload: dict[str, Any],
@@ -161,6 +183,9 @@ class CareerCopilotApiClient:
 
     def get_active_resume_source(self, token: str | None = None) -> dict[str, Any] | None:
         return self.get_json("/files/resume/active", token=token)
+
+    def get_resume_pipeline_state(self, token: str | None = None) -> dict[str, Any]:
+        return self.get_json("/profile/resume-state", token=token)
 
     def _build_headers(self, token: str | None) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -283,6 +308,28 @@ class CareerCopilotApiClient:
         token: str | None = None,
     ) -> dict[str, Any]:
         return self.get_json(f"/evidence/snippets/{snippet_id}", token=token)
+
+    def confirm_evidence(
+        self,
+        evidence_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            f"/evidence/{evidence_id}/confirm",
+            {},
+            token=token,
+        )
+
+    def reject_evidence(
+        self,
+        evidence_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            f"/evidence/{evidence_id}/reject",
+            {},
+            token=token,
+        )
 
     def list_evidence_usages(self, token: str | None = None) -> list[Any]:
         return self.get_json("/evidence/usages", token=token)

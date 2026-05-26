@@ -25,7 +25,7 @@ class HHVacancyImportService:
         match = re.search(r"/vacancy/(\d+)", source_url)
         if not match:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="could not extract HH vacancy id from source_url",
             )
         return match.group(1)

@@ -69,6 +69,26 @@ class FileExtractionRepository:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_latest_for_active_source_file_kind(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        *,
+        file_kind: str,
+    ) -> FileExtraction | None:
+        stmt = (
+            select(FileExtraction)
+            .join(SourceFile, SourceFile.id == FileExtraction.source_file_id)
+            .options(selectinload(FileExtraction.source_file))
+            .where(SourceFile.user_id == user_id)
+            .where(SourceFile.file_kind == file_kind)
+            .where(SourceFile.lifecycle_status == "active")
+            .order_by(FileExtraction.created_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_latest_for_source_file(
         self,
         session: AsyncSession,

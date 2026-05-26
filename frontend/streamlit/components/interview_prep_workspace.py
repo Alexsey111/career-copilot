@@ -29,6 +29,64 @@ def _format_score(value: Any) -> str:
         return str(value)
 
 
+def _normalize_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+
+def _evidence_status_icon(fact_status: str | None) -> str:
+    status = str(fact_status or "").strip().lower()
+    if status in {"confirmed", "user_provided"}:
+        return "✅"
+    if status in {"needs_confirmation", "partial"}:
+        return "⚠️"
+    if status == "rejected":
+        return "🛑"
+    return "❌"
+
+
+def _collect_evidence_by_competency(
+    *,
+    questions: list[dict[str, Any]],
+    evidence_links: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = {}
+
+    for question in questions:
+        competency_key = _normalize_key(question.get("competency_key"))
+        if not competency_key:
+            continue
+
+        for item in question.get("recommended_evidence") or []:
+            result.setdefault(competency_key, []).append(item)
+
+    for item in evidence_links:
+        competency_key = _normalize_key(item.get("competency_key"))
+        if not competency_key:
+            continue
+        result.setdefault(competency_key, []).append(item)
+
+    return result
+
+
+def _best_fact_status(items: list[dict[str, Any]]) -> str | None:
+    statuses = {
+        str(item.get("fact_status") or "").strip().lower()
+        for item in items
+        if str(item.get("fact_status") or "").strip()
+    }
+    if "confirmed" in statuses:
+        return "confirmed"
+    if "user_provided" in statuses:
+        return "user_provided"
+    if "needs_confirmation" in statuses:
+        return "needs_confirmation"
+    if "partial" in statuses:
+        return "partial"
+    if statuses:
+        return sorted(statuses)[0]
+    return None
+
+
 def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
     readiness = readiness or {}
     blockers = readiness.get("blockers") or []
@@ -37,7 +95,7 @@ def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
     if readiness.get("ready"):
         st.success("Готово к подготовке к интервью ✅")
     else:
-        st.error("Подготовка заблокирована ❌")
+        st.warning("Нужно подтвердить факты для полной подготовки ⚠️")
 
     col_ready, col_blockers, col_warnings, col_score = st.columns(4)
 
@@ -54,11 +112,87 @@ def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
         st.markdown("**Блокеры**")
         for blocker in blockers:
             st.markdown(f"- {blocker}")
+        st.caption(
+            "Это не ошибка. Система нашла возможные доказательства, "
+            "но они ещё не подтверждены пользователем. Подтвердите релевантные evidence/achievements "
+            "или используйте вопросы как черновик подготовки."
+        )
 
     if warnings:
         st.markdown("**Предупреждения**")
         for warning in warnings:
             st.markdown(f"- {warning}")
+
+
+def _render_competency_coverage(
+    *,
+    competency_map: dict[str, Any] | None,
+    questions: list[dict[str, Any]],
+    evidence_links: list[dict[str, Any]],
+    weak_areas: list[dict[str, Any]],
+) -> None:
+    competency_map = competency_map or {}
+    required_skills = competency_map.get("required_skills") or []
+
+    st.markdown("### Покрытие компетенций доказательствами")
+    st.caption(
+        "Показывает, какие требования вакансии уже подтверждены, "
+        "какие требуют подтверждения, а где доказательств пока нет."
+    )
+
+    if not required_skills:
+        st.info("Обязательные компетенции не извлечены.")
+        return
+
+    evidence_by_competency = _collect_evidence_by_competency(
+        questions=questions,
+        evidence_links=evidence_links,
+    )
+    weak_by_competency = {
+        _normalize_key(item.get("competency_key")): item
+        for item in weak_areas
+        if item.get("competency_key")
+    }
+
+    rows = []
+    for skill in required_skills:
+        key = _normalize_key(skill.get("key"))
+        label = skill.get("label") or skill.get("key") or "—"
+        evidence_items = evidence_by_competency.get(key, [])
+        fact_status = _best_fact_status(evidence_items)
+
+        if fact_status in {"confirmed", "user_provided"}:
+            status_text = "Подтверждено"
+        elif fact_status in {"needs_confirmation", "partial"}:
+            status_text = "Нужно подтвердить"
+        elif key in weak_by_competency:
+            status_text = "Нет подтверждённого evidence"
+        else:
+            status_text = "Не определено"
+
+        rows.append(
+            {
+                "Статус": _evidence_status_icon(fact_status if evidence_items else None),
+                "Компетенция": label,
+                "Покрытие": status_text,
+                "Evidence": len(evidence_items),
+                "Лучший fact_status": fact_status or "—",
+                "Комментарий": (
+                    weak_by_competency.get(key, {}).get("message")
+                    if key in weak_by_competency
+                    else "Есть supporting evidence"
+                    if evidence_items
+                    else "Evidence не найдено"
+                ),
+            }
+        )
+
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    st.caption(
+        "✅ подтверждённое evidence · ⚠️ найдено, но требует подтверждения · "
+        "❌ evidence не найдено"
+    )
 
 
 def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
@@ -270,6 +404,7 @@ def _render_create_action(
     client: CareerCopilotApiClient,
     *,
     token: str | None,
+    selection_state_key: str,
 ) -> None:
     application = st.session_state.get("application")
     if not application:
@@ -288,11 +423,13 @@ def _render_create_action(
     st.caption(f"application_id: {application_id}")
     st.caption(f"vacancy_id: {application.get('vacancy_id')}")
 
+    button_key = f"{selection_state_key}_create_interview_prep_session"
+
     if st.button(
         "Создать сессию подготовки к интервью",
         type="primary",
         use_container_width=True,
-        key="create_interview_prep_session",
+        key=button_key,
     ):
         try:
             session = client.create_interview_prep_session(
@@ -317,7 +454,7 @@ def _render_create_action(
             st.json(session)
             return
 
-        st.session_state["interview_prep_workspace_selection"] = str(session.get("id") or "")
+        st.session_state[selection_state_key] = str(session.get("id") or "")
         st.success("Сессия подготовки к интервью создана")
         st.rerun()
 
@@ -338,7 +475,11 @@ def render_interview_prep_workspace_tab(
         st.warning("Войдите, чтобы открыть подготовку к интервью.")
         return
 
-    _render_create_action(client, token=token)
+    _render_create_action(
+        client,
+        token=token,
+        selection_state_key=selection_state_key,
+    )
 
     try:
         sessions = client.list_interview_prep_sessions(token=token)
@@ -359,6 +500,15 @@ def render_interview_prep_workspace_tab(
         st.error("Backend вернул неожиданный список сессий")
         st.json(sessions)
         return
+
+    current_application = st.session_state.get("application") or {}
+    current_application_id = str(current_application.get("id") or "").strip()
+
+    if current_application_id:
+        sessions = [
+            item for item in sessions
+            if str(item.get("application_id") or "").strip() == current_application_id
+        ]
 
     if not sessions:
         st.info("Сессии подготовки к интервью пока не созданы.")
@@ -473,6 +623,13 @@ def render_interview_prep_workspace_tab(
     )
 
     _render_readiness_panel(selected_session.get("readiness"))
+    st.divider()
+    _render_competency_coverage(
+        competency_map=selected_session.get("competency_map"),
+        questions=selected_session.get("questions") or [],
+        evidence_links=selected_session.get("evidence_links") or [],
+        weak_areas=selected_session.get("weak_areas") or [],
+    )
     st.divider()
     _render_competency_map(selected_session.get("competency_map"))
     st.divider()

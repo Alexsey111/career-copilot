@@ -31,10 +31,19 @@ class InterviewReadinessService:
             if skill["key"] in matched_skill_keys:
                 continue
 
+            has_partial = self._has_partial_skill_evidence(
+                skill_key=skill["key"],
+                skill_label=skill["label"],
+                evidence_snippets=evidence_snippets or [],
+            )
+            message = f"No confirmed {skill['label']} evidence"
+            if has_partial:
+                message += ". GitHub/resume evidence exists but still requires confirmation."
+
             weak_areas.append(
                 {
                     "code": f"missing_confirmed_{skill['key']}",
-                    "message": f"No confirmed {skill['label']} evidence",
+                    "message": message,
                     "severity": "blocker",
                     "category": "technical",
                     "competency_key": skill["key"],
@@ -230,6 +239,44 @@ class InterviewReadinessService:
             "confirmed",
             "user_provided",
         }
+
+    def _has_partial_skill_evidence(
+        self,
+        *,
+        skill_key: str,
+        skill_label: str,
+        evidence_snippets: list[dict[str, Any]],
+    ) -> bool:
+        skill_tokens = self._tokenize(skill_label)
+
+        for evidence in evidence_snippets:
+            fact_status = str(
+                evidence.get("fact_status") or ""
+            ).strip().lower()
+
+            if fact_status not in {
+                "needs_confirmation",
+                "partial",
+            }:
+                continue
+
+            text = self._evidence_search_text(evidence)
+            text_tokens = self._tokenize(text)
+
+            evidence_skills = {
+                str(item).strip().lower().replace(" ", "_")
+                for item in (evidence.get("skills") or [])
+                if str(item).strip()
+            }
+
+            if (
+                skill_key in text
+                or skill_key in evidence_skills
+                or skill_tokens & text_tokens
+            ):
+                return True
+
+        return False
 
     def _evidence_search_text(self, evidence: dict[str, Any]) -> str:
         star_summary = evidence.get("star_summary") or {}
