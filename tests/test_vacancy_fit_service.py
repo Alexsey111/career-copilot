@@ -168,3 +168,75 @@ async def test_vacancy_fit_service_classifies_gap_severity_and_evidence_coverage
     assert stakeholder_item["supporting_evidence"]
     assert stakeholder_item["supporting_evidence"][0]["fact_status"] == "confirmed"
     assert stakeholder_item["supporting_evidence"][0]["evidence_strength"] == "strong"
+
+
+@pytest.mark.asyncio
+async def test_vacancy_fit_service_uses_user_provided_project_evidence() -> None:
+    vacancy = SimpleNamespace(
+        id=uuid4(),
+        title="AI Automation Engineer",
+        company="Acme",
+        location="Remote",
+        description_raw="Must have: computer vision, AI workflow and no-code automation.",
+    )
+    analysis = SimpleNamespace(
+        id=uuid4(),
+        analysis_version="deterministic_v1",
+        must_have_json=[
+            {"text": "Computer vision"},
+            {"text": "AI Workflow"},
+            {"text": "No-code"},
+        ],
+        nice_to_have_json=[],
+        keywords_json=["Computer vision", "AI Workflow", "No-code"],
+    )
+    profile = SimpleNamespace(
+        full_name="Test Candidate",
+        headline="AI Engineer",
+        location="Remote",
+        summary="AI automation and computer vision projects.",
+        target_roles_json=["AI Automation Engineer"],
+        experiences=[],
+        achievements=[],
+    )
+    snippets = [
+        SimpleNamespace(
+            id=uuid4(),
+            title="Автоматизированный ИИ-контроль качества",
+            snippet_text=(
+                "Computer vision automation workflow for quality control "
+                "from images and video."
+            ),
+            source_type="resume_structured",
+            skills_json=["AI", "computer vision", "automation"],
+            evidence_strength="strong",
+            fact_status="user_provided",
+            usage_count=0,
+            used_in_documents_count=0,
+            used_in_interviews_count=0,
+            star_summary_json={
+                "category": "automation",
+                "source": "structured_resume_extraction_v2",
+            },
+        )
+    ]
+
+    service = VacancyFitService(
+        vacancy_repository=_VacancyRepo(vacancy),
+        vacancy_analysis_repository=_AnalysisRepo(analysis),
+        candidate_profile_repository=_ProfileRepo(profile),
+        evidence_snippet_repository=_EvidenceRepo(snippets),
+    )
+
+    fit = await service.build_vacancy_fit(
+        None,
+        vacancy_id=vacancy.id,
+        user_id=uuid4(),
+    )
+
+    covered = fit["evidence_coverage"]["strong"] + fit["evidence_coverage"]["medium"]
+    assert any("computer" in str(item["requirement"]).casefold() for item in covered)
+    assert any("workflow" in str(item["requirement"]).casefold() for item in covered)
+    assert any("no-code" in str(item["requirement"]).casefold() for item in covered)
+    assert fit["evidence_fit"] > 0
+    assert fit["requirements"][0]["supporting_evidence"][0]["fact_status"] == "user_provided"

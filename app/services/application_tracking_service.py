@@ -11,7 +11,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.application_models import (
-    ApplicationStatus,
     is_valid_transition,
     get_allowed_transitions,
 )
@@ -121,6 +120,7 @@ class ApplicationTrackingService:
     def get_application_workflow_metadata(self, application: Any) -> dict[str, Any]:
         current_status = str(getattr(application, "status", "") or "").strip().lower()
         allowed_transitions = self._sorted_allowed_transitions(current_status)
+        review_state = self._get_application_review_state(application)
 
         return {
             "current_status": current_status,
@@ -133,6 +133,7 @@ class ApplicationTrackingService:
             ],
             "can_submit": current_status == "ready",
             "is_final": len(allowed_transitions) == 0,
+            **review_state,
         }
 
     def _event_type_for_status(self, status: str) -> ApplicationEventType:
@@ -167,9 +168,10 @@ class ApplicationTrackingService:
                 detail="vacancy not found",
             )
 
-        # Проверяем, что документы существуют и approved (snapshot versions)
+        # Проверяем, что документы существуют и пригодны как snapshot versions.
+        # Human review no longer blocks MVP application creation; it becomes a risk flag.
         if resume_document_id is not None:
-            resume_doc = await self._validate_application_document(
+            await self._validate_application_document(
                 session,
                 document_id=resume_document_id,
                 user_id=user_id,
@@ -179,7 +181,7 @@ class ApplicationTrackingService:
             )
 
         if cover_letter_document_id is not None:
-            cover_letter_doc = await self._validate_application_document(
+            await self._validate_application_document(
                 session,
                 document_id=cover_letter_document_id,
                 user_id=user_id,
@@ -220,6 +222,16 @@ class ApplicationTrackingService:
                     cover_letter_document_id=cover_letter_document_id,
                 ),
             )
+            review_state = await self._annotate_application_review_state(
+                session,
+                application,
+            )
+            if review_state["review_required"]:
+                await self._create_application_review_required_event(
+                    session,
+                    application_id=application.id,
+                    review_state=review_state,
+                )
             await session.flush()
         except IntegrityError as exc:
             if _is_duplicate_application_error(exc):
@@ -230,6 +242,7 @@ class ApplicationTrackingService:
             raise
 
         await session.refresh(application)
+        await self._annotate_application_review_state(session, application)
         return application
 
     async def _validate_application_document(
@@ -271,12 +284,6 @@ class ApplicationTrackingService:
                 detail=f"{expected_kind} document has no rendered text",
             )
 
-        if document.review_status != "approved":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{expected_kind} document must be approved before application",
-            )
-
         return document
 
     async def attach_documents(
@@ -297,7 +304,7 @@ class ApplicationTrackingService:
 
         # Проверяем документы
         if resume_document_id is not None:
-            resume_doc = await self._validate_application_document(
+            await self._validate_application_document(
                 session,
                 document_id=resume_document_id,
                 user_id=user_id,
@@ -307,7 +314,7 @@ class ApplicationTrackingService:
             )
 
         if cover_letter_document_id is not None:
-            cover_letter_doc = await self._validate_application_document(
+            await self._validate_application_document(
                 session,
                 document_id=cover_letter_document_id,
                 user_id=user_id,
@@ -332,6 +339,13 @@ class ApplicationTrackingService:
 
         await session.flush()
         await session.refresh(application)
+        review_state = await self._annotate_application_review_state(session, application)
+        if review_state["review_required"]:
+            await self._create_application_review_required_event(
+                session,
+                application_id=application.id,
+                review_state=review_state,
+            )
         return application
 
     async def schedule_interview(
@@ -451,19 +465,14 @@ class ApplicationTrackingService:
             vacancy_id=application.vacancy_id,
         )
 
-        if not safety.allowed:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "message": "application safety gate blocked submission",
-                    "blockers": safety.blockers,
-                    "warnings": safety.warnings,
-                    "document_id": (
-                        str(safety.document_id) if safety.document_id else None
-                    ),
-                    "score": safety.score,
-                },
-            )
+        review_required = not safety.allowed
+        review_state = {
+            "review_required": review_required,
+            "review_blockers": [],
+            "review_warnings": list(safety.blockers) + list(safety.warnings),
+            "review_score": safety.score,
+            "review_document_id": str(safety.document_id) if safety.document_id else None,
+        }
 
         submission_source = source or "manual"
         application.status = "applied"
@@ -489,11 +498,27 @@ class ApplicationTrackingService:
                 source=submission_source,
                 external_link=external_link,
                 applied_at=application.applied_at,
-            ),
+            )
+            | {
+                "review_required": review_required,
+                "review_blockers": [],
+                "review_warnings": list(safety.blockers) + list(safety.warnings),
+                "review_document_id": (
+                    str(safety.document_id) if safety.document_id else None
+                ),
+                "review_score": safety.score,
+            },
         )
+        if review_required:
+            await self._create_application_review_required_event(
+                session,
+                application_id=application.id,
+                review_state=review_state,
+            )
 
         await session.flush()
         await session.refresh(application)
+        self._set_application_review_state(application, review_state)
         return application
 
     async def update_status(
@@ -562,6 +587,7 @@ class ApplicationTrackingService:
 
         await session.flush()
         await session.refresh(application)
+        await self._annotate_application_review_state(session, application)
         return application
 
     def _validate_status_transition(
@@ -571,7 +597,7 @@ class ApplicationTrackingService:
         next_status: str,
     ) -> None:
         """Deprecated: Use is_valid_transition from app.domain.application_models."""
-        from app.domain.application_models import is_valid_transition, get_allowed_transitions
+        from app.domain.application_models import is_valid_transition
 
         if is_valid_transition(current_status, next_status):  # type: ignore
             return
@@ -642,6 +668,7 @@ class ApplicationTrackingService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="application not found",
             )
+        await self._annotate_application_review_state(session, application)
         return application
 
     async def get_application_timeline(
@@ -700,7 +727,9 @@ class ApplicationTrackingService:
         items: list[dict] = []
 
         for application in applications:
+            await self._annotate_application_review_state(session, application)
             vacancy = application.vacancy
+            review_state = self._get_application_review_state(application)
 
             items.append(
                 {
@@ -717,9 +746,111 @@ class ApplicationTrackingService:
                     "applied_at": application.applied_at,
                     "outcome": application.outcome,
                     "notes": application.notes,
+                    **review_state,
                     "created_at": application.created_at,
                     "updated_at": application.updated_at,
                 }
             )
 
         return items
+
+    async def _annotate_application_review_state(
+        self,
+        session: AsyncSession,
+        application: Any,
+    ) -> dict[str, Any]:
+        review_state = await self._calculate_application_review_state(
+            session,
+            application=application,
+        )
+        self._set_application_review_state(application, review_state)
+        return review_state
+
+    async def _calculate_application_review_state(
+        self,
+        session: AsyncSession,
+        *,
+        application: Any,
+    ) -> dict[str, Any]:
+        blockers: list[str] = []
+        warnings: list[str] = []
+
+        for document_id, expected_kind, required in (
+            (application.resume_document_id, "resume", True),
+            (application.cover_letter_document_id, "cover_letter", False),
+        ):
+            if document_id is None:
+                continue
+
+            document = await self.document_version_repository.get_by_id(
+                session,
+                document_id,
+                user_id=application.user_id,
+            )
+            if document is None:
+                if required:
+                    blockers.append(f"{expected_kind} document not found")
+                continue
+
+            if document.document_kind != expected_kind:
+                blockers.append(f"document must be {expected_kind}")
+                continue
+
+            if document.rendered_text is None and required:
+                blockers.append(f"{expected_kind} document has no rendered text")
+
+            if document.review_status != "approved":
+                warnings.append(f"{expected_kind} document review is not approved")
+
+            content = document.content_json or {}
+            sections = content.get("sections", {})
+            unresolved_claims = sections.get("claims_needing_confirmation", [])
+            if unresolved_claims:
+                warnings.append(
+                    f"{expected_kind} document has unresolved claims requiring confirmation"
+                )
+
+        review_required = bool(blockers or warnings)
+        return {
+            "review_required": review_required,
+            "review_blockers": blockers,
+            "review_warnings": warnings,
+        }
+
+    def _set_application_review_state(
+        self,
+        application: Any,
+        review_state: dict[str, Any],
+    ) -> None:
+        application.review_required = bool(review_state.get("review_required"))
+        application.review_blockers = list(review_state.get("review_blockers") or [])
+        application.review_warnings = list(review_state.get("review_warnings") or [])
+
+    def _get_application_review_state(self, application: Any) -> dict[str, Any]:
+        return {
+            "review_required": bool(getattr(application, "review_required", False)),
+            "review_blockers": list(getattr(application, "review_blockers", []) or []),
+            "review_warnings": list(getattr(application, "review_warnings", []) or []),
+        }
+
+    async def _create_application_review_required_event(
+        self,
+        session: AsyncSession,
+        *,
+        application_id: UUID,
+        review_state: dict[str, Any],
+    ) -> None:
+        await self._create_application_event(
+            session,
+            application_id=application_id,
+            event_type=ApplicationEventType.APPLICATION_REVIEW_REQUIRED,
+            title="Application requires review",
+            description="Application flow continued with review-required risk flags",
+            meta_json={
+                "review_required": bool(review_state.get("review_required")),
+                "review_blockers": list(review_state.get("review_blockers") or []),
+                "review_warnings": list(review_state.get("review_warnings") or []),
+                "review_document_id": review_state.get("review_document_id"),
+                "review_score": review_state.get("review_score"),
+            },
+        )

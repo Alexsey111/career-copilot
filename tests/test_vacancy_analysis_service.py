@@ -51,6 +51,7 @@ def test_extract_keywords_detects_common_backend_and_ai_skills() -> None:
 Нужен Python backend developer.
 Стек: FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, Docker.
 Важно: LLM, RAG, prompt engineering, pytest.
+Дополнительно: AI workflow, ChatGPT, no-code automation tools.
 """,
     )
 
@@ -64,6 +65,10 @@ def test_extract_keywords_detects_common_backend_and_ai_skills() -> None:
     assert "LLM" in keywords
     assert "RAG" in keywords
     assert "Prompt Engineering" in keywords
+    assert "AI Workflow" in keywords
+    assert "ChatGPT" in keywords
+    assert "No-code" in keywords
+    assert "Automation" in keywords
     assert "Pytest" in keywords
 
 
@@ -199,6 +204,46 @@ def test_profile_summary_skills_are_used_for_match_score() -> None:
     assert strength_keywords == {"Python", "FastAPI", "Docker"}
     assert gap_keywords == {"PostgreSQL", "Redis"}
     assert match_score == 64
+
+
+def test_semantic_vacancy_matching_maps_ai_workflow_chatgpt_prompting_and_nocode() -> None:
+    service = VacancyAnalysisService()
+
+    profile = SimpleNamespace(
+        headline="AI Automation Specialist",
+        summary=(
+            "Built AI workflow automation with ChatGPT, LLM tooling, "
+            "prompt engineering and no-code tools."
+        ),
+        target_roles_json=["AI Automation Specialist"],
+        experiences=[],
+        achievements=[],
+    )
+
+    strengths, gaps, match_score = service._compare_with_profile(
+        profile,
+        ["Automation", "LLM", "AI Interaction", "Automation Tooling"],
+        must_have=[
+            "AI workflow automation",
+            "ChatGPT for LLM tooling",
+            "Prompt engineering for AI interaction",
+            "No-code automation tooling",
+        ],
+        nice_to_have=[],
+    )
+
+    assert {item["keyword"] for item in strengths} == {
+        "Automation",
+        "AI Workflow",
+        "LLM",
+        "ChatGPT",
+        "Prompt Engineering",
+        "AI Interaction",
+        "No-code",
+        "Automation Tooling",
+    }
+    assert gaps == []
+    assert match_score == 100
 
 
 def test_extract_section_items_handles_inline_colon_headings() -> None:

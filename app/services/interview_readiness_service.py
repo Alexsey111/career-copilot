@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.domain.interview_prep import (
@@ -17,11 +18,13 @@ class InterviewReadinessService:
         *,
         competency_map: dict[str, Any],
         confirmed_achievements: list[dict[str, Any]],
+        evidence_snippets: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         weak_areas: list[dict[str, Any]] = []
         matched_skill_keys = self._matched_required_skill_keys(
             competency_map=competency_map,
             confirmed_achievements=confirmed_achievements,
+            evidence_snippets=evidence_snippets or [],
         )
 
         for skill in competency_map.get("required_skills") or []:
@@ -41,8 +44,10 @@ class InterviewReadinessService:
 
         seniority = competency_map.get("seniority_expectations") or {}
         level = str(seniority.get("level") or "").lower()
+        evidence_snippets = evidence_snippets or []
         if level in {"senior", "lead", "staff", "principal"} and not self._has_leadership_evidence(
-            confirmed_achievements
+            confirmed_achievements,
+            evidence_snippets,
         ):
             weak_areas.append(
                 {
@@ -56,7 +61,8 @@ class InterviewReadinessService:
             )
 
         if level in {"senior", "lead", "staff", "principal"} and not self._has_scale_metrics(
-            confirmed_achievements
+            confirmed_achievements,
+            evidence_snippets,
         ):
             weak_areas.append(
                 {
@@ -71,6 +77,7 @@ class InterviewReadinessService:
 
         if competency_map.get("domain_expectations") and not self._has_domain_evidence(
             confirmed_achievements,
+            evidence_snippets,
             competency_map.get("domain_expectations") or [],
         ):
             weak_areas.append(
@@ -137,6 +144,7 @@ class InterviewReadinessService:
         *,
         competency_map: dict[str, Any],
         confirmed_achievements: list[dict[str, Any]],
+        evidence_snippets: list[dict[str, Any]],
     ) -> set[str]:
         matched: set[str] = set()
         for skill in competency_map.get("required_skills") or []:
@@ -148,23 +156,60 @@ class InterviewReadinessService:
                 if skill["key"] in text or skill_tokens & text_tokens:
                     matched.add(skill["key"])
                     break
+            if skill["key"] in matched:
+                continue
+            for evidence in evidence_snippets:
+                if not self._is_interview_ready_evidence(evidence):
+                    continue
+                text = self._evidence_search_text(evidence)
+                text_tokens = self._tokenize(text)
+                evidence_skills = {
+                    str(item).strip().lower().replace(" ", "_")
+                    for item in (evidence.get("skills") or [])
+                    if str(item).strip()
+                }
+                if (
+                    skill["key"] in text
+                    or skill["key"] in evidence_skills
+                    or skill_tokens & text_tokens
+                    or skill_tokens & self._tokenize(" ".join(evidence_skills))
+                ):
+                    matched.add(skill["key"])
+                    break
         return matched
 
-    def _has_leadership_evidence(self, achievements: list[dict[str, Any]]) -> bool:
+    def _has_leadership_evidence(
+        self,
+        achievements: list[dict[str, Any]],
+        evidence_snippets: list[dict[str, Any]],
+    ) -> bool:
         for achievement in achievements:
             if has_leadership_tokens(achievement_search_text(achievement)):
                 return True
+        for evidence in evidence_snippets:
+            if self._is_interview_ready_evidence(evidence) and has_leadership_tokens(
+                self._evidence_search_text(evidence)
+            ):
+                return True
         return False
 
-    def _has_scale_metrics(self, achievements: list[dict[str, Any]]) -> bool:
+    def _has_scale_metrics(
+        self,
+        achievements: list[dict[str, Any]],
+        evidence_snippets: list[dict[str, Any]],
+    ) -> bool:
         for achievement in achievements:
             if has_metric_text(achievement):
+                return True
+        for evidence in evidence_snippets:
+            if self._is_interview_ready_evidence(evidence) and self._has_metric_signal(evidence):
                 return True
         return False
 
     def _has_domain_evidence(
         self,
         achievements: list[dict[str, Any]],
+        evidence_snippets: list[dict[str, Any]],
         domain_expectations: list[str],
     ) -> bool:
         domain_text = " ".join(domain_expectations).lower()
@@ -172,10 +217,56 @@ class InterviewReadinessService:
             text = achievement_search_text(achievement)
             if any(token in text for token in self._tokenize(domain_text)):
                 return True
+        for evidence in evidence_snippets:
+            if not self._is_interview_ready_evidence(evidence):
+                continue
+            text = self._evidence_search_text(evidence)
+            if any(token in text for token in self._tokenize(domain_text)):
+                return True
         return False
+
+    def _is_interview_ready_evidence(self, evidence: dict[str, Any]) -> bool:
+        return str(evidence.get("fact_status") or "").strip().lower() in {
+            "confirmed",
+            "user_provided",
+        }
+
+    def _evidence_search_text(self, evidence: dict[str, Any]) -> str:
+        star_summary = evidence.get("star_summary") or {}
+        return " ".join(
+            str(value or "")
+            for value in [
+                evidence.get("title"),
+                evidence.get("snippet_text"),
+                evidence.get("evidence_note"),
+                " ".join(str(skill) for skill in (evidence.get("skills") or [])),
+                star_summary.get("situation"),
+                star_summary.get("task"),
+                star_summary.get("action"),
+                star_summary.get("result"),
+            ]
+        ).lower()
+
+    def _has_metric_signal(self, evidence: dict[str, Any]) -> bool:
+        text = self._evidence_search_text(evidence)
+        return bool(
+            re.search(r"\b\d+(\.\d+)?\b", text)
+            or any(
+                keyword in text
+                for keyword in [
+                    "%",
+                    "latency",
+                    "throughput",
+                    "requests per second",
+                    "rps",
+                    "users",
+                    "scale",
+                    "performance",
+                ]
+            )
+        )
 
     def _tokenize(self, text: str) -> set[str]:
         import re
 
         return set(re.findall(r"[a-zа-я0-9]+", text.lower()))
-

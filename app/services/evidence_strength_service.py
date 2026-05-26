@@ -27,12 +27,19 @@ class EvidenceStrengthService:
         evidence_note = str(evidence.get("evidence_note") or "")
         fact_status = str(evidence.get("fact_status") or "").strip().lower()
         star = self._resolve_star_summary(evidence)
-        skills = evidence.get("skills") or extract_skill_tags(title, snippet_text, metric_text, evidence_note)
+        skills = evidence.get("skills") or extract_skill_tags(
+            title,
+            snippet_text,
+            metric_text,
+            evidence_note,
+        )
 
         score = 0.0
 
         if fact_status == EvidenceFactStatus.CONFIRMED:
             score += 0.35
+        elif fact_status == EvidenceFactStatus.USER_PROVIDED:
+            score += 0.25
         elif fact_status == EvidenceFactStatus.PARTIAL:
             score += 0.2
 
@@ -80,6 +87,8 @@ class EvidenceStrengthService:
         fact_status = str(evidence.get("fact_status") or "").strip().lower()
         if fact_status == EvidenceFactStatus.CONFIRMED:
             reasons.append("confirmed fact")
+        elif fact_status == EvidenceFactStatus.USER_PROVIDED:
+            reasons.append("user-provided fact")
         elif fact_status == EvidenceFactStatus.PARTIAL:
             reasons.append("partial verification")
         else:

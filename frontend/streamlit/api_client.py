@@ -121,7 +121,46 @@ class CareerCopilotApiClient:
             "/vacancies/import-from-url",
             {"source_url": source_url},
             token=token,
+            timeout_seconds=max(self.timeout_seconds, 45.0),
         )
+
+    def intake_manual_profile(
+        self,
+        payload: dict[str, Any],
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json("/profile/intake/manual", payload, token=token)
+
+    def intake_github_profile(
+        self,
+        payload: dict[str, Any],
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json("/profile/intake/github", payload, token=token)
+
+    def import_github_public_profile(
+        self,
+        *,
+        profile_url: str,
+        target_role: str | None = None,
+        max_repositories: int = 12,
+        include_readme: bool = True,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/profile/intake/github-public",
+            {
+                "profile_url": profile_url,
+                "target_role": target_role,
+                "max_repositories": max_repositories,
+                "include_readme": include_readme,
+            },
+            token=token,
+            timeout_seconds=max(self.timeout_seconds, 90.0),
+        )
+
+    def get_active_resume_source(self, token: str | None = None) -> dict[str, Any] | None:
+        return self.get_json("/files/resume/active", token=token)
 
     def _build_headers(self, token: str | None) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -183,12 +222,19 @@ class CareerCopilotApiClient:
         response.raise_for_status()
         return response.content
 
-    def post_json(self, path: str, payload: dict[str, Any], token: str | None = None) -> Any:
+    def post_json(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        token: str | None = None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> Any:
         response = httpx.post(
             self._build_url(path),
             json=payload,
             headers=self._build_headers(token),
-            timeout=self.timeout_seconds,
+            timeout=timeout_seconds or self.timeout_seconds,
         )
         response.raise_for_status()
         return response.json()

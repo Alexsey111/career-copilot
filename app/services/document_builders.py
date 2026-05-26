@@ -73,6 +73,9 @@ def build_resume_content(
     trace: GenerationTrace | None = None,
     selected_evidence_ids: list[Any] | None = None,
     evidence_selection_reason: list[dict[str, Any]] | None = None,
+    vacancy_aligned_summary: str | None = None,
+    competency_mapping: list[dict[str, Any]] | None = None,
+    relevant_to_vacancy: list[str] | None = None,
 ) -> dict:
     provenance = build_document_provenance(
         source=source,
@@ -95,6 +98,9 @@ def build_resume_content(
         "target_vacancy": to_jsonable(target_vacancy),
         "sections": {
             "fit_summary": fit_summary,
+            "vacancy_aligned_summary": vacancy_aligned_summary,
+            "competency_mapping": to_jsonable(competency_mapping or []),
+            "relevant_to_vacancy": relevant_to_vacancy or [],
             "summary_bullets": summary_bullets,
             "skills": skills,
             "experience": to_jsonable(experience),
@@ -161,6 +167,8 @@ def build_cover_letter_content(
     trace: GenerationTrace | None = None,
     selected_evidence_ids: list[Any] | None = None,
     evidence_selection_reason: list[dict[str, Any]] | None = None,
+    vacancy_alignment: list[dict[str, Any]] | None = None,
+    evidence_relevance: list[dict[str, Any]] | None = None,
 ) -> dict:
     provenance = build_document_provenance(
         source=source,
@@ -185,6 +193,8 @@ def build_cover_letter_content(
             "opening": opening,
             "relevance_paragraph": relevance_paragraph,
             "closing": closing,
+            "vacancy_alignment": to_jsonable(vacancy_alignment or []),
+            "evidence_relevance": to_jsonable(evidence_relevance or []),
             "matched_keywords": matched_keywords,
             "missing_keywords": missing_keywords,
             "matched_requirements": to_jsonable(matched_requirements),

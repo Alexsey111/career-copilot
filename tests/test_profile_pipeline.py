@@ -57,6 +57,26 @@ async def test_resume_profile_pipeline_end_to_end(
     assert structured_data["full_name"] == "Алексей Перминов"
     assert structured_data["target_roles"]
     assert structured_data["experience_count"] >= 1
+    assert structured_data["project_count"] >= 1
+    assert structured_data["evidence_snippet_count"] >= 1
+    assert "LLM" in structured_data["technologies"]
+    assert structured_data["structured_evidence"]
+
+    evidence_response = await client.get(f"{API_PREFIX}/evidence/snippets")
+    assert evidence_response.status_code == 200, evidence_response.text
+    evidence_payload = evidence_response.json()
+    assert any(item["source_type"] == "resume_structured" for item in evidence_payload)
+    assert any(
+        item["star_summary"].get("source") == "structured_resume_extraction_v2"
+        for item in evidence_payload
+    )
+
+    bank_response = await client.get(f"{API_PREFIX}/evidence/bank")
+    assert bank_response.status_code == 200, bank_response.text
+    bank_payload = bank_response.json()
+    assert bank_payload["snippets"]
+    assert bank_payload["project_evidence"]
+    assert bank_payload["competency_signals"]
 
     achievements_response = await client.post(
         f"{API_PREFIX}/profile/extract-achievements",

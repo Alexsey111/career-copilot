@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import difflib
 import logging
 import re
 from datetime import datetime, timezone
@@ -15,29 +14,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 if TYPE_CHECKING:
     from app.ai.orchestrator import AIOrchestrator
 
+from app.db.session import AsyncSessionLocal
+from app.domain.document_models import GapMitigation, SelectedAchievement
+from app.domain.evidence import EvidenceSourceType
+from app.domain.evidence_confidence import aggregate_evidence_confidence
+from app.models import Vacancy
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
-from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.repositories.document_version_repository import DocumentVersionRepository
+from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.db.session import AsyncSessionLocal
-from app.models import Vacancy
-
-logger = logging.getLogger(__name__)
-from app.domain.evidence import EvidenceSourceType
-from app.domain.evidence_confidence import aggregate_evidence_confidence
-from app.domain.document_models import GapMitigation, SelectedAchievement
+from app.services.document_builders import build_cover_letter_content
 from app.services.document_compat import (
     achievement_to_dict,
     ensure_keyword_set,
     ensure_selected_achievement,
 )
 from app.services.document_feedback import build_claim, build_warning
-from app.services.document_builders import build_cover_letter_content
+from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.resume_renderer import render_cover_letter
+
+logger = logging.getLogger(__name__)
 
 
 class CoverLetterGenerationService:
@@ -52,6 +52,7 @@ class CoverLetterGenerationService:
         ai_orchestrator: AIOrchestrator | None = None,
         evidence_extraction_service: EvidenceExtractionService | None = None,
         evidence_selection_service: EvidenceSelectionService | None = None,
+        evidence_bank_service: EvidenceBankService | None = None,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.vacancy_analysis_repository = (
@@ -73,6 +74,10 @@ class CoverLetterGenerationService:
         )
         self.evidence_selection_service = (
             evidence_selection_service or EvidenceSelectionService()
+        )
+        self.evidence_bank_service = evidence_bank_service or EvidenceBankService(
+            repository=self.evidence_snippet_repository,
+            extraction_service=self.evidence_extraction_service,
         )
 
     async def generate_cover_letter(
@@ -136,45 +141,18 @@ class CoverLetterGenerationService:
             user_id=str(vacancy.user_id),
         )
 
-        evidence_snippet_drafts = self.evidence_extraction_service.extract_from_achievements(
-            confirmed_achievements,
-            user_id=str(vacancy.user_id),
-            source_type=EvidenceSourceType.ACHIEVEMENT,
-        )
-        persisted_snippets = await self.evidence_snippet_repository.upsert_many(
+        evidence_bank = await self.evidence_bank_service.build_bank(
             session,
             user_id=vacancy.user_id,
-            snippets=[
-                self.evidence_extraction_service.snippet_to_dict(snippet)
-                for snippet in evidence_snippet_drafts
-            ],
+            achievements=confirmed_achievements,
         )
-        evidence_snippets = [
-            self._evidence_snippet_to_dict(item)
-            for item in persisted_snippets
-        ]
-        if not evidence_snippets:
-            existing_snippets = await self.evidence_snippet_repository.list_by_user_id(
-                session,
-                user_id=vacancy.user_id,
-                source_types=[EvidenceSourceType.ACHIEVEMENT],
-            )
-            evidence_snippets = [
-                self._evidence_snippet_to_dict(item)
-                for item in existing_snippets
-            ]
+        evidence_snippets = [item.as_dict() for item in evidence_bank.snippets]
 
         evidence_by_title = {
             re.sub(r"\s+", " ", str(snippet.get("title") or "").strip()).lower(): snippet
             for snippet in evidence_snippets
             if str(snippet.get("title") or "").strip() and str(snippet.get("id") or "").strip()
         }
-        evidence_by_id = {
-            str(snippet.get("id") or "").strip(): snippet
-            for snippet in evidence_snippets
-            if str(snippet.get("id") or "").strip()
-        }
-
         selected_evidence_ids: list[str] = []
         selected_evidence_reason: list[dict[str, Any]] = []
         seen_selected_evidence_ids: set[str] = set()
@@ -201,35 +179,31 @@ class CoverLetterGenerationService:
                 }
             )
 
-        if not selected_evidence_ids and evidence_snippets:
-            fallback_ranked_evidence = self.evidence_selection_service.rank_evidence(
-                query_text=" ".join(matched_keywords or missing_keywords),
-                evidence_items=evidence_snippets,
-                required_skills=matched_keywords or missing_keywords,
-                source_types=["achievement"],
-                limit=3,
-            )
-            for item in fallback_ranked_evidence:
-                evidence_id = str(item.get("evidence_id") or "").strip()
-                if not evidence_id or evidence_id in seen_selected_evidence_ids:
-                    continue
+        selected_cover_letter_evidence = self._select_cover_letter_evidence(
+            vacancy_title=vacancy.title,
+            matched_keywords=matched_keywords,
+            missing_keywords=missing_keywords,
+            evidence_snippets=evidence_snippets,
+        )
+        for item in selected_cover_letter_evidence:
+            evidence_id = str(item.get("evidence_id") or "").strip()
+            if not evidence_id or evidence_id in seen_selected_evidence_ids:
+                continue
 
-                snippet = evidence_by_id.get(evidence_id, {})
-                seen_selected_evidence_ids.add(evidence_id)
-                selected_evidence_ids.append(evidence_id)
-                selected_evidence_reason.append(
-                    {
-                        "evidence_id": evidence_id,
-                        "achievement_id": None,
-                        "title": str(item.get("title") or snippet.get("title") or "").strip(),
-                        "reason": str(item.get("reason") or "").strip() or "fallback evidence selection",
-                        "fact_status": str(item.get("fact_status") or snippet.get("fact_status") or "").strip()
-                        or None,
-                        "evidence_strength": str(
-                            item.get("evidence_strength") or snippet.get("evidence_strength") or ""
-                        ).strip() or None,
-                    }
-                )
+            seen_selected_evidence_ids.add(evidence_id)
+            selected_evidence_ids.append(evidence_id)
+            selected_evidence_reason.append(
+                {
+                    "evidence_id": evidence_id,
+                    "achievement_id": None,
+                    "title": str(item.get("title") or "").strip(),
+                    "reason": str(item.get("reason") or "").strip() or "vacancy relevance evidence",
+                    "source_type": str(item.get("source_type") or "").strip() or None,
+                    "fact_status": str(item.get("fact_status") or "").strip() or None,
+                    "evidence_strength": str(item.get("evidence_strength") or "").strip() or None,
+                    "skills": list(item.get("skills") or []),
+                }
+            )
 
         for snippet in evidence_snippets:
             snippet_id = str(snippet.get("id") or "")
@@ -260,9 +234,19 @@ class CoverLetterGenerationService:
         relevance_paragraph = self._build_relevance_paragraph(
             matched_keywords=matched_keywords,
             selected_achievements=selected_achievements,
+            selected_evidence=selected_cover_letter_evidence,
             missing_keywords=missing_keywords,
             profile_skills=profile_skills,
             vacancy_title=vacancy.title,
+        )
+        vacancy_alignment = self._build_vacancy_alignment(
+            matched_keywords=matched_keywords,
+            selected_evidence=selected_cover_letter_evidence,
+            selected_achievements=selected_achievements,
+        )
+        evidence_relevance = self._build_evidence_relevance(
+            selected_evidence=selected_cover_letter_evidence,
+            selected_achievements=selected_achievements,
         )
         closing = self._build_closing(
             vacancy_title=vacancy.title,
@@ -288,6 +272,8 @@ class CoverLetterGenerationService:
                     "opening": opening,
                     "relevance_paragraph": relevance_paragraph,
                     "closing": closing,
+                    "vacancy_alignment": vacancy_alignment,
+                    "evidence_relevance": evidence_relevance,
                     "warnings": warnings,
                 }
             }
@@ -335,6 +321,8 @@ class CoverLetterGenerationService:
             opening=opening,
             relevance_paragraph=relevance_paragraph,
             closing=closing,
+            vacancy_alignment=vacancy_alignment,
+            evidence_relevance=evidence_relevance,
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
             matched_requirements=analysis.strengths_json,
@@ -667,11 +655,13 @@ class CoverLetterGenerationService:
         *,
         matched_keywords: list[str],
         selected_achievements: list[dict],
+        selected_evidence: list[dict[str, Any]] | None = None,
         missing_keywords: list[str],
         profile_skills: list[str],
         vacancy_title: str,
     ) -> str:
         parts: list[str] = []
+        selected_evidence = selected_evidence or []
 
         # 1. Сильные совпадения
         if matched_keywords:
@@ -696,6 +686,16 @@ class CoverLetterGenerationService:
                 f"{'; '.join(achievement_titles)}."
             )
 
+        evidence_phrases = self._build_evidence_relevance_phrases(
+            selected_evidence=selected_evidence,
+            selected_achievements=selected_achievements,
+        )
+        if evidence_phrases:
+            parts.append(
+                "Релевантность к роли опирается на извлечённые факты из резюме: "
+                f"{'; '.join(evidence_phrases[:3])}."
+            )
+
         # 3. Gap-mitigation (новый блок)
         gap_paragraph = self._build_gap_mitigation_paragraph(
             missing_keywords=missing_keywords,
@@ -713,6 +713,165 @@ class CoverLetterGenerationService:
             )
 
         return " ".join(parts)
+
+    def _select_cover_letter_evidence(
+        self,
+        *,
+        vacancy_title: str,
+        matched_keywords: list[str],
+        missing_keywords: list[str],
+        evidence_snippets: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not evidence_snippets:
+            return []
+
+        return self.evidence_selection_service.rank_evidence(
+            query_text=" ".join([vacancy_title, *matched_keywords, *missing_keywords]),
+            evidence_items=evidence_snippets,
+            required_skills=matched_keywords or missing_keywords,
+            source_types=["achievement", "resume_structured", "resume", "github_public", "manual"],
+            limit=4,
+        )
+
+    def _build_evidence_relevance_phrases(
+        self,
+        *,
+        selected_evidence: list[dict[str, Any]],
+        selected_achievements: list[dict],
+    ) -> list[str]:
+        achievement_titles = {
+            re.sub(r"\s+", " ", str(item.get("title") or "").strip()).lower()
+            for item in selected_achievements
+            if str(item.get("title") or "").strip()
+        }
+        phrases: list[str] = []
+        for item in selected_evidence:
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            normalized_title = re.sub(r"\s+", " ", title).lower()
+            if normalized_title in achievement_titles:
+                continue
+            skills = [
+                str(skill).strip()
+                for skill in (item.get("skills") or [])
+                if str(skill).strip()
+            ]
+            if skills:
+                phrases.append(f"{title} ({', '.join(skills[:3])})")
+            else:
+                phrases.append(title)
+        return self._dedupe_preserve_order(phrases)
+
+    def _build_vacancy_alignment(
+        self,
+        *,
+        matched_keywords: list[str],
+        selected_evidence: list[dict[str, Any]],
+        selected_achievements: list[dict],
+    ) -> list[dict[str, Any]]:
+        evidence_items = self._build_evidence_relevance(
+            selected_evidence=selected_evidence,
+            selected_achievements=selected_achievements,
+        )
+        alignment: list[dict[str, Any]] = []
+
+        for keyword in matched_keywords[:6]:
+            evidence = self._find_evidence_for_keyword(keyword, evidence_items)
+            alignment.append(
+                {
+                    "keyword": keyword,
+                    "coverage": "evidence_grounded" if evidence else "profile_keyword",
+                    "evidence_title": evidence.get("title") if evidence else None,
+                    "explanation": (
+                        f"{keyword} связано с извлечённым фактом: {evidence['title']}"
+                        if evidence
+                        else f"{keyword} найдено в анализе профиля и вакансии"
+                    ),
+                }
+            )
+
+        for evidence in evidence_items:
+            if any(item.get("evidence_id") == evidence.get("evidence_id") for item in alignment):
+                continue
+            skills = evidence.get("skills") or []
+            alignment.append(
+                {
+                    "keyword": skills[0] if skills else evidence.get("title"),
+                    "coverage": "extracted_evidence",
+                    "evidence_title": evidence.get("title"),
+                    "explanation": f"Извлечённый факт усиливает объяснение релевантности: {evidence.get('title')}",
+                }
+            )
+            if len(alignment) >= 6:
+                break
+
+        return alignment
+
+    def _build_evidence_relevance(
+        self,
+        *,
+        selected_evidence: list[dict[str, Any]],
+        selected_achievements: list[dict],
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for achievement in selected_achievements:
+            title = str(achievement.get("title") or "").strip()
+            if not title:
+                continue
+            key = title.lower()
+            seen.add(key)
+            items.append(
+                {
+                    "evidence_id": achievement.get("id"),
+                    "title": title,
+                    "source_type": "achievement",
+                    "fact_status": achievement.get("fact_status") or "confirmed",
+                    "evidence_strength": "medium",
+                    "skills": [],
+                    "reason": achievement.get("reason") or "selected achievement",
+                }
+            )
+
+        for evidence in selected_evidence:
+            title = str(evidence.get("title") or "").strip()
+            evidence_id = str(evidence.get("evidence_id") or "").strip()
+            key = evidence_id or title.lower()
+            if not title or key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "evidence_id": evidence_id or None,
+                    "title": title,
+                    "source_type": evidence.get("source_type"),
+                    "fact_status": evidence.get("fact_status"),
+                    "evidence_strength": evidence.get("evidence_strength"),
+                    "skills": list(evidence.get("skills") or []),
+                    "reason": evidence.get("reason"),
+                }
+            )
+
+        return items[:6]
+
+    def _find_evidence_for_keyword(
+        self,
+        keyword: str,
+        evidence_items: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        normalized_keyword = keyword.strip().lower().replace(" ", "_")
+        for item in evidence_items:
+            skills = {
+                str(skill).strip().lower().replace(" ", "_")
+                for skill in (item.get("skills") or [])
+                if str(skill).strip()
+            }
+            title = str(item.get("title") or "").lower()
+            if normalized_keyword in skills or keyword.strip().lower() in title:
+                return item
+        return evidence_items[0] if evidence_items else None
 
     def _build_closing(
         self,

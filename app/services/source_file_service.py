@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+import hashlib
 from pathlib import Path
 from uuid import UUID
 
@@ -83,6 +84,25 @@ class SourceFileService:
                 details={"max_upload_size_bytes": settings.max_upload_size_bytes},
             )
 
+        content_sha256 = hashlib.sha256(file_bytes).hexdigest()
+        duplicate = await self.source_file_repository.get_duplicate_by_hash(
+            session,
+            user_id=user_id,
+            file_kind=normalized_file_kind,
+            content_sha256=content_sha256,
+        )
+        if duplicate is not None:
+            if normalized_file_kind == "resume":
+                await self.source_file_repository.supersede_active_by_kind(
+                    session,
+                    user_id=user_id,
+                    file_kind=normalized_file_kind,
+                    superseded_by_id=duplicate.id,
+                    exclude_id=duplicate.id,
+                )
+                await self.source_file_repository.activate(session, source_file=duplicate)
+            return duplicate
+
         safe_name = self._sanitize_filename(original_name)
         storage_key = f"{user_id}/{normalized_file_kind}/{uuid.uuid4()}-{safe_name}"
 
@@ -100,7 +120,20 @@ class SourceFileService:
             original_name=original_name,
             mime_type=upload_file.content_type,
             size_bytes=len(file_bytes),
+            content_sha256=content_sha256,
+            lifecycle_status="active",
         )
+        if normalized_file_kind == "resume":
+            source_file.lineage_group_id = source_file.id
+            await self.source_file_repository.supersede_active_by_kind(
+                session,
+                user_id=user_id,
+                file_kind=normalized_file_kind,
+                superseded_by_id=source_file.id,
+                exclude_id=source_file.id,
+            )
+            await session.flush()
+            await session.refresh(source_file)
 
         return source_file
 
@@ -123,6 +156,18 @@ class SourceFileService:
                 message="Source file not found",
             )
         return source_file
+
+    async def get_active_resume(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+    ) -> SourceFile | None:
+        return await self.source_file_repository.get_active_by_kind(
+            session,
+            user_id=user_id,
+            file_kind="resume",
+        )
 
     def _sanitize_filename(self, filename: str) -> str:
         base_name = Path(filename).name.strip()

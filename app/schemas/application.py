@@ -36,6 +36,9 @@ class ApplicationWorkflowResponse(BaseModel):
     allowed_transitions: list[ApplicationWorkflowTransitionItem] = Field(default_factory=list)
     can_submit: bool = False
     is_final: bool = False
+    review_required: bool = False
+    review_blockers: list[str] = Field(default_factory=list)
+    review_warnings: list[str] = Field(default_factory=list)
 
 
 class ApplicationAnalyticsSummaryResponse(BaseModel):
@@ -94,6 +97,9 @@ class ApplicationDetailResponse(BaseModel):
     applied_at: datetime | None
     outcome: str | None
     notes: str | None
+    review_required: bool = False
+    review_blockers: list[str] = Field(default_factory=list)
+    review_warnings: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -112,6 +118,9 @@ class ApplicationDashboardItem(BaseModel):
     applied_at: datetime | None
     outcome: str | None
     notes: str | None
+    review_required: bool = False
+    review_blockers: list[str] = Field(default_factory=list)
+    review_warnings: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

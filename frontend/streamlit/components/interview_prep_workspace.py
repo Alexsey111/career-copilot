@@ -242,7 +242,7 @@ def _render_evidence_links(evidence_links: list[dict[str, Any]]) -> None:
             }
         )
 
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 def _render_weak_areas(weak_areas: list[dict[str, Any]]) -> None:
@@ -291,7 +291,7 @@ def _render_create_action(
     if st.button(
         "Создать сессию подготовки к интервью",
         type="primary",
-        width="stretch",
+        use_container_width=True,
         key="create_interview_prep_session",
     ):
         try:
@@ -420,7 +420,7 @@ def render_interview_prep_workspace_tab(
         }
         for item in normalized_sessions
     ]
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
     options = [item.session_id for item in normalized_sessions]
     labels = {

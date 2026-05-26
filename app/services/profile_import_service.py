@@ -56,14 +56,6 @@ class ProfileImportService:
                 detail="source file is not a resume",
             )
 
-        file_bytes = self.storage_service.download_bytes(storage_key=source_file.storage_key)
-
-        parsed = self.resume_parser_service.parse(
-            file_bytes=file_bytes,
-            mime_type=source_file.mime_type,
-            filename=source_file.original_name,
-        )
-
         profile = await self.candidate_profile_repository.get_by_user_id(
             session,
             user_id,
@@ -74,6 +66,25 @@ class ProfileImportService:
                 user_id=user_id,
             )
 
+        existing_extraction = await self.file_extraction_repository.get_latest_for_source_file(
+            session,
+            source_file_id=source_file.id,
+        )
+        if existing_extraction is not None:
+            await session.refresh(profile)
+            return profile, existing_extraction, str(
+                (existing_extraction.extracted_metadata_json or {}).get("detected_format")
+                or "cached"
+            )
+
+        file_bytes = self.storage_service.download_bytes(storage_key=source_file.storage_key)
+
+        parsed = self.resume_parser_service.parse(
+            file_bytes=file_bytes,
+            mime_type=source_file.mime_type,
+            filename=source_file.original_name,
+        )
+
         extraction = await self.file_extraction_repository.create(
             session,
             source_file_id=source_file.id,
@@ -81,7 +92,10 @@ class ProfileImportService:
             parser_name="local_resume_parser",
             parser_version="v1",
             extracted_text=parsed.text,
-            extracted_metadata_json=parsed.metadata,
+            extracted_metadata_json={
+                **parsed.metadata,
+                "detected_format": parsed.detected_format,
+            },
         )
 
         await session.flush()

@@ -3,7 +3,7 @@
 ## What was done
 
 - Consolidated document review UX into `frontend/streamlit/components/document_review_workspace.py`.
-- Made `render_document_approval_step` in `frontend/streamlit/app.py` a thin wrapper over the workspace.
+- Made `render_document_approval_step` in `frontend/streamlit/flows/document_application_flow.py` a thin wrapper over the workspace.
 - Preserved `approved_resume` and `approved_cover_letter` session state updates after approval.
 - Added structured document diff and review summary flows for pre-approve review.
 - Kept application tracking and interview preparation as explicit human-in-the-loop steps.

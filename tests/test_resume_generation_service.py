@@ -332,8 +332,6 @@ def test_resume_generation_selects_matched_skills_first_without_claiming_gaps() 
 
 
 def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
-    service = ResumeGenerationService()
-
     rendered = render_resume(
         {
             "candidate": {
@@ -506,3 +504,81 @@ def test_resume_selected_achievements_are_confirmed_and_do_not_create_claims() -
     )
 
     assert claims == []
+
+
+def test_resume_can_projectize_selected_evidence_bank_item() -> None:
+    service = ResumeGenerationService()
+
+    selected = service._selected_achievements_from_evidence_bank(
+        selected_evidence_ids=["evidence-1"],
+        evidence_by_id={
+            "evidence-1": {
+                "id": "evidence-1",
+                "title": "ИИ-система мониторинга безопасности",
+                "snippet_text": "AI computer vision monitoring project from resume.",
+                "source_type": "resume_structured",
+                "skills": ["AI", "computer vision"],
+                "fact_status": "user_provided",
+                "star_summary": {"category": "ai_project"},
+            }
+        },
+    )
+
+    assert selected == [
+        {
+            "id": "evidence-1",
+            "title": "ИИ-система мониторинга безопасности",
+            "situation": None,
+            "task": None,
+            "action": "AI computer vision monitoring project from resume.",
+            "result": None,
+            "metric_text": None,
+            "fact_status": "user_provided",
+            "reason": "evidence_bank_project",
+        }
+    ]
+
+
+def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
+    service = ResumeGenerationService()
+
+    tailoring = service._build_ats_tailoring_sections(
+        vacancy_title="AI Automation Specialist",
+        matched_keywords=["Prompt Engineering", "LLM", "Automation", "Python"],
+        missing_keywords=["Kubernetes"],
+        selected_skills=["ChatGPT", "AI workflow"],
+        selected_achievements=[
+            {
+                "title": "ИИ-система мониторинга безопасности",
+                "fact_status": "user_provided",
+            }
+        ],
+        evidence_snippets=[
+            {
+                "id": "e1",
+                "title": "Prompt Engineering",
+                "snippet_text": "Built ChatGPT prompts and AI-assisted workflows.",
+                "skills": ["ChatGPT", "LLM", "prompt engineering", "automation"],
+                "fact_status": "user_provided",
+            },
+            {
+                "id": "e2",
+                "title": "Python AI system",
+                "snippet_text": "Python-based AI monitoring system.",
+                "skills": ["Python", "AI"],
+                "fact_status": "user_provided",
+            },
+        ],
+    )
+
+    summary = tailoring["vacancy_aligned_summary"]
+    assert summary.startswith("AI Automation Specialist candidate")
+    assert "Prompt engineering" in summary
+    assert "AI tooling" in summary
+    assert "Workflow automation" in tailoring["relevant_to_vacancy"]
+    assert "Python-based AI systems" in tailoring["relevant_to_vacancy"]
+    assert any(
+        item["competency"] == "Prompt engineering"
+        and item["evidence_title"] == "Prompt Engineering"
+        for item in tailoring["competency_mapping"]
+    )

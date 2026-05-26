@@ -32,6 +32,7 @@ from app.services.document_compat import (
 )
 from app.services.document_feedback import build_claim, build_warning
 from app.services.document_builders import build_resume_content
+from app.services.evidence_bank_service import EVIDENCE_BANK_SOURCE_TYPES, EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.resume_renderer import render_resume
@@ -65,6 +66,7 @@ class ResumeGenerationService:
         ai_orchestrator: AIOrchestrator | None = None,
         evidence_extraction_service: EvidenceExtractionService | None = None,
         evidence_selection_service: EvidenceSelectionService | None = None,
+        evidence_bank_service: EvidenceBankService | None = None,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.vacancy_analysis_repository = (
@@ -86,6 +88,10 @@ class ResumeGenerationService:
         )
         self.evidence_selection_service = (
             evidence_selection_service or EvidenceSelectionService()
+        )
+        self.evidence_bank_service = evidence_bank_service or EvidenceBankService(
+            repository=self.evidence_snippet_repository,
+            extraction_service=self.evidence_extraction_service,
         )
 
     async def generate_resume(
@@ -158,33 +164,12 @@ class ResumeGenerationService:
             user_id=str(vacancy.user_id),
         )
 
-        evidence_snippet_drafts = self.evidence_extraction_service.extract_from_achievements(
-            confirmed_achievements,
-            user_id=str(vacancy.user_id),
-            source_type=EvidenceSourceType.ACHIEVEMENT,
-        )
-        persisted_snippets = await self.evidence_snippet_repository.upsert_many(
+        evidence_bank = await self.evidence_bank_service.build_bank(
             session,
             user_id=vacancy.user_id,
-            snippets=[
-                self.evidence_extraction_service.snippet_to_dict(snippet)
-                for snippet in evidence_snippet_drafts
-            ],
+            achievements=confirmed_achievements,
         )
-        evidence_snippets = [
-            self._evidence_snippet_to_dict(item)
-            for item in persisted_snippets
-        ]
-        if not evidence_snippets:
-            existing_snippets = await self.evidence_snippet_repository.list_by_user_id(
-                session,
-                user_id=vacancy.user_id,
-                source_types=[EvidenceSourceType.ACHIEVEMENT],
-            )
-            evidence_snippets = [
-                self._evidence_snippet_to_dict(item)
-                for item in existing_snippets
-            ]
+        evidence_snippets = [item.as_dict() for item in evidence_bank.snippets]
 
         evidence_by_title = {
             re.sub(r"\s+", " ", str(snippet.get("title") or "").strip()).lower(): snippet
@@ -228,7 +213,7 @@ class ResumeGenerationService:
                 query_text=" ".join(matched_keywords or missing_keywords),
                 evidence_items=evidence_snippets,
                 required_skills=matched_keywords or missing_keywords,
-                source_types=["achievement"],
+                source_types=EVIDENCE_BANK_SOURCE_TYPES,
                 limit=3,
             )
             for item in fallback_ranked_evidence:
@@ -253,6 +238,12 @@ class ResumeGenerationService:
                     }
                 )
 
+        if not selected_achievements and selected_evidence_ids:
+            selected_achievements = self._selected_achievements_from_evidence_bank(
+                selected_evidence_ids=selected_evidence_ids,
+                evidence_by_id=evidence_by_id,
+            )
+
         for snippet in evidence_snippets:
             snippet_id = str(snippet.get("id") or "")
             if snippet_id not in seen_selected_evidence_ids:
@@ -275,6 +266,14 @@ class ResumeGenerationService:
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
             analysis_match_score=analysis.match_score,
+        )
+        tailoring = self._build_ats_tailoring_sections(
+            vacancy_title=vacancy.title,
+            matched_keywords=matched_keywords,
+            missing_keywords=missing_keywords,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+            evidence_snippets=evidence_snippets,
         )
 
         summary_bullets = self._build_summary_bullets(
@@ -343,6 +342,9 @@ class ResumeGenerationService:
                 "ai_enhanced_v1" if use_ai_enhancement else "deterministic_v1_review_ready"
             ),
             fit_summary=fit_summary,
+            vacancy_aligned_summary=tailoring["vacancy_aligned_summary"],
+            competency_mapping=tailoring["competency_mapping"],
+            relevant_to_vacancy=tailoring["relevant_to_vacancy"],
             summary_bullets=summary_bullets,
             skills=selected_skills,
             experience=experience_items,
@@ -533,9 +535,22 @@ class ResumeGenerationService:
         generic_satisfied_by_specific = {
             "api": {"fastapi"},
             "sql": {"postgresql", "postgres"},
+            "automation": {"ai workflow", "no-code", "nocode", "low-code"},
+            "llm": {"chatgpt", "gpt-4", "gpt4", "claude"},
+            "ai interaction": {"prompt engineering", "chatgpt", "llm"},
         }
 
-        return raw in generic_satisfied_by_specific.get(key, set())
+        specific_satisfied_by_generic = {
+            "ai workflow": {"automation"},
+            "no-code": {"automation", "automation tooling"},
+            "prompt engineering": {"ai interaction", "llm tooling"},
+            "chatgpt": {"llm", "llm tooling"},
+        }
+
+        return (
+            raw in generic_satisfied_by_specific.get(key, set())
+            or raw in specific_satisfied_by_generic.get(key, set())
+        )
 
     def _get_confirmed_achievements(self, achievements) -> list[dict]:
         items: list[dict] = []
@@ -678,6 +693,44 @@ class ResumeGenerationService:
             for item in selected[:3]
         ]
 
+    def _selected_achievements_from_evidence_bank(
+        self,
+        *,
+        selected_evidence_ids: list[str],
+        evidence_by_id: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        for evidence_id in selected_evidence_ids:
+            snippet = evidence_by_id.get(evidence_id)
+            if not snippet:
+                continue
+            category = str((snippet.get("star_summary") or {}).get("category") or "")
+            if category not in {
+                "project",
+                "ai_project",
+                "automation",
+                "prompt_engineering",
+                "internship",
+                "achievement",
+            }:
+                continue
+            selected.append(
+                {
+                    "id": evidence_id,
+                    "title": str(snippet.get("title") or "Evidence").strip(),
+                    "situation": None,
+                    "task": None,
+                    "action": str(snippet.get("snippet_text") or "").strip() or None,
+                    "result": None,
+                    "metric_text": None,
+                    "fact_status": str(snippet.get("fact_status") or "user_provided"),
+                    "reason": "evidence_bank_project",
+                }
+            )
+            if len(selected) >= 3:
+                break
+        return selected
+
     def _build_fit_summary(
         self,
         *,
@@ -725,6 +778,179 @@ class ResumeGenerationService:
             )
 
         return bullets[:4]
+
+    def _build_ats_tailoring_sections(
+        self,
+        *,
+        vacancy_title: str,
+        matched_keywords: list[str],
+        missing_keywords: list[str],
+        selected_skills: list[str],
+        selected_achievements: list[dict[str, Any]],
+        evidence_snippets: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        relevant_to_vacancy = self._build_relevant_to_vacancy(
+            matched_keywords=matched_keywords,
+            selected_skills=selected_skills,
+            evidence_snippets=evidence_snippets,
+        )
+        vacancy_aligned_summary = self._build_vacancy_aligned_summary(
+            vacancy_title=vacancy_title,
+            relevant_to_vacancy=relevant_to_vacancy,
+            selected_achievements=selected_achievements,
+        )
+        competency_mapping = self._build_competency_mapping(
+            relevant_to_vacancy=relevant_to_vacancy,
+            evidence_snippets=evidence_snippets,
+            missing_keywords=missing_keywords,
+        )
+        return {
+            "vacancy_aligned_summary": vacancy_aligned_summary,
+            "competency_mapping": competency_mapping,
+            "relevant_to_vacancy": relevant_to_vacancy,
+        }
+
+    def _build_vacancy_aligned_summary(
+        self,
+        *,
+        vacancy_title: str,
+        relevant_to_vacancy: list[str],
+        selected_achievements: list[dict[str, Any]],
+    ) -> str:
+        role = vacancy_title.strip() or "Target role"
+        focus_terms = relevant_to_vacancy[:4]
+        if not focus_terms:
+            focus_terms = [
+                str(item.get("title") or "").strip()
+                for item in selected_achievements[:2]
+                if str(item.get("title") or "").strip()
+            ]
+        focus = ", ".join(focus_terms) if focus_terms else "role-relevant delivery"
+        return (
+            f"{role} candidate with hands-on experience in {focus}, "
+            "grounded in extracted resume evidence and tailored to the vacancy requirements."
+        )
+
+    def _build_relevant_to_vacancy(
+        self,
+        *,
+        matched_keywords: list[str],
+        selected_skills: list[str],
+        evidence_snippets: list[dict[str, Any]],
+    ) -> list[str]:
+        candidates: list[str] = []
+
+        for keyword in matched_keywords:
+            normalized = keyword.strip()
+            if normalized:
+                candidates.append(self._display_relevance_label(normalized))
+
+        evidence_text = " ".join(
+            [
+                " ".join(str(skill) for skill in snippet.get("skills") or [])
+                + " "
+                + str(snippet.get("title") or "")
+                + " "
+                + str(snippet.get("snippet_text") or "")
+                for snippet in evidence_snippets
+            ]
+        ).lower()
+        semantic_rules = [
+            ("Prompt engineering", ("prompt", "prompt engineering", "промпт")),
+            ("AI tooling", ("llm", "chatgpt", "ai interaction", "ai tooling")),
+            ("Workflow automation", ("automation", "workflow", "no-code", "nocode")),
+            ("Python-based AI systems", ("python", "ai", "llm")),
+        ]
+        for label, markers in semantic_rules:
+            if any(marker in evidence_text for marker in markers):
+                candidates.append(label)
+
+        for skill in selected_skills:
+            if skill:
+                candidates.append(self._display_relevance_label(skill))
+
+        return self._dedupe_preserve_order(candidates)[:8]
+
+    def _build_competency_mapping(
+        self,
+        *,
+        relevant_to_vacancy: list[str],
+        evidence_snippets: list[dict[str, Any]],
+        missing_keywords: list[str],
+    ) -> list[dict[str, Any]]:
+        mapping: list[dict[str, Any]] = []
+        for competency in relevant_to_vacancy[:6]:
+            evidence = self._find_best_evidence_for_competency(
+                competency,
+                evidence_snippets,
+            )
+            mapping.append(
+                {
+                    "competency": competency,
+                    "coverage": "supported" if evidence else "profile_keyword",
+                    "evidence_id": evidence.get("id") if evidence else None,
+                    "evidence_title": evidence.get("title") if evidence else None,
+                    "evidence": evidence.get("title") if evidence else "Matched profile keyword",
+                    "fact_status": evidence.get("fact_status") if evidence else "needs_review",
+                }
+            )
+
+        for keyword in missing_keywords[:3]:
+            if not keyword:
+                continue
+            mapping.append(
+                {
+                    "competency": self._display_relevance_label(keyword),
+                    "coverage": "gap",
+                    "evidence_id": None,
+                    "evidence_title": None,
+                    "evidence": "No strong extracted evidence yet",
+                    "fact_status": "needs_review",
+                }
+            )
+
+        return mapping[:8]
+
+    def _find_best_evidence_for_competency(
+        self,
+        competency: str,
+        evidence_snippets: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        competency_tokens = {
+            token
+            for token in re.split(r"[^a-z0-9а-яё]+", competency.lower())
+            if len(token) >= 3
+        }
+        best: tuple[int, dict[str, Any]] | None = None
+        for snippet in evidence_snippets:
+            text = " ".join(
+                [
+                    str(snippet.get("title") or ""),
+                    str(snippet.get("snippet_text") or ""),
+                    " ".join(str(skill) for skill in snippet.get("skills") or []),
+                ]
+            ).lower()
+            score = sum(1 for token in competency_tokens if token in text)
+            if score <= 0:
+                continue
+            if best is None or score > best[0]:
+                best = (score, snippet)
+        return best[1] if best else None
+
+    def _display_relevance_label(self, value: str) -> str:
+        normalized = value.strip().replace("_", " ")
+        known = {
+            "llm": "AI tooling",
+            "chatgpt": "AI tooling",
+            "prompt engineering": "Prompt engineering",
+            "ai interaction": "AI interaction",
+            "ai workflow": "Workflow automation",
+            "automation": "Workflow automation",
+            "automation tooling": "Workflow automation",
+            "no-code": "Workflow automation",
+            "python": "Python-based AI systems",
+        }
+        return known.get(normalized.lower(), normalized)
 
     def _build_experience_items(self, profile) -> list[dict]:
         items: list[dict] = []

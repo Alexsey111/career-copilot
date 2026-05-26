@@ -172,6 +172,7 @@ def test_cover_letter_relevance_paragraph_does_not_include_missing_keywords() ->
     paragraph = service._build_relevance_paragraph(
         matched_keywords=["Python"],
         selected_achievements=[],
+        selected_evidence=[],
         missing_keywords=[],
         profile_skills=[],
         vacancy_title="Backend Developer",
@@ -184,9 +185,76 @@ def test_cover_letter_relevance_paragraph_does_not_include_missing_keywords() ->
     assert "confirmed overlap" not in paragraph
 
 
-def test_cover_letter_warnings_keep_missing_keywords_out_of_rendered_letter() -> None:
+def test_cover_letter_relevance_paragraph_uses_extracted_evidence() -> None:
     service = CoverLetterGenerationService()
 
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=["AI workflow", "automation"],
+        selected_achievements=[],
+        selected_evidence=[
+            {
+                "evidence_id": "ev-1",
+                "title": "ИИ-система мониторинга безопасности",
+                "source_type": "resume_structured",
+                "skills": ["AI", "computer vision", "monitoring"],
+                "fact_status": "user_provided",
+                "evidence_strength": "medium",
+                "reason": "2 skill matches, user-provided",
+            }
+        ],
+        missing_keywords=[],
+        profile_skills=[],
+        vacancy_title="AI Automation Specialist",
+    )
+
+    assert "AI workflow" in paragraph
+    assert "automation" in paragraph
+    assert "извлечённые факты из резюме" in paragraph
+    assert "ИИ-система мониторинга безопасности" in paragraph
+    assert "computer vision" in paragraph
+
+
+def test_cover_letter_alignment_sections_are_evidence_grounded() -> None:
+    service = CoverLetterGenerationService()
+
+    selected_evidence = [
+        {
+            "evidence_id": "ev-1",
+            "title": "Prompt Engineering",
+            "source_type": "resume_structured",
+            "skills": ["ChatGPT", "LLM", "prompt engineering"],
+            "fact_status": "user_provided",
+            "evidence_strength": "medium",
+            "reason": "required skill matches",
+        }
+    ]
+
+    relevance = service._build_evidence_relevance(
+        selected_evidence=selected_evidence,
+        selected_achievements=[],
+    )
+    alignment = service._build_vacancy_alignment(
+        matched_keywords=["prompt engineering"],
+        selected_evidence=selected_evidence,
+        selected_achievements=[],
+    )
+
+    assert relevance == [
+        {
+            "evidence_id": "ev-1",
+            "title": "Prompt Engineering",
+            "source_type": "resume_structured",
+            "fact_status": "user_provided",
+            "evidence_strength": "medium",
+            "skills": ["ChatGPT", "LLM", "prompt engineering"],
+            "reason": "required skill matches",
+        }
+    ]
+    assert alignment[0]["coverage"] == "evidence_grounded"
+    assert alignment[0]["evidence_title"] == "Prompt Engineering"
+
+
+def test_cover_letter_warnings_keep_missing_keywords_out_of_rendered_letter() -> None:
     content_json = {
         "sections": {
             "opening": "Здравствуйте!\n\nРассматриваю вакансию Backend Developer.",
@@ -229,6 +297,7 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
                 "reason": "ai_relevance",
             }
         ],
+        selected_evidence=[],
         missing_keywords=[],
         profile_skills=[],
         vacancy_title="Backend Developer",

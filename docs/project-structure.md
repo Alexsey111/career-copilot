@@ -49,7 +49,7 @@ career-copilot/
 ├── alembic/              # Alembic env и миграции БД
 ├── data/                 # Локальные данные и артефакты
 ├── docs/                 # Проектная и инженерная документация
-├── frontend/             # Streamlit UI
+├── frontend/             # Streamlit UI entrypoint, pages, flows, workspaces и UI helpers
 ├── infra/                # Docker/local infra
 ├── scripts/              # Локальные smoke/debug/dev утилиты
 ├── tests/                # Unit, service, API, e2e, migration и eval tests
@@ -214,7 +214,7 @@ app/models/
 └── __init__.py
 ```
 
-- `entities.py` содержит базовые таблицы пользователей, профилей, файлов, вакансий, документов, заявок, interview sessions, AI runs и auth/session сущностей.
+- `entities.py` содержит базовые таблицы пользователей, профилей, файлов, вакансий, документов, заявок, interview sessions, AI runs и auth/session сущностей. Для `source_files` это также включает lifecycle-поля и `content_sha256` для content hash dedupe.
 - Отдельные модули выделяют evaluation snapshots, impact measurements, recommendation records, review workflow и pipeline execution events.
 
 ## `app/repositories/`
@@ -246,7 +246,7 @@ app/repositories/
 └── vacancy_repository.py
 ```
 
-Репозитории группируются вокруг тех же агрегатов, что и сервисы: user/profile/files, vacancies/analyses, documents, applications/events/status history, interviews, AI runs, pipeline executions/events, evaluation snapshots, recommendations, review workflow и impact measurements.
+Репозитории группируются вокруг тех же агрегатов, что и сервисы: user/profile/files, vacancies/analyses, documents, applications/events/status history, interviews, AI runs, pipeline executions/events, evaluation snapshots, recommendations, review workflow и impact measurements. `source_file_repository.py` опирается на file lifecycle и hash-based dedupe.
 
 ## `app/schemas/`
 
@@ -405,21 +405,41 @@ frontend/
 └── streamlit/
     ├── api_client.py
     ├── app.py
+    ├── flows/
+    │   ├── document_application_flow.py
+    │   ├── mvp_flow.py
+    │   ├── resume_intake.py
+    │   └── vacancy_flow.py
     ├── components/
     │   ├── career_strategy_workspace.py
     │   ├── document_review_workspace.py
     │   ├── evidence_workspace.py
     │   └── interview_prep_workspace.py
+    ├── pages/
+    │   ├── applications.py
+    │   ├── home.py
+    │   ├── system_health.py
+    │   └── trust_panel.py
+    ├── ui/
+    │   ├── auth.py
+    │   ├── formatting.py
+    │   ├── labels.py
+    │   └── state.py
     └── __init__.py
 ```
 
-- `app.py` содержит MVP UI flow: профиль, достижения, вакансии, документы, заявки, интервью, evidence, vacancy intelligence и career strategy.
-- `app.py` также показывает workflow, status history и activity log для application dashboard.
-- `api_client.py` инкапсулирует backend API calls и export-запросы.
+- `app.py` — тонкий entrypoint: инициализирует Streamlit, собирает tabs и делегирует page/flow rendering.
+- `flows/mvp_flow.py` координирует линейный MVP-сценарий.
+- `flows/document_application_flow.py` содержит шаги генерации документов, approval, application creation/status update и интервью prep.
+- `flows/vacancy_flow.py` изолирует vacancy import, analysis и vacancy intelligence блок.
+- `flows/resume_intake.py` содержит resume intake steps и profile structuring helpers.
+- `pages/home.py`, `pages/system_health.py`, `pages/trust_panel.py`, `pages/applications.py` собирают отдельные page surfaces.
 - `components/document_review_workspace.py` показывает review summary, evidence provenance и activation flow.
 - `components/evidence_workspace.py` показывает evidence snippets, coverage и provenance.
 - `components/interview_prep_workspace.py` показывает interview prep sessions, supporting evidence и readiness.
 - `components/career_strategy_workspace.py` показывает repeated gaps, coverage trends и deterministic recommendations.
+- `ui/` содержит auth, formatting, labels и session state helpers для Streamlit.
+- `api_client.py` инкапсулирует backend API calls и export-запросы.
 
 ## `alembic/`
 

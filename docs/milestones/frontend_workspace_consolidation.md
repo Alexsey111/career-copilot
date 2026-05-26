@@ -2,7 +2,7 @@
 
 ## Legacy interview UI retired
 
-- Removed the old interview dashboard and mock interview flow from `frontend/streamlit/app.py`.
+- Removed the old interview dashboard and mock interview flow from inline `frontend/streamlit/app.py` composition.
 - Retired legacy interview session state keys that were only supporting the old flow.
 - Kept backend interview endpoints untouched.
 
@@ -38,8 +38,9 @@
 
 ## Current frontend layering
 
-- `frontend/streamlit/app.py` owns page composition and linear MVP orchestration.
+- `frontend/streamlit/app.py` now acts as the entrypoint and tab composer.
+- `frontend/streamlit/flows/mvp_flow.py` owns the linear MVP orchestration.
+- `frontend/streamlit/pages/*.py` own the individual page surfaces.
 - `frontend/streamlit/components/document_review_workspace.py` owns document review UX.
 - `frontend/streamlit/components/interview_prep_workspace.py` owns interview prep UX.
 - `render_application_dashboard` owns applications tracking and operational workflow views.
-

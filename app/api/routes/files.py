@@ -12,6 +12,7 @@ from app.core.rate_limit import upload_rate_limit
 from app.db.session import get_db_session
 from app.models import User
 from app.schemas.source_file import SourceFileRead
+from app.services.resume_selection_service import ResumeSelectionService
 from app.services.source_file_service import SourceFileService
 
 
@@ -37,6 +38,21 @@ async def upload_file(
     except Exception:
         await session.rollback()
         raise
+    return SourceFileRead.model_validate(source_file)
+
+
+@router.get("/resume/active", response_model=SourceFileRead | None)
+async def get_active_resume(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> SourceFileRead | None:
+    service = ResumeSelectionService()
+    source_file = await service.get_active_resume(
+        session,
+        user_id=current_user.id,
+    )
+    if source_file is None:
+        return None
     return SourceFileRead.model_validate(source_file)
 
 

@@ -68,3 +68,18 @@ class FileExtractionRepository:
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_latest_for_source_file(
+        self,
+        session: AsyncSession,
+        *,
+        source_file_id: UUID,
+    ) -> FileExtraction | None:
+        stmt = (
+            select(FileExtraction)
+            .where(FileExtraction.source_file_id == source_file_id)
+            .order_by(FileExtraction.created_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()

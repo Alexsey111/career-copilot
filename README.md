@@ -12,6 +12,7 @@ AI-копилот для соискателя для:
 ## Схема проекта
 
 Подробная схема и структура каталогов находятся в [docs/project-structure.md](docs/project-structure.md).
+Streamlit frontend уже разнесён по `frontend/streamlit/app.py`, `pages/`, `flows/`, `components/` и `ui/`, поэтому `app.py` теперь только собирает экран и делегирует рендеринг.
 
 ## Локальный запуск
 
@@ -40,6 +41,12 @@ pip install -e ".[dev,frontend]"
 
 ```powershell
 make local-start
+```
+
+Если вы поднимаете backend поверх уже существующей базы данных, сначала проверьте актуальность схемы:
+
+```powershell
+python -m alembic upgrade head
 ```
 
 Backend API по умолчанию:
@@ -89,20 +96,22 @@ $env:CAREER_COPILOT_API_BASE_URL = "http://localhost:8000/api/v1"
 streamlit run .\frontend\streamlit\app.py
 ```
 
+`frontend/streamlit/app.py` остаётся единственной точкой входа для UI, а весь сценарий собран из модулей `pages/`, `flows/`, `components/` и `ui/`.
+
 ## Проверки
 
 Быстрая проверка backend и frontend-файла:
 
 ```powershell
-python -m py_compile .\frontend\streamlit\app.py
+python -m compileall .\frontend\streamlit
 pytest -q
 python .\scripts\smoke_mvp_flow.py
 ```
 
 Ожидаемый baseline:
 
-- `python -m py_compile .\frontend\streamlit\app.py`: `OK`
-- `pytest`: `70 passed`
+- `python -m compileall .\frontend\streamlit`: без ошибок
+- `pytest`: без падений
 - `smoke_mvp_flow.py`: `MVP SMOKE PASSED`
 
 ## MVP flow

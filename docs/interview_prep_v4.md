@@ -6,7 +6,7 @@ This note captures the current interview preparation contract after the mock int
 
 - `app.services.interview_preparation_service.InterviewPreparationService` owns mock interview lifecycle, deterministic answer evaluation, summary assembly, and advisory generation.
 - `app.api.routes.interviews` exposes the HTTP contract and keeps the route layer thin.
-- `frontend/streamlit/app.py` renders a thin mock interview surface and never mutates backend state directly.
+- `frontend/streamlit/flows/document_application_flow.py` renders a thin mock interview surface and never mutates backend state directly.
 - `app.repositories.interview_session_repository.InterviewSessionRepository` persists sessions and attempts.
 
 ## Session lifecycle

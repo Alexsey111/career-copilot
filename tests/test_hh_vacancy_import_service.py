@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 import httpx
 from fastapi import HTTPException
 
 from app.services.hh_vacancy_import_service import HHVacancyImportService
+
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "vacancy_html"
 
 
 def test_extract_hh_vacancy_id_from_url() -> None:
@@ -197,6 +201,55 @@ async def test_fetch_vacancy_returns_graceful_502_on_hh_403(monkeypatch) -> None
 
     assert exc.value.status_code == 502
     assert "Используйте ручной импорт" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_fetch_vacancy_falls_back_to_public_hh_page_when_api_rejects(monkeypatch) -> None:
+    service = HHVacancyImportService()
+    html = (FIXTURES_DIR / "hh_vacancy.html").read_text(encoding="utf-8")
+    calls: list[str] = []
+
+    class FakeResponse:
+        def __init__(self, status_code: int, text: str = "") -> None:
+            self.status_code = status_code
+            self.text = text
+
+        def json(self) -> dict[str, object]:
+            return {"detail": "forbidden"}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            return None
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, path: str, **kwargs) -> FakeResponse:
+            calls.append(path)
+            if path == "/vacancies/133412268":
+                return FakeResponse(403)
+            if path == "https://barnaul.hh.ru/vacancy/133412268":
+                return FakeResponse(200, html)
+            raise AssertionError(f"Unexpected path: {path}")
+
+    monkeypatch.setattr(
+        "app.services.hh_vacancy_import_service.httpx.AsyncClient",
+        FakeAsyncClient,
+    )
+
+    payload = await service.fetch_vacancy("https://barnaul.hh.ru/vacancy/133412268")
+
+    assert calls == [
+        "/vacancies/133412268",
+        "https://barnaul.hh.ru/vacancy/133412268",
+    ]
+    assert payload["id"] == "133412268"
+    assert payload["name"] == "Python Backend Developer"
+    assert payload["import_source"] == "hh_page_fallback"
+    assert "FastAPI" in payload["description"]
 
 
 @pytest.mark.asyncio

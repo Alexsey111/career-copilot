@@ -12,10 +12,12 @@ from app.db.session import get_db_session
 from app.models import User
 from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.schemas.evidence import (
+    EvidenceBankResponse,
     EvidenceInsightsResponse,
     EvidenceSnippetItem,
     EvidenceUsageItem,
 )
+from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_insights_service import EvidenceInsightsService
 
 
@@ -35,6 +37,31 @@ async def list_evidence_snippets(
         source_types=source_type,
     )
     return [EvidenceSnippetItem.model_validate(item) for item in snippets]
+
+
+@router.get("/bank", response_model=EvidenceBankResponse)
+async def get_evidence_bank(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> EvidenceBankResponse:
+    service = EvidenceBankService()
+    bank = await service.build_bank(session, user_id=current_user.id)
+    payload = bank.as_dict()
+    return EvidenceBankResponse(
+        snippets=[EvidenceSnippetItem.model_validate(item) for item in payload["snippets"]],
+        achievements=[
+            EvidenceSnippetItem.model_validate(item)
+            for item in payload["achievements"]
+        ],
+        competency_signals=[
+            EvidenceSnippetItem.model_validate(item)
+            for item in payload["competency_signals"]
+        ],
+        project_evidence=[
+            EvidenceSnippetItem.model_validate(item)
+            for item in payload["project_evidence"]
+        ],
+    )
 
 
 @router.get("/snippets/{snippet_id}", response_model=EvidenceSnippetItem)

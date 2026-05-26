@@ -258,8 +258,18 @@ class SourceFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    lifecycle_status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", index=True)
+    lineage_group_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True, index=True)
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("source_files.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     user: Mapped["User"] = relationship(back_populates="source_files")
+    superseded_by: Mapped["SourceFile | None"] = relationship(remote_side="SourceFile.id")
     extractions: Mapped[list["FileExtraction"]] = relationship(
         back_populates="source_file",
         cascade="all, delete-orphan",

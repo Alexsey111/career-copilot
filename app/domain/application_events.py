@@ -8,6 +8,7 @@ class ApplicationEventType(StrEnum):
     APPLICATION_READY = "application_ready"
     APPLICATION_APPLIED = "application_applied"
     APPLICATION_STATUS_CHANGED = "application_status_changed"
+    APPLICATION_REVIEW_REQUIRED = "application_review_required"
     DOCUMENT_ATTACHED = "document_attached"
     NOTE_ADDED = "note_added"
     INTERVIEW_SESSION_CREATED = "interview_session_created"

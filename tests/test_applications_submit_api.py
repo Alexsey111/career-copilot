@@ -185,7 +185,7 @@ async def test_submit_ready_application_defaults_source_to_manual(client) -> Non
     assert applied_event["meta_json"]["source"] == "manual"
 
 
-async def test_submit_ready_application_returns_409_when_safety_blocks(
+async def test_submit_ready_application_applies_and_marks_review_required_when_safety_blocks(
     client,
     db_session,
 ) -> None:
@@ -226,14 +226,25 @@ async def test_submit_ready_application_returns_409_when_safety_blocks(
         json={"source": "manual"},
     )
 
-    assert submit_response.status_code == 409, submit_response.text
-    detail = submit_response.json()["detail"]
-    assert detail["message"] == "application safety gate blocked submission"
+    assert submit_response.status_code == 200, submit_response.text
+    detail = submit_response.json()
+    assert detail["status"] == "applied"
+    assert detail["review_required"] is True
     assert (
         "document has unresolved claims requiring confirmation"
-        in detail["blockers"]
+        in detail["review_warnings"]
     )
-    assert detail["document_id"] == resume_document_id
+
+    activity_response = await client.get(
+        f"{API_PREFIX}/applications/{application_id}/activity-log",
+    )
+    assert activity_response.status_code == 200, activity_response.text
+    review_events = [
+        item
+        for item in activity_response.json()
+        if item["event_type"] == "application_review_required"
+    ]
+    assert review_events
 
 
 async def test_create_draft_application_still_allowed_without_safety(client) -> None:
@@ -252,3 +263,32 @@ async def test_create_draft_application_still_allowed_without_safety(client) -> 
     payload = create_response.json()
     assert payload["status"] == "draft"
     assert payload["resume_document_id"] is None
+    assert payload["review_required"] is False
+
+
+async def test_create_application_allows_draft_resume_and_marks_review_required(client) -> None:
+    await _prepare_profile(client)
+    vacancy_id = await _create_analyzed_vacancy(client)
+
+    resume_response = await client.post(
+        f"{API_PREFIX}/documents/resumes/generate",
+        json={"vacancy_id": vacancy_id},
+    )
+    assert resume_response.status_code == 200, resume_response.text
+    resume_document_id = resume_response.json()["document_id"]
+
+    create_response = await client.post(
+        f"{API_PREFIX}/applications",
+        json={
+            "vacancy_id": vacancy_id,
+            "resume_document_id": resume_document_id,
+            "notes": "MVP relaxed review flow",
+        },
+    )
+
+    assert create_response.status_code == 200, create_response.text
+    payload = create_response.json()
+    assert payload["status"] == "draft"
+    assert payload["resume_document_id"] == resume_document_id
+    assert payload["review_required"] is True
+    assert "resume document review is not approved" in payload["review_warnings"]

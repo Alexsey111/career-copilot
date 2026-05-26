@@ -166,6 +166,8 @@ class EvidenceExtractionService:
         normalized = normalize_skill_tag(value)
         if normalized == "confirmed":
             return EvidenceFactStatus.CONFIRMED
+        if normalized == "user_provided":
+            return EvidenceFactStatus.USER_PROVIDED
         if normalized in {"partial", "needs_confirmation", "pending"}:
             return EvidenceFactStatus.PARTIAL
         return EvidenceFactStatus.UNVERIFIED

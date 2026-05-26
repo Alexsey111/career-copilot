@@ -15,13 +15,13 @@
 
 ## Why this exists
 
-- The older review UI in `frontend/streamlit/app.py` was fragmented across preview, summary, diff, readiness, and approve blocks.
+- Before the split, the review UI was fragmented across preview, summary, diff, readiness, and approve blocks in the monolithic Streamlit surface.
 - The workspace consolidates those pieces into one review surface.
 - This makes the approval flow easier to trust and easier to maintain.
 
 ## Integration points
 
-- Step 9 in `frontend/streamlit/app.py` is now a thin wrapper over the workspace.
+- Step 9 in `frontend/streamlit/flows/document_application_flow.py` is now a thin wrapper over the workspace.
 - The dedicated `Document Review Workspace` tab uses the same component layer.
 - Both paths update `approved_resume` and `approved_cover_letter` in Streamlit session state after approval.
 

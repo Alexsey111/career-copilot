@@ -23,8 +23,30 @@ def render_resume(content_json: dict) -> str:
 
     lines.append("")
     lines.append("КРАТКОЕ РЕЗЮМЕ")
+    vacancy_aligned_summary = sections.get("vacancy_aligned_summary")
+    if vacancy_aligned_summary:
+        lines.append(vacancy_aligned_summary)
     for bullet in sections["summary_bullets"]:
         lines.append(f"- {bullet}")
+
+    relevant_to_vacancy = sections.get("relevant_to_vacancy") or []
+    if relevant_to_vacancy:
+        lines.append("")
+        lines.append("РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ")
+        for item in relevant_to_vacancy:
+            lines.append(f"- {item}")
+
+    competency_mapping = sections.get("competency_mapping") or []
+    if competency_mapping:
+        lines.append("")
+        lines.append("КАРТА КОМПЕТЕНЦИЙ")
+        for item in competency_mapping:
+            competency = item.get("competency") or item.get("label") or item.get("keyword")
+            evidence = item.get("evidence") or item.get("source") or item.get("evidence_title")
+            if competency and evidence:
+                lines.append(f"- {competency}: {evidence}")
+            elif competency:
+                lines.append(f"- {competency}")
 
     lines.append("")
     lines.append("КЛЮЧЕВЫЕ НАВЫКИ")

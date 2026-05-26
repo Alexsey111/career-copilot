@@ -71,7 +71,22 @@ async def test_tailored_resume_uses_matched_keywords_early(
 
     # 5. Проверка структуры
     assert "ЦЕЛЕВАЯ ПОЗИЦИЯ" in rendered
+    assert "РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ" in rendered
+    assert "КАРТА КОМПЕТЕНЦИЙ" in rendered
     assert "КЛЮЧЕВЫЕ НАВЫКИ" in rendered
+
+    from app.models import DocumentVersion
+    from sqlalchemy import select
+
+    document = (
+        await db_session.execute(
+            select(DocumentVersion).where(DocumentVersion.id == doc_id)
+        )
+    ).scalar_one()
+    sections = (document.content_json or {}).get("sections", {})
+    assert sections.get("vacancy_aligned_summary")
+    assert sections.get("relevant_to_vacancy")
+    assert sections.get("competency_mapping")
 
     # Если есть matched keywords, проверяем их присутствие в первой половине (ATS best practice)
     matched_keywords = [

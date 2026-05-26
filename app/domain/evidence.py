@@ -13,6 +13,8 @@ from typing import Any, Mapping
 class EvidenceSourceType(StrEnum):
     ACHIEVEMENT = "achievement"
     RESUME = "resume"
+    RESUME_STRUCTURED = "resume_structured"
+    GITHUB_PUBLIC = "github_public"
     INTERVIEW = "interview"
     MANUAL = "manual"
 
@@ -27,6 +29,7 @@ class EvidenceFactStatus(StrEnum):
     CONFIRMED = "confirmed"
     PARTIAL = "partial"
     UNVERIFIED = "unverified"
+    USER_PROVIDED = "user_provided"
 
 
 @dataclass(slots=True)
@@ -136,6 +139,22 @@ class EvidenceUsage:
 
 
 SKILL_KEYWORD_MAP: dict[str, tuple[str, ...]] = {
+    "ai": (r"\bai\b", r"\bии\b", r"искусственн\w+\s+интеллект", r"нейросет"),
+    "llm": (r"\bllm\b", r"large language model", r"языков\w+\s+модел"),
+    "chatgpt": (r"\bchatgpt\b", r"\bчат[\s-]?gpt\b", r"\bчат[\s-]?бот"),
+    "prompt_engineering": (r"\bprompt engineering\b", r"промпт", r"prompt"),
+    "ai_interaction": (r"\bai interaction\b", r"llm tooling", r"работ[аы]\s+с\s+(?:ии|ai|llm)"),
+    "ai_workflow": (r"\bai[-\s]?workflow\b", r"\bllm\s+workflow\b", r"\bai\s+pipeline\b"),
+    "no_code": (r"\bno[-\s]?code\b", r"\bnocode\b", r"\blow[-\s]?code\b", r"без\s+кода"),
+    "computer_vision": (
+        r"\bcomputer vision\b",
+        r"компьютерн\w+\s+зрени",
+        r"изображени",
+        r"\bвидео\b",
+        r"мониторинг",
+    ),
+    "automation": (r"automat", r"автоматизац", r"автоматизирован"),
+    "workflow": (r"\bworkflow\b", r"процесс", r"пайплайн", r"\bpipeline\b"),
     "python": (r"\bpython\b",),
     "fastapi": (r"\bfastapi\b", r"\bapi\b"),
     "postgresql": (r"\bpostgresql\b", r"\bpostgres\b"),
@@ -148,6 +167,9 @@ SKILL_KEYWORD_MAP: dict[str, tuple[str, ...]] = {
     "communication": (r"\bcommunication\b", r"\bcommunicat", r"\bpresented\b"),
     "testing": (r"\btesting\b", r"\bpytest\b", r"\bunittest\b"),
     "analytics": (r"\banalytics\b", r"\bdata\b", r"\bmetrics?\b"),
+    "tensorflow": (r"\btensorflow\b",),
+    "sql": (r"\bsql\b",),
+    "git": (r"\bgit\b",),
 }
 
 

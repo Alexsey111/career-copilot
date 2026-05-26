@@ -162,7 +162,7 @@ async def test_application_rejects_cover_letter_document_with_wrong_kind(client)
     assert response.json()["detail"] == "document must be cover_letter"
 
 
-async def test_application_rejects_explicit_unapproved_resume(client) -> None:
+async def test_application_marks_explicit_unapproved_resume_review_required(client) -> None:
     await _prepare_profile(client)
 
     vacancy_id = await _create_analyzed_vacancy(client)
@@ -177,8 +177,10 @@ async def test_application_rejects_explicit_unapproved_resume(client) -> None:
         },
     )
 
-    assert response.status_code == 400, response.text
-    assert response.json()["detail"] == "resume document must be approved before application"
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["review_required"] is True
+    assert "resume document review is not approved" in payload["review_warnings"]
 
 
 async def test_application_accepts_explicit_approved_document_pair(client) -> None:

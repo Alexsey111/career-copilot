@@ -25,16 +25,28 @@ from app.domain.interview_prep import (
 
 
 class InterviewQuestionService:
-    def build_competency_map(self, *, vacancy, analysis) -> dict[str, Any]:
+    def build_competency_map(
+        self,
+        *,
+        vacancy,
+        analysis,
+        evidence_snippets: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         required_skills = self._dedupe_competencies(
-            self._extract_requirement_items(analysis.must_have_json or []),
+            [
+                *self._extract_requirement_items(analysis.must_have_json or [], source="must_have"),
+                *self._extract_requirement_items(analysis.strengths_json or [], source="strength"),
+                *self._extract_requirement_items(analysis.gaps_json or [], source="gap"),
+            ],
         )
+        evidence_competencies = self._extract_evidence_competencies(evidence_snippets or [])
         behavioral_signals = build_behavioral_signals(vacancy, analysis, required_skills)
         seniority = build_seniority_expectations(vacancy)
         domain_expectations = infer_domain_expectations(vacancy, analysis)
 
         return {
             "required_skills": required_skills,
+            "evidence_competencies": evidence_competencies,
             "behavioral_signals": behavioral_signals,
             "seniority_expectations": seniority,
             "domain_expectations": domain_expectations,
@@ -86,6 +98,21 @@ class InterviewQuestionService:
                 )
             )
 
+        for competency in (competency_map.get("evidence_competencies") or [])[:3]:
+            questions.append(
+                self._build_question(
+                    category="evidence_probe",
+                    prompt=(
+                        f"Расскажите подробнее про {competency['label']}: "
+                        "какую задачу вы решали, какие инструменты использовали и какой был результат?"
+                    ),
+                    answer_format="STAR_or_project_context",
+                    competency_key=competency["key"],
+                    competency_name=competency["label"],
+                    evidence_candidates=evidence_candidates,
+                )
+            )
+
         seniority = competency_map.get("seniority_expectations") or {}
         if str(seniority.get("level") or "").lower() in {"senior", "lead", "staff", "principal"}:
             questions.append(
@@ -121,6 +148,22 @@ class InterviewQuestionService:
                         evidence_candidates=[
                             self._achievement_to_evidence_item(top_achievement)
                         ],
+                    )
+                )
+        else:
+            top_evidence = self._select_top_evidence_item(evidence_candidates)
+            if top_evidence:
+                questions.append(
+                    self._build_question(
+                        category="project_deep_dive",
+                        prompt=(
+                            "Разберите этот проект или факт из резюме глубже: "
+                            f"{top_evidence['title']}."
+                        ),
+                        answer_format="STAR_or_project_context",
+                        competency_key=build_competency_key(str(top_evidence["title"])),
+                        competency_name=str(top_evidence["title"]),
+                        evidence_candidates=[top_evidence],
                     )
                 )
 
@@ -228,10 +271,12 @@ class InterviewQuestionService:
             if item.get("achievement_id")
         ]
         source_type = "gap" if category == "gap-risk" else "vacancy_requirement"
+        if category == "evidence_probe":
+            source_type = "extracted_evidence"
         fact_status = (
             "inferred_needs_review"
             if category == "gap-risk"
-            else "confirmed" if recommended_evidence_ids else "needs_confirmation"
+            else self._question_fact_status(ranked[:2])
         )
 
         return {
@@ -255,6 +300,9 @@ class InterviewQuestionService:
                     "title": item["title"],
                     "score": item["score"],
                     "reason": item["reason"],
+                    "source_type": item.get("source_type"),
+                    "fact_status": item.get("fact_status"),
+                    "skills": item.get("skills") or [],
                 }
                 for item in ranked[:2]
             ],
@@ -319,6 +367,8 @@ class InterviewQuestionService:
             fact_status = str(evidence.get("fact_status") or "").lower()
             if fact_status == EvidenceFactStatus.CONFIRMED:
                 score += 0.85
+            elif fact_status == EvidenceFactStatus.USER_PROVIDED:
+                score += 0.55
             elif fact_status == EvidenceFactStatus.PARTIAL:
                 score += 0.2
             else:
@@ -342,6 +392,9 @@ class InterviewQuestionService:
                 {
                     "achievement_id": evidence.get("id") or evidence.get("achievement_id"),
                     "title": evidence.get("title") or "Evidence",
+                    "source_type": evidence.get("source_type"),
+                    "fact_status": evidence.get("fact_status"),
+                    "skills": list(evidence.get("skills") or []),
                     "score": round(score, 3),
                     "reason": self._build_evidence_reason(
                         question=question,
@@ -463,21 +516,104 @@ class InterviewQuestionService:
         ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked[0][1] if ranked else confirmed_achievements[0]
 
-    def _extract_requirement_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _question_fact_status(self, ranked_items: list[dict[str, Any]]) -> str:
+        statuses = {
+            str(item.get("fact_status") or "").strip().lower()
+            for item in ranked_items
+            if str(item.get("fact_status") or "").strip()
+        }
+        if "confirmed" in statuses:
+            return "confirmed"
+        if "user_provided" in statuses:
+            return "user_provided"
+        if statuses:
+            return "needs_confirmation"
+        return "needs_confirmation"
+
+    def _select_top_evidence_item(
+        self,
+        evidence_items: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if not evidence_items:
+            return None
+        ranked = sorted(
+            evidence_items,
+            key=lambda item: (
+                1 if str(item.get("fact_status") or "").lower() == "confirmed" else 0,
+                1 if str(item.get("fact_status") or "").lower() == "user_provided" else 0,
+                1 if self._has_metric_signal(item) else 0,
+                len(item.get("skills") or []),
+            ),
+            reverse=True,
+        )
+        return ranked[0]
+
+    def _extract_requirement_items(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        source: str,
+    ) -> list[dict[str, Any]]:
         extracted: list[dict[str, Any]] = []
         for item in items or []:
-            text = str(item.get("text") or "").strip()
+            text = str(
+                item.get("text")
+                or item.get("keyword")
+                or item.get("requirement_text")
+                or ""
+            ).strip()
             if not text:
                 continue
             extracted.append(
                 {
                     "key": build_competency_key(text),
                     "label": text,
-                    "source": "must_have",
+                    "source": source,
                     "weight": item.get("weight"),
                 }
             )
         return extracted
+
+    def _extract_evidence_competencies(
+        self,
+        evidence_snippets: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for evidence in evidence_snippets:
+            source_type = str(evidence.get("source_type") or "").strip().lower()
+            category = str(
+                evidence.get("category")
+                or (evidence.get("star_summary") or {}).get("category")
+                or ""
+            ).strip().lower()
+            if source_type not in {"resume_structured", "github_public", "achievement", "manual"}:
+                continue
+            if category and category not in {
+                "ai_project",
+                "automation",
+                "prompt_engineering",
+                "workflow_experience",
+                "competency_signal",
+                "technologies",
+                "project",
+                "achievement",
+            }:
+                continue
+            for skill in evidence.get("skills") or []:
+                label = str(skill).strip()
+                if not label:
+                    continue
+                items.append(
+                    {
+                        "key": build_competency_key(label),
+                        "label": label,
+                        "source": source_type or "evidence_bank",
+                        "evidence_id": evidence.get("id"),
+                        "evidence_title": evidence.get("title"),
+                        "fact_status": evidence.get("fact_status"),
+                    }
+                )
+        return self._dedupe_competencies(items)
 
     def _dedupe_competencies(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         deduped: list[dict[str, Any]] = []

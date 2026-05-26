@@ -113,13 +113,14 @@ class VacancyFitService:
                 snippets,
                 keyword=signal.keyword,
             )
-            confirmed_matches = [
+            usable_matches = [
                 match
                 for match in evidence_matches
-                if str(match.get("fact_status") or "").strip().lower() == "confirmed"
+                if str(match.get("fact_status") or "").strip().lower()
+                in {"confirmed", "user_provided", "needs_confirmation"}
             ]
 
-            coverage_level = self._coverage_level_for_matches(confirmed_matches)
+            coverage_level = self._coverage_level_for_matches(usable_matches)
             severity = self._gap_severity_for_signal(
                 signal=signal,
                 profile_supported=profile_supported,
@@ -132,7 +133,7 @@ class VacancyFitService:
             if experience_supported:
                 matched_experience_weight += signal.weight
 
-            if confirmed_matches:
+            if usable_matches:
                 matched_evidence_weight += signal.weight * self._coverage_score_ratio(coverage_level)
 
             requirement_item = {
@@ -144,11 +145,15 @@ class VacancyFitService:
                     signal=signal,
                     profile_supported=profile_supported,
                     experience_supported=experience_supported,
-                    confirmed_matches=confirmed_matches,
+                    confirmed_matches=usable_matches,
                     evidence_matches=evidence_matches,
                 ),
-                "evidence_ids": [match["evidence_id"] for match in confirmed_matches if match.get("evidence_id")],
-                "supporting_evidence": confirmed_matches,
+                "evidence_ids": [
+                    match["evidence_id"]
+                    for match in usable_matches
+                    if match.get("evidence_id")
+                ],
+                "supporting_evidence": usable_matches,
             }
             requirements.append(requirement_item)
 
@@ -163,7 +168,7 @@ class VacancyFitService:
                 leadership_total_weight += signal.weight
                 if profile_supported:
                     leadership_fit_weight += signal.weight
-                if confirmed_matches:
+                if usable_matches:
                     leadership_fit_weight += signal.weight * self._coverage_score_ratio(coverage_level) * 0.5
 
         skills_fit = round((matched_skill_weight / total_weight) * 100)
@@ -435,6 +440,7 @@ class VacancyFitService:
         }.get(str(snippet.evidence_strength or "weak").strip().lower(), 0.45)
         fact_factor = {
             "confirmed": 1.0,
+            "user_provided": 0.85,
             "partial": 0.8,
             "needs_confirmation": 0.55,
             "unverified": 0.55,

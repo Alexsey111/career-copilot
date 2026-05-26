@@ -240,6 +240,9 @@ class ExperienceItem(StrictBaseModel):
 class BaseResumeSections(StrictBaseModel):
     """Общий набор секций для resume-подобных документов."""
     fit_summary: dict[str, Any] = Field(default_factory=dict)
+    vacancy_aligned_summary: str | None = None
+    competency_mapping: list[dict[str, Any]] = Field(default_factory=list)
+    relevant_to_vacancy: list[str] = Field(default_factory=list)
     summary_bullets: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     experience: list[ExperienceItem] = Field(default_factory=list)
@@ -283,6 +286,8 @@ class CoverLetterSections(StrictBaseModel):
     opening: str = ""
     relevance_paragraph: str = ""
     closing: str = ""
+    vacancy_alignment: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_relevance: list[dict[str, Any]] = Field(default_factory=list)
     matched_keywords: list[str] = Field(default_factory=list)
     missing_keywords: list[str] = Field(default_factory=list)
     matched_requirements: list[dict] = Field(default_factory=list)

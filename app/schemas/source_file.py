@@ -16,5 +16,9 @@ class SourceFileRead(BaseModel):
     original_name: str
     mime_type: str | None
     size_bytes: int | None
+    content_sha256: str | None = None
+    lifecycle_status: str = "active"
+    lineage_group_id: UUID | None = None
+    superseded_by_id: UUID | None = None
     created_at: datetime
     updated_at: datetime

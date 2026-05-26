@@ -19,12 +19,23 @@ from app.schemas.achievement_extract import (
     AchievementReviewResponse,
 )
 from app.schemas.profile_import import ResumeImportRequest, ResumeImportResponse
+from app.schemas.profile_intake import (
+    GitHubPublicProfileImportRequest,
+    GitHubProfileIntakeRequest,
+    ManualProfileIntakeRequest,
+    ProfileIntakeResponse,
+)
 from app.schemas.profile_structured import (
     StructuredProfileExtractRequest,
     StructuredProfileExtractResponse,
 )
 from app.services.achievement_extraction_service import AchievementExtractionService
+from app.services.github_public_import_service import (
+    GitHubPublicImportError,
+    GitHubPublicImportService,
+)
 from app.services.profile_import_service import ProfileImportService
+from app.services.profile_intake_service import ProfileIntakeService
 from app.services.profile_structuring_service import ProfileStructuringService
 
 
@@ -58,6 +69,103 @@ def _achievement_item_to_review_response(item) -> AchievementReviewResponse:
         evidence_note=item.evidence_note,
         updated_at=item.updated_at,
     )
+
+
+def _intake_result_to_response(result) -> ProfileIntakeResponse:
+    return ProfileIntakeResponse(
+        profile_id=result.profile.id,
+        source_file_id=result.source_file_id,
+        extraction_id=result.extraction_id,
+        source=result.source,
+        status="completed",
+        full_name=result.profile.full_name,
+        location=result.profile.location,
+        target_roles=result.profile.target_roles_json,
+        experience_count=len(result.experiences),
+        project_count=result.project_count,
+        achievement_count=len(result.achievements),
+        evidence_snippet_count=len(result.evidence_snippets),
+        technologies=result.technologies,
+        ai_tools=result.ai_tools,
+        automation_tools=result.automation_tools,
+        raw_text_preview=result.raw_text[:1000],
+        created_at=result.profile.created_at,
+    )
+
+
+@router.post("/intake/manual", response_model=ProfileIntakeResponse)
+async def intake_manual_profile(
+    payload: ManualProfileIntakeRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProfileIntakeResponse:
+    service = ProfileIntakeService()
+    try:
+        result = await service.ingest_manual_profile(
+            session,
+            user_id=current_user.id,
+            payload=payload,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    return _intake_result_to_response(result)
+
+
+@router.post("/intake/github", response_model=ProfileIntakeResponse)
+async def intake_github_profile(
+    payload: GitHubProfileIntakeRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProfileIntakeResponse:
+    service = ProfileIntakeService()
+    try:
+        result = await service.ingest_github_profile(
+            session,
+            user_id=current_user.id,
+            payload=payload,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    return _intake_result_to_response(result)
+
+
+@router.post("/intake/github-public", response_model=ProfileIntakeResponse)
+async def intake_github_public_profile(
+    payload: GitHubPublicProfileImportRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProfileIntakeResponse:
+    service = GitHubPublicImportService()
+    try:
+        result = await service.import_public_profile(
+            session,
+            user_id=current_user.id,
+            payload=payload,
+        )
+        await session.commit()
+    except ValueError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except GitHubPublicImportError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        await session.rollback()
+        raise
+
+    return _intake_result_to_response(result)
 
 
 @router.post("/import-resume", response_model=ResumeImportResponse)
@@ -118,6 +226,15 @@ async def extract_structured_profile(
         location=profile.location,
         target_roles=profile.target_roles_json,
         experience_count=len(draft.experiences),
+        project_count=len(draft.projects),
+        internship_count=len(draft.internships),
+        achievement_signal_count=len(draft.achievements),
+        evidence_snippet_count=len(draft.evidence_snippets),
+        technologies=draft.technologies,
+        ai_tools=draft.ai_tools,
+        automation_tools=draft.automation_tools,
+        competency_signal_count=len(draft.competency_signals),
+        structured_evidence=[item.as_dict() for item in draft.evidence_snippets],
         warnings=draft.warnings,
     )
 

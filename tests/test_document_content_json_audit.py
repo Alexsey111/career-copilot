@@ -192,6 +192,8 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
     assert "missing_keywords" in cover_letter_sections
     assert "matched_requirements" in cover_letter_sections
     assert "gap_requirements" in cover_letter_sections
+    assert "vacancy_alignment" in cover_letter_sections
+    assert "evidence_relevance" in cover_letter_sections
     assert "selected_achievements" in cover_letter_sections
     assert "claims_needing_confirmation" in cover_letter_sections
     assert "warnings" in cover_letter_sections
@@ -223,6 +225,8 @@ async def test_generated_documents_content_json_contains_review_audit_fields(
 
     assert cover_letter_sections["matched_requirements"]
     assert cover_letter_sections["gap_requirements"]
+    assert isinstance(cover_letter_sections["vacancy_alignment"], list)
+    assert isinstance(cover_letter_sections["evidence_relevance"], list)
     assert isinstance(cover_letter_sections["claims_needing_confirmation"], list)
     assert isinstance(cover_letter_sections["warnings"], list)
 

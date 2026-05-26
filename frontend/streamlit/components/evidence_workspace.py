@@ -247,7 +247,7 @@ def _render_insights_section(
             )
 
         if rows:
-            st.dataframe(rows, width="stretch", hide_index=True)
+            st.dataframe(rows, use_container_width=True, hide_index=True)
         else:
             st.info("Пока нет рекомендаций к действию.")
     else:
@@ -386,7 +386,7 @@ def render_evidence_workspace_tab(
         return
 
     st.markdown("### Каталог доказательств")
-    st.dataframe(_build_rows(snippet_rows), width="stretch", hide_index=True)
+    st.dataframe(_build_rows(snippet_rows), use_container_width=True, hide_index=True)
 
     snippet_ids = [str(item.get("id") or "").strip() for item in snippet_rows if item.get("id")]
     if not snippet_ids:

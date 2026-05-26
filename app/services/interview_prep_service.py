@@ -16,8 +16,8 @@ from app.repositories.interview_prep_session_repository import (
 )
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.domain.evidence import EvidenceSourceType
 from app.domain.evidence_confidence import aggregate_evidence_confidence
+from app.services.evidence_bank_service import EVIDENCE_BANK_SOURCE_TYPES, EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.interview_question_service import InterviewQuestionService
@@ -38,6 +38,7 @@ class InterviewPrepService:
         readiness_service: InterviewReadinessService | None = None,
         evidence_extraction_service: EvidenceExtractionService | None = None,
         evidence_selection_service: EvidenceSelectionService | None = None,
+        evidence_bank_service: EvidenceBankService | None = None,
     ) -> None:
         self.application_repository = (
             application_repository or ApplicationRecordRepository()
@@ -62,6 +63,10 @@ class InterviewPrepService:
         )
         self.evidence_selection_service = (
             evidence_selection_service or EvidenceSelectionService()
+        )
+        self.evidence_bank_service = evidence_bank_service or EvidenceBankService(
+            repository=self.evidence_snippet_repository,
+            extraction_service=self.evidence_extraction_service,
         )
 
     async def create_session(
@@ -157,24 +162,17 @@ class InterviewPrepService:
             for item in (profile.achievements or [])
             if str(item.fact_status or "").strip().lower() == "confirmed"
         ]
-        evidence_snippet_drafts = self.evidence_extraction_service.extract_from_achievements(
-            confirmed_achievements,
-            user_id=str(user_id),
-            source_type=EvidenceSourceType.ACHIEVEMENT,
-        )
-        persisted_snippets = await self.evidence_snippet_repository.upsert_many(
+        evidence_bank = await self.evidence_bank_service.build_bank(
             session,
             user_id=user_id,
-            snippets=[
-                self.evidence_extraction_service.snippet_to_dict(snippet)
-                for snippet in evidence_snippet_drafts
-            ],
+            achievements=confirmed_achievements,
         )
+        evidence_snippets = [item.as_dict() for item in evidence_bank.snippets]
         competency_map = self.question_service.build_competency_map(
             vacancy=vacancy,
             analysis=analysis,
+            evidence_snippets=evidence_snippets,
         )
-        evidence_snippets = [self._evidence_snippet_to_dict(item) for item in persisted_snippets]
         ranked_evidence_snippets = self._rank_evidence_snippets(
             vacancy=vacancy,
             analysis=analysis,
@@ -185,6 +183,7 @@ class InterviewPrepService:
         weak_areas = self.readiness_service.build_weak_areas(
             competency_map=competency_map,
             confirmed_achievements=confirmed_achievements,
+            evidence_snippets=ranked_evidence_snippets,
         )
         questions = self.question_service.build_question_set(
             vacancy=vacancy,
@@ -271,7 +270,7 @@ class InterviewPrepService:
             query_text=query_text,
             evidence_items=evidence_snippets,
             required_skills=required_skills,
-            source_types=["achievement", "resume", "manual"],
+            source_types=EVIDENCE_BANK_SOURCE_TYPES,
             limit=8,
         )
         evidence_by_id = {

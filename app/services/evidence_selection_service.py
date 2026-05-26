@@ -137,6 +137,8 @@ class EvidenceSelectionService:
         normalized = value.strip().lower()
         if normalized == "confirmed":
             return 0.35
+        if normalized == "user_provided":
+            return 0.22
         if normalized in {"partial", "needs_confirmation", "pending"}:
             return 0.12
         return -0.35
@@ -168,7 +170,7 @@ class EvidenceSelectionService:
         normalized_query = query_text.lower()
         if "interview" in normalized_query and source_type == "interview":
             return 0.15
-        if "resume" in normalized_query and source_type in {"achievement", "resume"}:
+        if "resume" in normalized_query and source_type in {"achievement", "resume", "resume_structured"}:
             return 0.1
         if "recommend" in normalized_query and source_type in {"manual", "achievement"}:
             return 0.08
@@ -199,6 +201,8 @@ class EvidenceSelectionService:
             parts.append("weak evidence")
         if fact_bonus >= 0.3:
             parts.append("confirmed")
+        elif fact_bonus >= 0.2:
+            parts.append("user-provided")
         elif fact_bonus > 0:
             parts.append("partially verified")
         else:

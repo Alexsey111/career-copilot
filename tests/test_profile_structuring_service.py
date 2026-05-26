@@ -103,3 +103,53 @@ Acme, AI Engineer
         "Vibe-coding",
     ]
     assert draft.headline == "Prompt Engineering, Data Science, Vibe-coding"
+
+
+def test_structured_resume_extraction_v2_finds_ai_automation_and_competency_signals() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Перминов Алексей
+Профессиональные навыки
+Python, Git, Искусственный интеллект, LLM, ChatGPT, API, SQL,
+Анализ данных, Tensorflow, автоматизация workflow.
+Желаемая должность
+Prompt Engineering, Data Science
+Прошел 3 стажировки по направлению Data Science:
+1. Создание ИИ-системы
+для мониторинга безопасности в пансионатах для пожилых
+2. Автоматизированный ИИ-контроль качества
+ПВХ оконных изделий по изображениям и видео
+3. Prompt Engineering
+Создание нейроассистентов, чат-боты, промптинг
+Курсы
+Python с нуля
+"""
+    )
+
+    evidence_by_title = {item.title: item for item in draft.evidence_snippets}
+
+    assert "ИИ-система мониторинга безопасности" in evidence_by_title
+    assert evidence_by_title["ИИ-система мониторинга безопасности"].category == "ai_project"
+    assert {"AI", "computer vision"}.issubset(
+        set(evidence_by_title["ИИ-система мониторинга безопасности"].skills)
+    )
+
+    assert "Автоматизированный ИИ-контроль качества" in evidence_by_title
+    assert evidence_by_title["Автоматизированный ИИ-контроль качества"].category == "automation"
+    assert {"automation", "computer vision"}.issubset(
+        set(evidence_by_title["Автоматизированный ИИ-контроль качества"].skills)
+    )
+
+    assert "Prompt Engineering" in evidence_by_title
+    assert evidence_by_title["Prompt Engineering"].category == "prompt_engineering"
+    assert {"ChatGPT", "LLM", "prompt engineering"}.intersection(
+        set(evidence_by_title["Prompt Engineering"].skills)
+    )
+
+    assert {"AI", "LLM", "ChatGPT", "TensorFlow", "Python", "SQL"}.issubset(
+        set(draft.technologies)
+    )
+    assert draft.competency_signals
+    assert all(item.fact_status == "user_provided" for item in draft.evidence_snippets)

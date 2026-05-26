@@ -7,6 +7,22 @@ import re
 from app.domain.skills.catalog import SKILL_DEFINITIONS
 
 
+def _normalize_skill_name(value: str) -> str:
+    return re.sub(r"[\s_-]+", " ", value.strip().casefold())
+
+
+def _find_skill(keyword: str):
+    normalized_keyword = _normalize_skill_name(keyword)
+    return next(
+        (
+            item
+            for item in SKILL_DEFINITIONS
+            if _normalize_skill_name(item.canonical_name) == normalized_keyword
+        ),
+        None,
+    )
+
+
 def extract_keywords(text: str) -> list[str]:
     found: list[str] = []
 
@@ -21,14 +37,7 @@ def extract_keywords(text: str) -> list[str]:
 
 
 def keyword_present(keyword: str, text: str) -> bool:
-    skill = next(
-        (
-            item
-            for item in SKILL_DEFINITIONS
-            if item.canonical_name == keyword
-        ),
-        None,
-    )
+    skill = _find_skill(keyword)
 
     if skill is None:
         escaped = re.escape(keyword)
@@ -47,14 +56,7 @@ def keyword_present(keyword: str, text: str) -> bool:
 
 
 def get_related_skills(keyword: str) -> list[str]:
-    skill = next(
-        (
-            item
-            for item in SKILL_DEFINITIONS
-            if item.canonical_name == keyword
-        ),
-        None,
-    )
+    skill = _find_skill(keyword)
 
     if skill is None:
         return []

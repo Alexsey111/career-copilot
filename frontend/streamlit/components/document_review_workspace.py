@@ -310,7 +310,7 @@ def _render_evidence_used_panel(
 
     st.markdown("#### Использованные доказательства")
     st.caption("ID и причины выбора приходят из `content_json.meta`.")
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
     with st.expander("Детали доказательств", expanded=False):
         for detail in detail_rows:
@@ -414,7 +414,7 @@ def _render_export_controls(
             data=txt_content,
             file_name=f"{document_id}.txt",
             mime="text/plain",
-            width="stretch",
+            use_container_width=True,
             key=f"document_review_export_txt_{key_suffix}_{document_id}",
         )
     with col_md:
@@ -423,7 +423,7 @@ def _render_export_controls(
             data=md_content,
             file_name=f"{document_id}.md",
             mime="text/markdown",
-            width="stretch",
+            use_container_width=True,
             key=f"document_review_export_md_{key_suffix}_{document_id}",
         )
     with col_docx:
@@ -432,7 +432,7 @@ def _render_export_controls(
             data=docx_content,
             file_name=f"{document_id}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            width="stretch",
+            use_container_width=True,
             key=f"document_review_export_docx_{key_suffix}_{document_id}",
         )
 
@@ -459,7 +459,7 @@ def _render_action_bar(
         approve_clicked = st.button(
             "Утвердить",
             type="primary",
-            width="stretch",
+            use_container_width=True,
             disabled=str(document.get("review_status") or "") == "approved",
             key=f"document_review_approve_{key_suffix}",
         )
@@ -467,14 +467,14 @@ def _render_action_bar(
     with col_enhance:
         enhance_clicked = st.button(
             "Создать улучшенную версию",
-            width="stretch",
+            use_container_width=True,
             key=f"document_review_enhance_{key_suffix}",
         )
 
     with col_back:
         back_clicked = st.button(
             "Назад",
-            width="stretch",
+            use_container_width=True,
             disabled=selection_state_key is None,
             key=f"document_review_back_{key_suffix}",
         )

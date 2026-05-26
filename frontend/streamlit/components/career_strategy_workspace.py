@@ -89,7 +89,7 @@ def _render_repeated_gaps(repeated_gaps: list[dict[str, Any]]) -> None:
                 "Примеры": ", ".join(item.get("example_vacancy_titles") or []) or "—",
             }
         )
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 def _render_evidence_coverage_trends(trends: dict[str, Any] | None) -> None:

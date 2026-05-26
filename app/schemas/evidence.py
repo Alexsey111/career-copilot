@@ -64,3 +64,10 @@ class EvidenceInsightsResponse(BaseModel):
     overused_evidence_count: int
     unverified_evidence_count: int
     recommendations: list[EvidenceInsightsRecommendationItem]
+
+
+class EvidenceBankResponse(BaseModel):
+    snippets: list[EvidenceSnippetItem]
+    achievements: list[EvidenceSnippetItem]
+    competency_signals: list[EvidenceSnippetItem]
+    project_evidence: list[EvidenceSnippetItem]

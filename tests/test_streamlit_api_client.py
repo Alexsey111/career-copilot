@@ -87,5 +87,5 @@ def test_import_vacancy_from_url_posts_to_hh_endpoint(monkeypatch: pytest.Monkey
     assert captured["url"] == "http://localhost:8000/api/v1/vacancies/import-from-url"
     assert captured["json"] == {"source_url": "https://hh.ru/vacancy/123"}
     assert captured["headers"]["Authorization"] == "Bearer token-abc"
-    assert captured["timeout"] == 4.0
+    assert captured["timeout"] == 45.0
     assert result["source"] == "hh"

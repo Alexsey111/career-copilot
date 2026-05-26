@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -12,14 +13,35 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import CandidateExperience, CandidateProfile
+from app.domain.evidence import build_evidence_fingerprint, extract_skill_tags
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
+from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
+from app.services.evidence_strength_service import EvidenceStrengthService
 
 
 DATE_RANGE_RE = re.compile(
     r"(?P<start>\d{2}\.\d{2}\.\d{4})\s*-\s*(?P<end>по настоящее время|\d{2}\.\d{2}\.\d{4})",
     re.IGNORECASE,
 )
+NUMBERED_ITEM_RE = re.compile(r"^\d{1,2}\s*[.)\-–—:]\s+")
+ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
+
+
+STRUCTURED_V2_SECTION_HEADINGS = {
+    "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
+    "НАВЫКИ",
+    "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+    "ОПЫТ РАБОТЫ",
+    "ОБРАЗОВАНИЕ",
+    "ПРОЕКТЫ",
+    "ПОРТФОЛИО",
+    "СТАЖИРОВКИ",
+    "КУРСЫ",
+    "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+    "КОНТАКТЫ",
+    "О СЕБЕ",
+}
 
 
 @dataclass
@@ -33,6 +55,24 @@ class StructuredExperienceDraft:
 
 
 @dataclass
+class StructuredResumeSignal:
+    title: str
+    category: str
+    skills: list[str] = field(default_factory=list)
+    snippet_text: str | None = None
+    fact_status: str = "user_provided"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "category": self.category,
+            "skills": list(self.skills),
+            "snippet_text": self.snippet_text or self.title,
+            "fact_status": self.fact_status,
+        }
+
+
+@dataclass
 class StructuredProfileDraft:
     full_name: str | None = None
     headline: str | None = None
@@ -40,6 +80,15 @@ class StructuredProfileDraft:
     summary: str | None = None
     target_roles: list[str] = field(default_factory=list)
     experiences: list[StructuredExperienceDraft] = field(default_factory=list)
+    projects: list[StructuredResumeSignal] = field(default_factory=list)
+    internships: list[StructuredResumeSignal] = field(default_factory=list)
+    achievements: list[StructuredResumeSignal] = field(default_factory=list)
+    ai_tools: list[str] = field(default_factory=list)
+    automation_tools: list[str] = field(default_factory=list)
+    workflow_experience: list[StructuredResumeSignal] = field(default_factory=list)
+    technologies: list[str] = field(default_factory=list)
+    evidence_snippets: list[StructuredResumeSignal] = field(default_factory=list)
+    competency_signals: list[StructuredResumeSignal] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -48,11 +97,17 @@ class ProfileStructuringService:
         self,
         file_extraction_repository: FileExtractionRepository | None = None,
         candidate_profile_repository: CandidateProfileRepository | None = None,
+        evidence_snippet_repository: EvidenceSnippetRepository | None = None,
+        evidence_strength_service: EvidenceStrengthService | None = None,
     ) -> None:
         self.file_extraction_repository = file_extraction_repository or FileExtractionRepository()
         self.candidate_profile_repository = (
             candidate_profile_repository or CandidateProfileRepository()
         )
+        self.evidence_snippet_repository = (
+            evidence_snippet_repository or EvidenceSnippetRepository()
+        )
+        self.evidence_strength_service = evidence_strength_service or EvidenceStrengthService()
 
     async def extract_into_profile(
         self,
@@ -92,6 +147,7 @@ class ProfileStructuringService:
 
         self._apply_profile_fields(profile, draft)
         await self._replace_experiences(session, profile.id, draft.experiences)
+        await self._upsert_structured_evidence(session, user_id=user_id, draft=draft)
 
         await session.flush()
         await session.refresh(profile)
@@ -107,6 +163,7 @@ class ProfileStructuringService:
         draft.target_roles = self._extract_target_roles(lines)
         draft.headline = ", ".join(draft.target_roles[:3]) if draft.target_roles else None
         draft.experiences = self._extract_experiences(lines)
+        self._apply_structured_resume_v2(lines, draft)
 
         if not draft.full_name:
             draft.warnings.append("full_name was not extracted confidently")
@@ -115,11 +172,68 @@ class ProfileStructuringService:
         if not draft.experiences:
             draft.warnings.append("work experience section was not parsed")
 
-        draft.warnings.append(
-            "contacts, achievements, metrics and proof-status mapping are not extracted in v1"
-        )
+        if not draft.evidence_snippets:
+            draft.warnings.append("structured resume v2 did not find reusable evidence snippets")
+        if not draft.technologies:
+            draft.warnings.append("structured resume v2 did not find technologies confidently")
 
         return draft
+
+    async def _upsert_structured_evidence(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        draft: StructuredProfileDraft,
+    ) -> None:
+        payloads: list[dict[str, Any]] = []
+
+        for signal in draft.evidence_snippets:
+            snippet_text = signal.snippet_text or signal.title
+            skills = self._dedupe_preserve_order(signal.skills)
+            strength = self.evidence_strength_service.classify_strength(
+                self.evidence_strength_service.calculate_strength_score(
+                    {
+                        "title": signal.title,
+                        "snippet_text": snippet_text,
+                        "fact_status": signal.fact_status,
+                        "skills": skills,
+                    }
+                )
+            )
+            payloads.append(
+                {
+                    "fingerprint": build_evidence_fingerprint(
+                        user_id=str(user_id),
+                        title=signal.title,
+                        snippet_text=snippet_text,
+                        source_type="resume_structured",
+                        skills=skills,
+                        fact_status=signal.fact_status,
+                    ),
+                    "title": signal.title,
+                    "snippet_text": snippet_text,
+                    "source_type": "resume_structured",
+                    "skills": skills,
+                    "evidence_strength": str(strength),
+                    "fact_status": signal.fact_status,
+                    "usage_count": 0,
+                    "used_in_documents_count": 0,
+                    "used_in_interviews_count": 0,
+                    "star_summary": {
+                        "category": signal.category,
+                        "source": "structured_resume_extraction_v2",
+                        "fact_status": signal.fact_status,
+                    },
+                }
+            )
+
+        if payloads:
+            await self.evidence_snippet_repository.upsert_many(
+                session,
+                user_id=user_id,
+                snippets=payloads,
+            )
 
     def _apply_profile_fields(
         self,
@@ -163,7 +277,357 @@ class ProfileStructuringService:
         await session.flush()
 
     def _clean_lines(self, text: str) -> list[str]:
-        return [line.strip() for line in text.splitlines() if line.strip()]
+        cleaned_lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = ZERO_WIDTH_RE.sub("", raw_line).strip()
+            if line:
+                cleaned_lines.append(line)
+        return cleaned_lines
+
+    def _apply_structured_resume_v2(
+        self,
+        lines: list[str],
+        draft: StructuredProfileDraft,
+    ) -> None:
+        text = "\n".join(lines)
+        project_signals = self._extract_project_like_signals(lines)
+        technology_signals = self._extract_technology_signals(text)
+        competency_signals = self._extract_competency_signals(lines, technology_signals)
+
+        draft.projects = [
+            signal
+            for signal in project_signals
+            if signal.category in {"project", "ai_project", "automation", "prompt_engineering"}
+        ]
+        draft.internships = [
+            signal
+            for signal in project_signals
+            if signal.category == "internship"
+        ]
+        draft.achievements = [
+            signal
+            for signal in project_signals
+            if signal.category == "achievement"
+        ]
+        draft.workflow_experience = [
+            signal
+            for signal in project_signals + competency_signals
+            if signal.category in {"automation", "workflow_experience", "competency_signal"}
+        ]
+        draft.technologies = technology_signals
+        draft.ai_tools = [
+            item
+            for item in technology_signals
+            if item in {"AI", "LLM", "ChatGPT", "TensorFlow", "neural networks"}
+        ]
+        draft.automation_tools = [
+            item
+            for item in technology_signals
+            if item in {"automation", "API", "workflow"}
+        ]
+        draft.competency_signals = competency_signals
+
+        evidence_candidates = project_signals + competency_signals
+        if technology_signals:
+            evidence_candidates.append(
+                StructuredResumeSignal(
+                    title="Technology stack from resume",
+                    category="technologies",
+                    skills=technology_signals,
+                    snippet_text=", ".join(technology_signals),
+                )
+            )
+
+        draft.evidence_snippets = self._dedupe_signals(evidence_candidates)
+
+    def _extract_project_like_signals(self, lines: list[str]) -> list[StructuredResumeSignal]:
+        section_start = self._find_project_or_internship_start(lines)
+        if section_start is None:
+            return []
+
+        section_lines = lines[section_start + 1 :]
+        blocks = self._split_numbered_signal_blocks(section_lines)
+        if not blocks:
+            section = self._extract_section(
+                lines,
+                start_heading=self._normalize_heading(lines[section_start]),
+                stop_headings={"КУРСЫ", "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ", "О СЕБЕ", "КОНТАКТЫ"},
+            )
+            blocks = [[line] for line in section if not self._looks_like_layout_heading(line)]
+
+        signals: list[StructuredResumeSignal] = []
+        for block in blocks:
+            title = self._clean_signal_title(block)
+            if not title or self._looks_like_low_value_signal_title(title):
+                continue
+
+            raw_text = " ".join(block).strip()
+            category = self._classify_signal_category(title, raw_text)
+            skills = self._extract_signal_skills(title, raw_text)
+            signals.append(
+                StructuredResumeSignal(
+                    title=title,
+                    category=category,
+                    skills=skills,
+                    snippet_text=raw_text or title,
+                )
+            )
+
+        return self._dedupe_signals(signals)
+
+    def _find_project_or_internship_start(self, lines: list[str]) -> int | None:
+        markers = [
+            "ПРОШЕЛ 3 СТАЖИРОВКИ",
+            "ПРОШЁЛ 3 СТАЖИРОВКИ",
+            "СТАЖИРОВКИ",
+            "ПРОЕКТЫ",
+            "ПОРТФОЛИО",
+            "ACHIEVEMENTS",
+            "PROJECTS",
+            "INTERNSHIPS",
+        ]
+        for idx, line in enumerate(lines):
+            normalized = self._normalize_heading(line)
+            if any(marker in normalized for marker in markers):
+                return idx
+        return None
+
+    def _split_numbered_signal_blocks(self, lines: list[str]) -> list[list[str]]:
+        blocks: list[list[str]] = []
+        current: list[str] = []
+        started = False
+
+        for line in lines:
+            if NUMBERED_ITEM_RE.match(line):
+                started = True
+                if current:
+                    blocks.append(current)
+                current = [NUMBERED_ITEM_RE.sub("", line).strip()]
+                continue
+
+            if not started:
+                continue
+
+            if self._looks_like_signal_stop(line):
+                if current:
+                    blocks.append(current)
+                break
+
+            if current:
+                current.append(line)
+
+        if current:
+            blocks.append(current)
+        return blocks
+
+    def _clean_signal_title(self, lines: list[str]) -> str:
+        recovered = self._recover_known_ai_signal_title(lines)
+        if recovered:
+            return recovered
+
+        useful_lines = [
+            line
+            for line in lines
+            if not self._looks_like_layout_heading(line)
+            and not self._looks_like_resume_layout_noise(line)
+            and not self._looks_like_signal_stop(line)
+        ]
+        title = re.sub(r"\s+", " ", " ".join(useful_lines)).strip(" -–—•")
+        if ")" in title:
+            title = title[: title.rfind(")") + 1].strip()
+        if len(title) > 255:
+            title = title[:255].rsplit(" ", 1)[0].strip()
+        return title
+
+    def _recover_known_ai_signal_title(self, lines: list[str]) -> str | None:
+        text = re.sub(r"\s+", " ", " ".join(lines)).strip()
+        lowered = text.lower()
+
+        if "создание ии-системы" in lowered:
+            if "мониторинг" in lowered and "пожил" in lowered:
+                return "ИИ-система мониторинга безопасности"
+            return "Создание ИИ-системы"
+        if "автоматизирован" in lowered and "ии-контроль качества" in lowered:
+            return "Автоматизированный ИИ-контроль качества"
+        if "prompt engineering" in lowered or "промпт" in lowered:
+            return "Prompt Engineering"
+        if "ии-анализ" in lowered and "отзыв" in lowered:
+            return "ИИ-анализ текстовых отзывов"
+        return None
+
+    def _classify_signal_category(self, title: str, text: str) -> str:
+        combined = f"{title} {text}".lower()
+        if "prompt engineering" in combined or "промпт" in combined:
+            return "prompt_engineering"
+        if "автоматизирован" in combined or "automation" in combined or "автоматизац" in combined:
+            return "automation"
+        if (
+            "ии" in combined
+            or "искусственный интеллект" in combined
+            or "llm" in combined
+            or "нейро" in combined
+            or "computer vision" in combined
+        ):
+            return "ai_project"
+        if "стажиров" in combined or "internship" in combined:
+            return "internship"
+        if "дост" in combined or "achievement" in combined:
+            return "achievement"
+        return "project"
+
+    def _extract_signal_skills(self, *texts: str) -> list[str]:
+        tags = extract_skill_tags(*texts)
+        display_tags = [self._display_skill_tag(tag) for tag in tags]
+        return self._dedupe_preserve_order(display_tags)
+
+    def _extract_technology_signals(self, text: str) -> list[str]:
+        patterns: list[tuple[str, tuple[str, ...]]] = [
+            ("AI", (r"\bai\b", r"\bии\b", r"искусственн\w+\s+интеллект")),
+            ("LLM", (r"\bllm\b", r"языков\w+\s+модел")),
+            ("ChatGPT", (r"\bchatgpt\b", r"чат[\s-]?gpt")),
+            ("prompt engineering", (r"prompt engineering", r"промпт")),
+            (
+                "computer vision",
+                (
+                    r"computer vision",
+                    r"компьютерн\w+\s+зрени",
+                    r"изображени",
+                    r"\bвидео\b",
+                ),
+            ),
+            ("automation", (r"автоматизац", r"автоматизирован", r"\bautomation\b")),
+            ("workflow", (r"\bworkflow\b", r"процесс", r"пайплайн", r"\bpipeline\b")),
+            ("Python", (r"\bpython\b",)),
+            ("Git", (r"\bgit\b",)),
+            ("API", (r"\bapi\b",)),
+            ("SQL", (r"\bsql\b",)),
+            ("TensorFlow", (r"\btensorflow\b",)),
+            ("neural networks", (r"нейросет", r"neural network")),
+        ]
+        lowered = text.lower()
+        found: list[str] = []
+        for label, label_patterns in patterns:
+            if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in label_patterns):
+                found.append(label)
+        return self._dedupe_preserve_order(found)
+
+    def _extract_competency_signals(
+        self,
+        lines: list[str],
+        technologies: list[str],
+    ) -> list[StructuredResumeSignal]:
+        signals: list[StructuredResumeSignal] = []
+        skills_text = self._extract_skills_summary(lines) or ""
+
+        competency_rules = [
+            (
+                "AI / automation delivery",
+                "competency_signal",
+                {"AI", "automation", "computer vision", "LLM", "prompt engineering"},
+            ),
+            (
+                "Workflow automation experience",
+                "workflow_experience",
+                {"automation", "workflow", "API"},
+            ),
+            (
+                "Data and analytics tooling",
+                "competency_signal",
+                {"SQL", "TensorFlow", "Python"},
+            ),
+        ]
+        technology_set = set(technologies)
+
+        for title, category, required in competency_rules:
+            matched = sorted(technology_set.intersection(required))
+            if len(matched) >= 2:
+                signals.append(
+                    StructuredResumeSignal(
+                        title=title,
+                        category=category,
+                        skills=matched,
+                        snippet_text=skills_text or ", ".join(matched),
+                    )
+                )
+
+        return signals
+
+    def _display_skill_tag(self, tag: str) -> str:
+        mapping = {
+            "ai": "AI",
+            "llm": "LLM",
+            "chatgpt": "ChatGPT",
+            "prompt_engineering": "prompt engineering",
+            "computer_vision": "computer vision",
+            "automation": "automation",
+            "workflow": "workflow",
+            "python": "Python",
+            "fastapi": "API",
+            "analytics": "analytics",
+            "tensorflow": "TensorFlow",
+            "sql": "SQL",
+            "git": "Git",
+        }
+        return mapping.get(tag, tag)
+
+    def _dedupe_signals(
+        self,
+        signals: list[StructuredResumeSignal],
+    ) -> list[StructuredResumeSignal]:
+        result: list[StructuredResumeSignal] = []
+        seen: set[tuple[str, str]] = set()
+        for signal in signals:
+            key = (signal.title.casefold(), signal.category.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            signal.skills = self._dedupe_preserve_order(signal.skills)
+            result.append(signal)
+        return result
+
+    def _looks_like_signal_stop(self, line: str) -> bool:
+        normalized = self._normalize_heading(line)
+        if normalized in {
+            "КУРСЫ",
+            "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+            "О СЕБЕ",
+            "КОНТАКТЫ",
+        }:
+            return True
+        return normalized.startswith("КУРСЫ ") or normalized.startswith("ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ")
+
+    def _looks_like_low_value_signal_title(self, title: str) -> bool:
+        normalized = self._normalize_heading(title)
+        if len(title) < 3:
+            return True
+        return (
+            normalized.startswith("DATA SCIENCE")
+            or "УНИВЕРСИТЕТ ИСКУССТВЕННОГО ИНТЕЛЛЕКТА" in normalized
+        )
+
+    def _looks_like_layout_heading(self, line: str) -> bool:
+        return self._normalize_heading(line) in STRUCTURED_V2_SECTION_HEADINGS
+
+    def _looks_like_resume_layout_noise(self, line: str) -> bool:
+        normalized = self._normalize_heading(line)
+        if re.search(r"\d{2}\.\d{2}\.\d{4}\s*-\s*", line):
+            return True
+        if re.match(r"^\d{4}\b", line.strip()):
+            return True
+        return any(
+            marker in normalized
+            for marker in {
+                "АЛТАЙСКИЙ ГОСУДАРСТВЕННЫЙ",
+                "МЕДИЦИНСКИЙ УНИВЕРСИТЕТ",
+                "УНИВЕРСИТЕТ ИМЕНИ",
+                "ЭЛЕКТРОМОНТЕР",
+                "ОБСЛУЖИВАНИЮ ЭЛЕКТРООБОРУДОВАНИЯ",
+                "ИНЖЕНЕР,",
+                "АВТОМОБИЛЕ- И ТРАКТОРОСТРОЕНИЕ",
+                "РЯЗАНСКОЕ ВЫСШЕЕ",
+                "ВОЗДУШНО-ДЕСАНТНОЕ",
+            }
+        )
 
     def _extract_full_name(self, lines: list[str]) -> str | None:
         candidate_parts: list[str] = []
