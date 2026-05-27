@@ -29,6 +29,61 @@ def _scroll_to_step9_top() -> None:
     )
 
 
+def _provenance_labels_from_review_summary(summary: dict) -> list[str]:
+    labels: list[str] = []
+    for item in summary.get("evidence_selection_reason") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("provenance_label") or "").strip()
+        if not label:
+            category = str(item.get("category") or "").strip()
+            title = str(item.get("title") or item.get("item") or "").strip()
+            category_labels = {
+                "github_architecture": "GitHub architecture evidence",
+                "automation_project": "AI workflow orchestration",
+                "computer_vision": "Computer vision project",
+                "analytics_project": "Analytics project",
+                "backend_project": "Backend project",
+            }
+            label = category_labels.get(category, title)
+        if label and label not in labels:
+            labels.append(label)
+
+    for item in summary.get("selected_achievements") or []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        label = f"Resume achievement: {title}" if title else "Resume achievement"
+        if label not in labels:
+            labels.append(label)
+
+    return labels
+
+
+def _render_resume_provenance_preview(
+    client: CareerCopilotApiClient,
+    *,
+    document_id: str,
+    token: str | None,
+) -> None:
+    try:
+        summary = client.get_document_review_summary(document_id, token=token)
+    except Exception as exc:
+        st.caption(f"Document provenance preview пока недоступен: {exc}")
+        return
+
+    if not isinstance(summary, dict):
+        return
+
+    labels = _provenance_labels_from_review_summary(summary)
+    if not labels:
+        return
+
+    st.markdown("#### Использовано")
+    for label in labels[:6]:
+        st.markdown(f"- ✓ {label}")
+
+
 def render_resume_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("7. Генерация адаптированного резюме")
 
@@ -102,6 +157,14 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
                 "created_at": resume.get("created_at"),
             }
         )
+
+        document_id = resume.get("document_id")
+        if document_id:
+            _render_resume_provenance_preview(
+                client,
+                document_id=str(document_id),
+                token=token,
+            )
 
         preview = resume.get("rendered_text_preview")
         if preview:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import CandidateAchievement, CandidateProfile
@@ -44,6 +44,74 @@ class CandidateAchievementRepository:
 
         await session.flush()
         return created_items
+
+    async def append_for_profile(
+        self,
+        session: AsyncSession,
+        *,
+        profile_id: UUID,
+        achievements: Sequence[dict],
+    ) -> list[CandidateAchievement]:
+        if not achievements:
+            return []
+
+        max_order_result = await session.execute(
+            select(func.max(CandidateAchievement.order_index)).where(
+                CandidateAchievement.profile_id == profile_id
+            )
+        )
+        max_order = max_order_result.scalar()
+        next_order = int(max_order) + 1 if max_order is not None else 0
+
+        existing_titles_result = await session.execute(
+            select(CandidateAchievement.title).where(
+                CandidateAchievement.profile_id == profile_id
+            )
+        )
+        existing_titles = {
+            str(title or "").strip().lower()
+            for title in existing_titles_result.scalars().all()
+            if str(title or "").strip()
+        }
+
+        created_items: list[CandidateAchievement] = []
+        for offset, item in enumerate(achievements):
+            title = str(item.get("title") or "").strip()
+            if not title or title.lower() in existing_titles:
+                continue
+
+            achievement = CandidateAchievement(
+                profile_id=profile_id,
+                experience_id=item.get("experience_id"),
+                title=title,
+                situation=item.get("situation"),
+                task=item.get("task"),
+                action=item.get("action"),
+                result=item.get("result"),
+                metric_text=item.get("metric_text"),
+                evidence_note=item.get("evidence_note"),
+                fact_status=item.get("fact_status", "needs_confirmation"),
+                order_index=next_order + offset,
+            )
+            session.add(achievement)
+            created_items.append(achievement)
+            existing_titles.add(title.lower())
+
+        await session.flush()
+        return created_items
+
+    async def list_for_profile(
+        self,
+        session: AsyncSession,
+        *,
+        profile_id: UUID,
+    ) -> list[CandidateAchievement]:
+        result = await session.execute(
+            select(CandidateAchievement)
+            .where(CandidateAchievement.profile_id == profile_id)
+            .order_by(CandidateAchievement.order_index.asc())
+        )
+        return list(result.scalars().all())
 
     async def get_by_id_for_user(
         self,

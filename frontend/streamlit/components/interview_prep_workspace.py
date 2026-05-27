@@ -241,6 +241,54 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
             st.caption("Ожидания по домену не извлечены.")
 
 
+def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
+    if not isinstance(answer, dict) or not answer:
+        return
+
+    st.markdown("##### Suggested answer")
+    st.caption("Черновик ответа. Проверьте и адаптируйте под свой реальный опыт.")
+
+    fields = [
+        ("Situation", answer.get("situation")),
+        ("Task", answer.get("task")),
+        ("Action", answer.get("action")),
+        ("Result", answer.get("result")),
+    ]
+    for label, value in fields:
+        value_text = str(value or "").strip()
+        if value_text:
+            st.markdown(f"**{label}:** {value_text}")
+
+    tech_stack = [
+        str(item).strip()
+        for item in (answer.get("tech_stack") or [])
+        if str(item).strip()
+    ]
+    if tech_stack:
+        st.markdown("**Tech stack:**")
+        st.markdown(", ".join(tech_stack))
+
+    tradeoffs = [
+        str(item).strip()
+        for item in (answer.get("tradeoffs") or [])
+        if str(item).strip()
+    ]
+    if tradeoffs:
+        st.markdown("**Tradeoffs:**")
+        for item in tradeoffs:
+            st.markdown(f"- {item}")
+
+    talking_points = [
+        str(item).strip()
+        for item in (answer.get("talking_points") or [])
+        if str(item).strip()
+    ]
+    if talking_points:
+        st.markdown("**Talking points:**")
+        for item in talking_points:
+            st.markdown(f"- {item}")
+
+
 def _render_question_group(questions: list[dict[str, Any]]) -> None:
     if not questions:
         st.info("Сгенерированных вопросов пока нет.")
@@ -263,6 +311,8 @@ def _render_question_group(questions: list[dict[str, Any]]) -> None:
                             "Компетенция: "
                             f"{question.get('competency_name') or question.get('competency_key')}"
                         )
+
+                    _render_suggested_answer(question.get("suggested_answer"))
 
                     evidence = question.get("recommended_evidence") or []
                     if evidence:

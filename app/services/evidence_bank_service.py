@@ -30,6 +30,7 @@ PROJECT_EVIDENCE_CATEGORIES = {
     "prompt_engineering",
     "internship",
     "achievement",
+    "architecture_evidence",
 }
 COMPETENCY_SIGNAL_CATEGORIES = {
     "competency_signal",

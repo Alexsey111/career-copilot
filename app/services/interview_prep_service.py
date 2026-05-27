@@ -20,6 +20,7 @@ from app.domain.evidence_confidence import aggregate_evidence_confidence
 from app.services.evidence_bank_service import EVIDENCE_BANK_SOURCE_TYPES, EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
+from app.services.interview_answer_synthesis_service import InterviewAnswerSynthesisService
 from app.services.interview_question_service import InterviewQuestionService
 from app.services.interview_readiness_service import InterviewReadinessService
 
@@ -35,6 +36,7 @@ class InterviewPrepService:
         prep_session_repository: InterviewPrepSessionRepository | None = None,
         evidence_snippet_repository: EvidenceSnippetRepository | None = None,
         question_service: InterviewQuestionService | None = None,
+        answer_synthesis_service: InterviewAnswerSynthesisService | None = None,
         readiness_service: InterviewReadinessService | None = None,
         evidence_extraction_service: EvidenceExtractionService | None = None,
         evidence_selection_service: EvidenceSelectionService | None = None,
@@ -57,6 +59,9 @@ class InterviewPrepService:
             evidence_snippet_repository or EvidenceSnippetRepository()
         )
         self.question_service = question_service or InterviewQuestionService()
+        self.answer_synthesis_service = (
+            answer_synthesis_service or InterviewAnswerSynthesisService()
+        )
         self.readiness_service = readiness_service or InterviewReadinessService()
         self.evidence_extraction_service = (
             evidence_extraction_service or EvidenceExtractionService()
@@ -197,6 +202,11 @@ class InterviewPrepService:
             questions=questions,
             confirmed_achievements=confirmed_achievements,
             evidence_snippets=ranked_evidence_snippets,
+        )
+        questions = self.answer_synthesis_service.attach_suggested_answers(
+            questions=questions,
+            evidence_snippets=ranked_evidence_snippets,
+            weak_areas=weak_areas,
         )
         for link in evidence_links:
             evidence_id = link.get("achievement_id")

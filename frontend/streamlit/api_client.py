@@ -187,6 +187,17 @@ class CareerCopilotApiClient:
     def get_resume_pipeline_state(self, token: str | None = None) -> dict[str, Any]:
         return self.get_json("/profile/resume-state", token=token)
 
+    def generate_repository_achievements(
+        self,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/profile/repository-achievements/generate",
+            {},
+            token=token,
+            timeout_seconds=max(self.timeout_seconds, 45.0),
+        )
+
     def _build_headers(self, token: str | None) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if token:

@@ -39,6 +39,18 @@ from app.services.resume_renderer import render_cover_letter
 
 logger = logging.getLogger(__name__)
 
+LOW_SIGNAL_SKILLS = {
+    "html",
+    "mako",
+    "dockerfile",
+    "powershell",
+}
+
+PROJECT_DISPLAY_HINTS = {
+    "content-factory": "Telegram/OpenAI automation workflow",
+    "career-copilot": "AI career copilot backend",
+}
+
 
 class CoverLetterGenerationService:
     def __init__(
@@ -651,17 +663,11 @@ class CoverLetterGenerationService:
         company_phrase = f"в {company}" if company else "в вашей команде"
         name_sentence = f"Меня зовут {full_name}. " if full_name else ""
 
-        if headline:
-            return (
-                "Здравствуйте!\n\n"
-                f"{name_sentence}Рассматриваю вакансию {vacancy_title} {company_phrase}. "
-                f"Мой текущий профессиональный фокус: {headline}. "
-                "Хочу обсудить, где мой опыт и навыки могут быть полезны для задач этой роли."
-            )
-
         return (
             "Здравствуйте!\n\n"
-            f"{name_sentence}Рассматриваю вакансию {vacancy_title} {company_phrase}."
+            f"{name_sentence}Роль {vacancy_title} {company_phrase} мне релевантна: "
+            f"она находится на пересечении {self._cover_letter_focus_from_headline(headline)} "
+            "и прикладной инженерной разработки."
         )
 
     def _build_relevance_paragraph(
@@ -677,40 +683,30 @@ class CoverLetterGenerationService:
         parts: list[str] = []
         selected_evidence = selected_evidence or []
 
-        # 1. Сильные совпадения
-        if matched_keywords:
-            parts.append(
-                "По текущему профилю наиболее подтверждённое пересечение с вакансией: "
-                f"{', '.join(matched_keywords[:6])}."
-            )
-
-        # 2. Релевантный проектный опыт
-        if selected_achievements:
-            achievement_titles = []
-            for item in selected_achievements[:2]:
-                achievement = ensure_selected_achievement(item)
-                title = achievement.title
-                metric_text = achievement.metric_text
-                if metric_text:
-                    achievement_titles.append(f"{title} ({metric_text})")
-                else:
-                    achievement_titles.append(title)
-            parts.append(
-                "Также могу обсудить релевантный проектный опыт: "
-                f"{'; '.join(achievement_titles)}."
-            )
-
-        evidence_phrases = self._build_evidence_relevance_phrases(
-            selected_evidence=selected_evidence,
-            selected_achievements=selected_achievements,
+        requirement_focus = self._cover_letter_requirement_focus(
+            matched_keywords=matched_keywords,
+            vacancy_title=vacancy_title,
         )
-        if evidence_phrases:
+        project_value = self._cover_letter_project_value(
+            selected_achievements=selected_achievements,
+            selected_evidence=selected_evidence,
+        )
+
+        if requirement_focus and project_value:
             parts.append(
-                "Релевантность к роли опирается на извлечённые факты из резюме: "
-                f"{'; '.join(evidence_phrases[:3])}."
+                f"В требованиях вижу совпадение с моим опытом в зоне {requirement_focus}. "
+                f"В качестве конкретного вклада могу принести {project_value}."
+            )
+        elif requirement_focus:
+            parts.append(
+                f"В требованиях вижу совпадение с моим опытом в зоне {requirement_focus}. "
+                "Готов обсудить, какие задачи команды лучше всего ложатся на этот опыт."
+            )
+        elif project_value:
+            parts.append(
+                f"В качестве конкретного вклада могу принести {project_value}."
             )
 
-        # 3. Gap-mitigation (новый блок)
         gap_paragraph = self._build_gap_mitigation_paragraph(
             missing_keywords=missing_keywords,
             profile_skills=profile_skills,
@@ -727,6 +723,110 @@ class CoverLetterGenerationService:
             )
 
         return " ".join(parts)
+
+    def _cover_letter_focus_from_headline(self, headline: str | None) -> str:
+        if not headline:
+            return "backend-разработки, автоматизации и продуктовых задач"
+
+        normalized = headline.lower()
+        if "python" in normalized and any(
+            marker in normalized for marker in ("automation", "ai", "llm", "workflow")
+        ):
+            return "Python-разработки, AI automation и workflow-систем"
+        if "prompt" in normalized or "llm" in normalized:
+            return "prompt engineering, AI tooling и автоматизации процессов"
+        if "data" in normalized or "analytics" in normalized:
+            return "аналитики данных, автоматизации и прикладной разработки"
+        return "инженерного опыта, автоматизации и продуктовых задач"
+
+    def _cover_letter_requirement_focus(
+        self,
+        *,
+        matched_keywords: list[str],
+        vacancy_title: str,
+    ) -> str:
+        labels: list[str] = []
+        corpus = " ".join([vacancy_title, *matched_keywords]).lower()
+
+        if "python" in corpus:
+            labels.append("Python и backend/API-разработки")
+        elif any(marker in corpus for marker in ("fastapi", "backend", "api")):
+            labels.append("backend/API-разработки")
+        if any(marker in corpus for marker in ("automation", "workflow", "no-code", "nocode")):
+            labels.append("автоматизации workflow")
+        if any(marker in corpus for marker in ("prompt", "llm", "chatgpt", "openai")):
+            labels.append("AI-assisted процессов")
+        if any(marker in corpus for marker in ("computer vision", "monitoring", "quality control")):
+            labels.append("прикладного AI/CV мониторинга")
+
+        return ", ".join(self._dedupe_preserve_order(labels)[:2])
+
+    def _cover_letter_project_value(
+        self,
+        *,
+        selected_achievements: list[dict],
+        selected_evidence: list[dict[str, Any]],
+    ) -> str:
+        project_phrases: list[str] = []
+
+        for item in selected_achievements:
+            phrase = self._cover_letter_project_phrase(
+                title=str(item.get("title") or ""),
+                body=" ".join(
+                    str(item.get(field) or "")
+                    for field in ("situation", "task", "action", "result", "metric_text")
+                ),
+                skills=[],
+            )
+            if phrase:
+                project_phrases.append(phrase)
+
+        for item in selected_evidence:
+            phrase = self._cover_letter_project_phrase(
+                title=str(item.get("title") or ""),
+                body=str(item.get("snippet_text") or ""),
+                skills=[str(skill) for skill in item.get("skills") or []],
+            )
+            if phrase:
+                project_phrases.append(phrase)
+
+        project_phrases = self._dedupe_preserve_order(project_phrases)
+        if not project_phrases:
+            return ""
+        return "; ".join(project_phrases[:2])
+
+    def _cover_letter_project_phrase(
+        self,
+        *,
+        title: str,
+        body: str,
+        skills: list[str],
+    ) -> str:
+        corpus = " ".join([title, body, " ".join(skills)]).lower()
+
+        if any(marker in corpus for marker in ("пвх", "pvc", "quality control", "контроль качества")):
+            return "опыт автоматизации анализа изображений и видео для контроля качества"
+        if any(marker in corpus for marker in ("пансионат", "elderly", "care home", "safety", "безопас")):
+            return "опыт AI/CV мониторинга безопасности в прикладном домене"
+        if any(marker in corpus for marker in ("career copilot", "tailored resume", "vacancy", "резюме")):
+            return (
+                "опыт backend-системы, которая связывает анализ вакансий, "
+                "генерацию документов и review workflow"
+            )
+        if any(marker in corpus for marker in ("fastapi", "backend", "api")):
+            return "опыт проектирования backend/API и document pipeline"
+        if any(marker in corpus for marker in ("automation", "workflow", "openai", "telegram")):
+            return "опыт автоматизации рабочих процессов с интеграциями"
+        if any(marker in corpus for marker in ("analytics", "analysis", "аналит")):
+            return "опыт аналитического pipeline для извлечения прикладных сигналов"
+
+        cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
+        if cleaned_title and cleaned_title.lower() not in {
+            "technology stack from resume",
+            "technologies from resume",
+        }:
+            return f"проектный опыт: {cleaned_title}"
+        return ""
 
     def _select_cover_letter_evidence(
         self,
@@ -766,16 +866,56 @@ class CoverLetterGenerationService:
             normalized_title = re.sub(r"\s+", " ", title).lower()
             if normalized_title in achievement_titles:
                 continue
+            display_title = self._display_evidence_title(title)
             skills = [
-                str(skill).strip()
+                cleaned
                 for skill in (item.get("skills") or [])
-                if str(skill).strip()
+                if (cleaned := self._normalize_display_skill(str(skill)))
+                and cleaned.lower() not in LOW_SIGNAL_SKILLS
             ]
+            skills = self._dedupe_preserve_order(skills)
+            if display_title is None and not skills:
+                continue
+            if display_title is None:
+                phrases.append(", ".join(skills[:4]))
+                continue
             if skills:
-                phrases.append(f"{title} ({', '.join(skills[:3])})")
+                phrases.append(f"{display_title} ({', '.join(skills[:3])})")
             else:
-                phrases.append(title)
+                phrases.append(display_title)
         return self._dedupe_preserve_order(phrases)
+
+    def _display_evidence_title(self, title: str) -> str | None:
+        cleaned = re.sub(r"\s+", " ", title).strip(" .;-–—•")
+        if not cleaned:
+            return None
+
+        lower = cleaned.lower()
+        if lower in PROJECT_DISPLAY_HINTS:
+            return f"{cleaned} — {PROJECT_DISPLAY_HINTS[lower]}"
+        if lower in {"technology stack from resume", "technologies from resume"}:
+            return None
+        return cleaned
+
+    def _normalize_display_skill(self, value: str) -> str:
+        cleaned = re.sub(
+            r"^(Technologies|AI tools|Automation tools)\s*:\s*",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" .;-–—•")
+
+        replacements = {
+            "llm": "LLM",
+            "chatgpt": "ChatGPT",
+            "openai": "OpenAI",
+            "ai workflow": "AI Workflow",
+            "no-code": "No-code",
+        }
+
+        lower = cleaned.lower()
+        return replacements.get(lower, cleaned)
 
     def _build_vacancy_alignment(
         self,

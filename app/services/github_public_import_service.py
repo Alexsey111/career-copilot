@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.evidence import build_evidence_fingerprint, extract_skill_tags
 from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.schemas.profile_intake import GitHubPublicProfileImportRequest
+from app.services.github_repository_evidence_service import GitHubRepositoryEvidenceService
 from app.services.profile_intake_service import ProfileIntakeResult, ProfileIntakeService
 
 
@@ -57,6 +58,7 @@ class GitHubProjectDraft:
     readme_snippet: str | None
     dependency_files: dict[str, str]
     repo_files: list[str]
+    source_files: dict[str, str]
 
 
 class GitHubPublicImportError(RuntimeError):
@@ -69,10 +71,14 @@ class GitHubPublicImportService:
         *,
         profile_intake_service: ProfileIntakeService | None = None,
         evidence_repository: EvidenceSnippetRepository | None = None,
+        repository_evidence_service: GitHubRepositoryEvidenceService | None = None,
         http_timeout_seconds: float = 10.0,
     ) -> None:
         self.profile_intake_service = profile_intake_service or ProfileIntakeService()
         self.evidence_repository = evidence_repository or EvidenceSnippetRepository()
+        self.repository_evidence_service = (
+            repository_evidence_service or GitHubRepositoryEvidenceService()
+        )
         self.http_timeout_seconds = http_timeout_seconds
 
     async def import_public_profile(
@@ -205,6 +211,11 @@ class GitHubPublicImportService:
                 )
                 dependency_files = await self._fetch_dependency_files(client, repo)
                 repo_files = await self._fetch_repo_files(client, repo)
+                source_files = await self._fetch_source_files(
+                    client,
+                    repo=repo,
+                    repo_files=repo_files,
+                )
                 projects.append(
                     GitHubProjectDraft(
                         name=str(repo.get("name") or ""),
@@ -215,6 +226,7 @@ class GitHubPublicImportService:
                         readme_snippet=readme,
                         dependency_files=dependency_files,
                         repo_files=repo_files,
+                        source_files=source_files,
                     )
                 )
             return projects
@@ -334,6 +346,74 @@ class GitHubPublicImportService:
         ]
         return paths[:300]
 
+    async def _fetch_source_files(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        repo: dict[str, Any],
+        repo_files: list[str],
+    ) -> dict[str, str]:
+        full_name = str(repo.get("full_name") or "").strip()
+        if not full_name:
+            return {}
+
+        candidates = self._source_file_candidates(repo_files)
+        result: dict[str, str] = {}
+        for path in candidates:
+            try:
+                response = await client.get(
+                    f"https://api.github.com/repos/{full_name}/contents/{path}"
+                )
+            except httpx.RequestError:
+                continue
+
+            if response.status_code >= 400:
+                continue
+
+            try:
+                payload = response.json()
+            except ValueError:
+                continue
+
+            encoded = str(payload.get("content") or "")
+            if not encoded:
+                continue
+
+            try:
+                decoded = base64.b64decode(encoded, validate=False).decode("utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            result[path] = decoded[:8000]
+
+        return result
+
+    def _source_file_candidates(self, repo_files: list[str]) -> list[str]:
+        python_files = [
+            path
+            for path in repo_files
+            if path.endswith(".py")
+            and not path.endswith("__init__.py")
+            and not any(part in path.lower() for part in (".venv/", "site-packages/"))
+        ]
+
+        def priority(path: str) -> tuple[int, int, str]:
+            lowered = path.lower()
+            score = 10
+            if "main.py" in lowered or "app.py" in lowered:
+                score = 0
+            elif "/api/" in lowered or "/routes/" in lowered or "/routers/" in lowered:
+                score = 1
+            elif "models" in lowered or "database" in lowered or "repository" in lowered:
+                score = 2
+            elif lowered.startswith("alembic/") or "/migrations/" in lowered:
+                score = 3
+            elif lowered.startswith("tests/") or "/tests/" in lowered:
+                score = 4
+            return (score, len(path), path)
+
+        return sorted(python_files, key=priority)[:25]
+
     async def _upsert_github_public_evidence(
         self,
         session: AsyncSession,
@@ -365,6 +445,24 @@ class GitHubPublicImportService:
                         skills=signal_skills,
                         category="competency_signal",
                         source_url=project.url,
+                    )
+                )
+            for evidence in self.repository_evidence_service.analyze_repository(
+                name=project.name,
+                description=project.description,
+                url=project.url,
+                languages=project.languages,
+                topics=project.topics,
+                readme_snippet=project.readme_snippet,
+                dependency_files=project.dependency_files,
+                repo_files=project.repo_files,
+                source_files=project.source_files,
+            ):
+                snippets.append(
+                    self._repository_evidence_snippet(
+                        user_id=user_id,
+                        project=project,
+                        evidence=evidence,
                     )
                 )
         return await self.evidence_repository.upsert_many(
@@ -410,6 +508,50 @@ class GitHubPublicImportService:
             },
         }
 
+    def _repository_evidence_snippet(
+        self,
+        *,
+        user_id: UUID,
+        project: GitHubProjectDraft,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        source_type = "github_public"
+        fact_status = str(evidence.get("fact_status") or "needs_confirmation").strip()
+        title = str(evidence.get("title") or "").strip() or "Repository evidence"
+        snippet_text = str(evidence.get("snippet_text") or "").strip() or title
+        skills = self.profile_intake_service._dedupe(
+            [
+                str(skill)
+                for skill in (evidence.get("skills") or [])
+                if str(skill).strip()
+            ]
+        )
+        return {
+            "fingerprint": build_evidence_fingerprint(
+                user_id=str(user_id),
+                title=f"{project.name}: {title}",
+                snippet_text=snippet_text,
+                source_type=source_type,
+                skills=skills,
+                fact_status=fact_status,
+            ),
+            "title": title,
+            "snippet_text": snippet_text,
+            "source_type": source_type,
+            "skills": skills,
+            "evidence_strength": str(evidence.get("evidence_strength") or "medium").strip().lower(),
+            "fact_status": fact_status,
+            "star_summary": {
+                "type": str(evidence.get("type") or "architecture_evidence"),
+                "category": str(evidence.get("type") or "architecture_evidence"),
+                "source": str(evidence.get("source") or "github_repository_analysis"),
+                "source_url": project.url,
+                "project": project.name,
+                "signals": list(evidence.get("signals") or []),
+                "summary": snippet_text,
+            },
+        }
+
     def _project_text(self, project: GitHubProjectDraft) -> str:
         detected_stack = self._detected_stack_from_repo_files(project)
         return " ".join(
@@ -423,6 +565,9 @@ class GitHubPublicImportService:
                 else "",
                 "Repository files: " + ", ".join(project.repo_files[:30])
                 if project.repo_files
+                else "",
+                "Source files analyzed: " + ", ".join(project.source_files.keys())
+                if project.source_files
                 else "",
                 project.readme_snippet or "",
                 project.url or "",
@@ -489,6 +634,7 @@ class GitHubPublicImportService:
                     "Topics: " + ", ".join(project.topics),
                     "Detected stack: " + ", ".join(self._detected_stack_from_repo_files(project)),
                     "Repository files: " + ", ".join(project.repo_files[:30]),
+                    "Source files analyzed: " + ", ".join(project.source_files.keys()),
                     f"README: {project.readme_snippet or ''}",
                     f"URL: {project.url or ''}",
                 ]

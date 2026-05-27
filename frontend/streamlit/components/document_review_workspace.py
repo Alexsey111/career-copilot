@@ -426,15 +426,18 @@ def _render_export_controls(
     client: CareerCopilotApiClient,
     *,
     document_id: str,
+    document_kind: str,
     token: str | None,
     key_suffix: str,
 ) -> None:
+    document_label = _humanize_document_kind(document_kind)
+    safe_kind = document_kind.replace("_", "-") or "document"
     export_specs = [
-        ("txt", "Экспорт TXT", "text/plain", "txt", client.get_text),
-        ("md", "Экспорт MD", "text/markdown", "md", client.get_text),
+        ("txt", f"Экспорт {document_label} TXT", "text/plain", "txt", client.get_text),
+        ("md", f"Экспорт {document_label} MD", "text/markdown", "md", client.get_text),
         (
             "docx",
-            "Экспорт DOCX",
+            f"Экспорт {document_label} DOCX",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "docx",
             client.get_bytes,
@@ -456,10 +459,10 @@ def _render_export_controls(
             st.download_button(
                 label,
                 data=content,
-                file_name=f"{document_id}.{extension}",
+                file_name=f"{safe_kind}-{document_id}.{extension}",
                 mime=mime,
                 use_container_width=True,
-                key=f"document_review_export_{export_format}_{key_suffix}_{document_id}",
+                key=f"document_review_export_{document_kind}_{export_format}_{key_suffix}_{document_id}",
             )
 
 
@@ -493,6 +496,34 @@ def _return_to_document_selector(selection_state_key: str | None, document_kind:
     elif document_kind == "cover_letter" and not st.session_state.get("approved_resume"):
         st.session_state[f"{selection_state_key}_preferred_kind"] = "resume"
     st.session_state["document_review_step9_return_notice"] = True
+
+
+def _sync_generated_document_state(document_kind: str, approved_document: dict[str, Any]) -> None:
+    state_key = (
+        "generated_resume"
+        if document_kind == "resume"
+        else "generated_cover_letter"
+        if document_kind == "cover_letter"
+        else None
+    )
+    if not state_key:
+        return
+
+    current_value = st.session_state.get(state_key)
+    if not isinstance(current_value, dict):
+        return
+
+    current_id = str(current_value.get("document_id") or current_value.get("id") or "").strip()
+    approved_id = str(approved_document.get("document_id") or approved_document.get("id") or "").strip()
+    if current_id != approved_id:
+        return
+
+    st.session_state[state_key] = {
+        **current_value,
+        "review_status": approved_document.get("review_status", current_value.get("review_status")),
+        "is_active": approved_document.get("is_active", current_value.get("is_active")),
+        "updated_at": approved_document.get("updated_at", current_value.get("updated_at")),
+    }
 
 
 def _render_action_bar(
@@ -571,12 +602,14 @@ def _render_action_bar(
                     st.session_state["approved_resume"] = approved_document
                 elif document_kind == "cover_letter":
                     st.session_state["approved_cover_letter"] = approved_document
+                _sync_generated_document_state(document_kind, approved_document)
+                if selection_state_key:
+                    st.session_state[selection_state_key] = document_id
                 st.session_state["application"] = None
                 st.session_state["interview_session"] = None
                 st.session_state["interview_answers_result"] = None
-                st.success("Документ утверждён")
+                st.success("Документ утверждён. Экспорт доступен ниже.")
                 _render_workflow_selection_status()
-                _return_to_document_selector(selection_state_key, document_kind)
             st.rerun()
 
     if use_draft_clicked:
@@ -621,7 +654,6 @@ def _render_action_bar(
         next_document_id = str(enhanced_document.get("document_id") or "").strip()
         if next_document_id and selection_state_key:
             st.session_state[selection_state_key] = next_document_id
-            st.session_state[f"{selection_state_key}_picker"] = next_document_id
 
         st.session_state["approved_resume"] = None
         st.session_state["approved_cover_letter"] = None
@@ -638,7 +670,13 @@ def _render_action_bar(
         st.rerun()
 
     st.markdown("### Экспорт")
-    _render_export_controls(client, document_id=document_id, token=token, key_suffix=selection_state_key or "document")
+    _render_export_controls(
+        client,
+        document_id=document_id,
+        document_kind=document_kind,
+        token=token,
+        key_suffix=selection_state_key or "document",
+    )
 
 
 def render_document_review_workspace(

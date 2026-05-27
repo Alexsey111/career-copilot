@@ -72,16 +72,38 @@ def render_resume(content_json: dict) -> str:
             if item.get("description_raw"):
                 lines.append(f"- {item['description_raw']}")
 
+    project_sections = sections.get("project_sections") or []
     selected_achievements = sections["selected_achievements"]
-    if selected_achievements:
+    if project_sections or selected_achievements:
         lines.append("")
         lines.append("РЕЛЕВАНТНЫЕ ПРОЕКТЫ")
+
+    if project_sections:
+        for project in project_sections:
+            project_name = project.get("project") or "Проект"
+            role = project.get("role")
+            bullets = project.get("bullets") or []
+
+            lines.append("")
+            lines.append(str(project_name))
+            if role:
+                lines.append(str(role))
+            for bullet in bullets:
+                lines.append(f"- {bullet}")
+    elif selected_achievements:
         for item in selected_achievements:
-            metric_text = item.get("metric_text")
-            if metric_text:
-                lines.append(f"- {item['title']} — {metric_text}")
+            title = item.get("title") or "Проект"
+            narrative = item.get("narrative") or item.get("action") or item.get("task")
+            metric_text = item.get("metric_text") or item.get("result")
+
+            if narrative and metric_text:
+                lines.append(f"- {title} — {narrative} Результат: {metric_text}")
+            elif narrative:
+                lines.append(f"- {title} — {narrative}")
+            elif metric_text:
+                lines.append(f"- {title} — {metric_text}")
             else:
-                lines.append(f"- {item['title']}")
+                lines.append(f"- {title}")
 
     return "\n".join(lines).strip()
 

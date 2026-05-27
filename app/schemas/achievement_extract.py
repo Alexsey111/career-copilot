@@ -29,7 +29,7 @@ class AchievementItemRead(StrictBaseModel):
 
 class AchievementExtractResponse(StrictBaseModel):
     profile_id: UUID
-    extraction_id: UUID
+    extraction_id: UUID | None = None
     achievement_count: int
     achievements: list[AchievementItemRead]
     warnings: list[str]

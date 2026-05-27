@@ -660,6 +660,45 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
         st.session_state.application = None
         st.success("Достижения извлечены")
 
+    st.markdown("#### GitHub project drafts")
+
+    if st.button(
+        "Сгенерировать черновики проектов из GitHub evidence",
+        use_container_width=True,
+    ):
+        try:
+            result = client.generate_repository_achievements(token=token)
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
+            return
+        except httpx.RequestError as exc:
+            st.error("Не удалось подключиться к backend")
+            st.code(str(exc))
+            return
+        except ValueError as exc:
+            st.error("Backend вернул неожиданный ответ")
+            st.code(str(exc))
+            return
+
+        if not isinstance(result, dict):
+            st.error("Backend вернул неожиданный формат ответа")
+            st.json(result)
+            return
+
+        st.session_state.achievements = result
+        st.session_state.vacancy_analysis = None
+        st.session_state.generated_resume = None
+        st.session_state.generated_cover_letter = None
+        st.session_state.approved_resume = None
+        st.session_state.approved_cover_letter = None
+        st.session_state.application = None
+        st.success(
+            "Черновики проектов из GitHub evidence добавлены. "
+            "Проверьте и подтвердите их ниже."
+        )
+        st.rerun()
+
     if st.session_state.achievements:
         achievements_result = st.session_state.achievements
 
@@ -685,7 +724,6 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
                         st.success("Подтверждено пользователем")
                     else:
                         st.caption(f"Статус факта: {fact_status}")
-
 
         if achievements:
             st.markdown("#### Проверка достижений перед документами")

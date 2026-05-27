@@ -83,6 +83,40 @@ class _FakeAsyncClient:
             return _FakeGitHubResponse(
                 {"content": base64.b64encode(dockerfile.encode()).decode()}
             )
+        if url.endswith("/contents/app/main.py"):
+            source = (
+                "from fastapi import FastAPI\n\n"
+                "app = FastAPI()\n"
+            )
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(source.encode()).decode()}
+            )
+        if url.endswith("/contents/app/api/routes/bot.py"):
+            source = (
+                "from fastapi import APIRouter, Depends\n"
+                "from sqlalchemy.ext.asyncio import AsyncSession\n\n"
+                "router = APIRouter()\n\n"
+                "async def get_session() -> AsyncSession: ...\n"
+                "@router.post('/bot')\n"
+                "async def run_bot(session: AsyncSession = Depends(get_session)): ...\n"
+            )
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(source.encode()).decode()}
+            )
+        if url.endswith("/contents/alembic/versions/001_init.py"):
+            source = "from alembic import op\nimport sqlalchemy as sa\n"
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(source.encode()).decode()}
+            )
+        if url.endswith("/contents/tests/test_bot.py"):
+            source = (
+                "import pytest\n"
+                "from fastapi.testclient import TestClient\n\n"
+                "def test_bot(): ...\n"
+            )
+            return _FakeGitHubResponse(
+                {"content": base64.b64encode(source.encode()).decode()}
+            )
         if url.endswith("/git/trees/HEAD"):
             return _FakeGitHubResponse(
                 {
@@ -162,6 +196,19 @@ async def test_github_public_profile_import_creates_unconfirmed_evidence(
     assert signal["source_type"] == "github_public"
     assert signal["fact_status"] == "needs_confirmation"
     assert any("automation" in skill.lower() for skill in signal["skills"])
+
+    architecture = next(
+        item
+        for item in bank["project_evidence"]
+        if item["title"] == "Implemented FastAPI backend architecture"
+    )
+    assert architecture["source_type"] == "github_public"
+    assert architecture["fact_status"] == "needs_confirmation"
+    assert architecture["evidence_strength"] == "strong"
+    assert architecture["star_summary"]["source"] == "github_repository_analysis"
+    assert architecture["star_summary"]["category"] == "architecture_evidence"
+    assert "Backend Architecture" in architecture["skills"]
+    assert "Async API" in architecture["skills"]
 
 
 @pytest.mark.asyncio

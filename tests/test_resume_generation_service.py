@@ -331,6 +331,38 @@ def test_resume_generation_selects_matched_skills_first_without_claiming_gaps() 
     assert "API" in selected
 
 
+def test_resume_generation_normalizes_and_filters_display_skills() -> None:
+    service = ResumeGenerationService()
+
+    selected = service._select_resume_skills(
+        raw_skills=[
+            "Technologies: Python",
+            "HTML",
+            "Mako",
+            "Dockerfile",
+            "devloher",
+            "chatgpt",
+            "llm",
+            "ai",
+            "AI tools: OpenAI",
+            "Automation tools: Telegram Bot",
+            "ai workflow",
+        ],
+        matched_keywords=["Python", "OpenAI", "AI workflow"],
+    )
+
+    assert selected == [
+        "Python",
+        "OpenAI",
+        "AI Workflow",
+        "developer",
+        "ChatGPT",
+        "LLM",
+        "AI",
+        "Telegram Bot",
+    ]
+
+
 def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
     rendered = render_resume(
         {
@@ -380,7 +412,7 @@ def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
     service = ResumeGenerationService()
 
     profile = SimpleNamespace(
-        headline="Prompt Engineering, Data Science, Vibe-coding",
+        headline="Python, automation, devloher, Prompt Engineering, Data Science, Vibe-coding",
         experiences=[],
     )
 
@@ -401,6 +433,8 @@ def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
     joined = "\n".join(bullets)
 
     assert "Профессиональный фокус" in joined
+    assert "Python Automation & AI Workflow Engineer" in joined
+    assert "devloher" not in joined
     assert "Подтверждённые пересечения" in joined
     assert "Дополнительные навыки" in joined
     assert "Проектный опыт" in joined
@@ -535,8 +569,361 @@ def test_resume_can_projectize_selected_evidence_bank_item() -> None:
             "metric_text": None,
             "fact_status": "user_provided",
             "reason": "evidence_bank_project",
+            "skills": ["AI", "computer vision"],
         }
     ]
+
+
+def test_resume_balances_fallback_evidence_categories() -> None:
+    service = ResumeGenerationService()
+
+    ranked = [
+        {"evidence_id": "eng-1", "title": "FastAPI backend", "score": 1.0},
+        {"evidence_id": "eng-2", "title": "Repository architecture", "score": 0.95},
+        {"evidence_id": "auto-1", "title": "OpenAI workflow", "score": 0.7},
+        {"evidence_id": "auto-2", "title": "Telegram automation", "score": 0.65},
+        {"evidence_id": "domain-1", "title": "Computer vision monitoring", "score": 0.5},
+        {"evidence_id": "analytics-1", "title": "Analytics pipeline", "score": 0.4},
+    ]
+    evidence_by_id = {
+        "eng-1": {
+            "star_summary": {"category": "architecture_evidence"},
+            "skills": ["FastAPI", "Backend Architecture"],
+        },
+        "eng-2": {
+            "star_summary": {"category": "github_architecture"},
+            "skills": ["Backend Architecture"],
+        },
+        "auto-1": {
+            "star_summary": {"category": "automation_project"},
+            "skills": ["OpenAI", "Workflow Orchestration"],
+        },
+        "auto-2": {
+            "star_summary": {"category": "automation_project"},
+            "skills": ["Telegram Bot", "Automation"],
+        },
+        "domain-1": {
+            "star_summary": {"category": "computer_vision"},
+            "skills": ["Computer Vision"],
+        },
+        "analytics-1": {
+            "star_summary": {"category": "analytics_project"},
+            "skills": ["Analytics"],
+        },
+    }
+
+    selected = service._balance_ranked_evidence_selection(
+        ranked_evidence=ranked,
+        evidence_by_id=evidence_by_id,
+        limit=5,
+    )
+
+    assert [item["evidence_id"] for item in selected] == [
+        "eng-1",
+        "eng-2",
+        "auto-1",
+        "auto-2",
+        "domain-1",
+    ]
+
+
+def test_resume_competency_mapping_prefers_specific_evidence() -> None:
+    service = ResumeGenerationService()
+
+    evidence = service._find_best_evidence_for_competency(
+        "Docker",
+        [
+            {
+                "id": "workflow",
+                "title": "AI workflow orchestration",
+                "snippet_text": "OpenAI workflow automation pipeline.",
+                "skills": ["AI Workflow", "OpenAI"],
+            },
+            {
+                "id": "infra",
+                "title": "Configured Docker-based local infrastructure",
+                "snippet_text": "Docker Compose with Redis and PostgreSQL services.",
+                "skills": ["Docker", "Infrastructure", "Redis", "PostgreSQL"],
+            },
+        ],
+    )
+
+    assert evidence["id"] == "infra"
+
+
+def test_resume_competency_mapping_does_not_force_git_to_workflow_evidence() -> None:
+    service = ResumeGenerationService()
+
+    mapping = service._build_competency_mapping(
+        relevant_to_vacancy=["Git"],
+        evidence_snippets=[
+            {
+                "id": "workflow",
+                "title": "AI workflow orchestration",
+                "snippet_text": "OpenAI workflow automation pipeline.",
+                "skills": ["AI Workflow", "OpenAI"],
+                "fact_status": "user_provided",
+            }
+        ],
+        missing_keywords=[],
+    )
+
+    assert mapping == [
+        {
+            "competency": "Git",
+            "coverage": "profile_keyword",
+            "evidence_id": None,
+            "evidence_title": None,
+            "evidence": (
+                "Использование Git в проектной разработке требует отдельного подтверждения"
+            ),
+            "fact_status": "needs_review",
+        }
+    ]
+
+
+def test_resume_competency_mapping_uses_git_only_with_repository_evidence() -> None:
+    service = ResumeGenerationService()
+
+    mapping = service._build_competency_mapping(
+        relevant_to_vacancy=["Git"],
+        evidence_snippets=[
+            {
+                "id": "repo",
+                "title": "Repository architecture",
+                "snippet_text": "GitHub repository with version control and structured commits.",
+                "skills": ["Git", "GitHub"],
+                "fact_status": "user_provided",
+            }
+        ],
+        missing_keywords=[],
+    )
+
+    assert mapping[0]["coverage"] == "supported"
+    assert mapping[0]["evidence_id"] == "repo"
+    assert mapping[0]["evidence"] == "Использование Git/repository workflow в проектной разработке"
+
+
+def test_resume_competency_mapping_does_not_map_generic_ai_to_prompt_orchestration() -> None:
+    service = ResumeGenerationService()
+
+    mapping = service._build_competency_mapping(
+        relevant_to_vacancy=["Искусственный интеллект"],
+        evidence_snippets=[
+            {
+                "id": "prompt",
+                "title": "Prompt Engineering",
+                "snippet_text": "Built ChatGPT prompts and AI-assisted workflows.",
+                "skills": ["ChatGPT", "LLM", "prompt engineering", "automation"],
+                "fact_status": "user_provided",
+            }
+        ],
+        missing_keywords=[],
+    )
+
+    assert mapping[0]["coverage"] == "profile_keyword"
+    assert mapping[0]["evidence_id"] is None
+    assert mapping[0]["evidence"] == (
+        "Практический опыт с искусственным интеллектом требует отдельного подтверждения"
+    )
+
+
+def test_resume_project_sections_ground_computer_vision_and_analytics() -> None:
+    service = ResumeGenerationService()
+
+    sections = service._build_project_sections(
+        service._add_project_narratives(
+            [
+                {
+                    "title": "ИИ-контроль качества по изображениям",
+                    "action": "Computer vision monitoring for quality control.",
+                    "skills": ["Computer Vision", "Monitoring", "Quality Control"],
+                    "fact_status": "confirmed",
+                },
+                {
+                    "title": "Analytics pipeline",
+                    "action": "Built analytics pipeline for operational analysis.",
+                    "skills": ["Analytics", "Data Analysis"],
+                    "fact_status": "confirmed",
+                },
+            ]
+        )
+    )
+
+    assert sections[0]["project"] == "AI Quality Monitoring"
+    assert sections[0]["role"] == "AI / Computer Vision Project"
+    assert any("мониторинга качества" in item for item in sections[0]["bullets"])
+    assert sections[1]["project"] == "Analytics Pipeline"
+    assert any("прикладных сигналов" in item for item in sections[1]["bullets"])
+
+
+def test_resume_project_bullets_include_domain_impact_for_safety_monitoring() -> None:
+    service = ResumeGenerationService()
+
+    sections = service._build_project_sections(
+        service._add_project_narratives(
+            [
+                {
+                    "title": "AI monitoring system для пансионатов",
+                    "action": (
+                        "Computer vision monitoring for elderly safety in care homes."
+                    ),
+                    "skills": ["Computer Vision", "Monitoring", "Safety"],
+                    "fact_status": "confirmed",
+                }
+            ]
+        )
+    )
+
+    assert sections[0]["project"] == "AI Quality Monitoring"
+    assert any(
+        "мониторинга безопасности в пансионатах для пожилых" in item
+        for item in sections[0]["bullets"]
+    )
+
+
+def test_resume_project_bullets_include_domain_impact_for_pvc_quality_control() -> None:
+    service = ResumeGenerationService()
+
+    sections = service._build_project_sections(
+        service._add_project_narratives(
+            [
+                {
+                    "title": "ИИ-контроль качества ПВХ изделий",
+                    "action": "Computer vision analysis of images and video for PVC quality control.",
+                    "skills": ["Computer Vision", "Quality Control"],
+                    "fact_status": "confirmed",
+                }
+            ]
+        )
+    )
+
+    assert any(
+        item == "Автоматизировал анализ изображений и видео для контроля качества ПВХ изделий"
+        for item in sections[0]["bullets"]
+    )
+
+
+def test_resume_adds_project_narratives_for_architecture_achievements() -> None:
+    service = ResumeGenerationService()
+
+    enriched = service._add_project_narratives(
+        [
+            {
+                "title": "Разработка AI workflow orchestration системы",
+                "action": "Implemented AI Workflow and OpenAI orchestration",
+                "skills": ["AI Workflow", "OpenAI", "Workflow Orchestration"],
+                "fact_status": "confirmed",
+            },
+            {
+                "title": "Разработка FastAPI backend сервиса",
+                "action": "Implemented FastAPI backend architecture",
+                "skills": ["FastAPI", "Backend Architecture", "SQLAlchemy"],
+                "fact_status": "confirmed",
+            },
+        ]
+    )
+
+    assert "tailored resume" in enriched[0]["narrative"]
+    assert "application tracking" in enriched[1]["narrative"]
+
+
+def test_resume_renderer_prints_project_narrative() -> None:
+    rendered = render_resume(
+        {
+            "candidate": {"full_name": "Test User"},
+            "target_vacancy": {"title": "AI Specialist"},
+            "sections": {
+                "summary_bullets": [],
+                "skills": ["Python"],
+                "experience": [],
+                "selected_achievements": [
+                    {
+                        "title": "Разработка FastAPI backend сервиса",
+                        "narrative": "API, persistence layer и document generation",
+                    }
+                ],
+            },
+        }
+    )
+
+    assert "Разработка FastAPI backend сервиса — API, persistence layer" in rendered
+
+
+def test_resume_builds_structured_project_sections_from_achievements() -> None:
+    service = ResumeGenerationService()
+
+    achievements = service._add_project_narratives(
+        [
+            {
+                "title": "Разработка AI workflow orchestration системы",
+                "action": "Implemented AI Workflow, OpenAI orchestration and evidence review",
+                "skills": ["AI Workflow", "OpenAI", "FastAPI", "PostgreSQL"],
+                "fact_status": "confirmed",
+                "reason": "evidence_bank_project",
+            }
+        ]
+    )
+
+    project_sections = service._build_project_sections(achievements)
+
+    assert project_sections == [
+        {
+            "project": "AI Career Copilot",
+            "role": "Backend / AI Workflow System",
+            "bullets": [
+                "Разработал workflow анализа вакансий и генерации tailored resume",
+                "Интегрировал AI orchestration flow",
+                (
+                    "Спроектировал FastAPI backend для AI Career Copilot, "
+                    "включающий pipeline анализа вакансий, генерацию tailored resume "
+                    "и workflow review"
+                ),
+                "Спроектировал evidence-review architecture",
+                "Спроектировал persistence layer для хранения прикладных данных",
+            ],
+        }
+    ]
+
+
+def test_resume_renderer_prints_structured_project_sections() -> None:
+    rendered = render_resume(
+        {
+            "candidate": {"full_name": "Test User"},
+            "target_vacancy": {"title": "AI Specialist"},
+            "sections": {
+                "summary_bullets": [],
+                "skills": ["Python"],
+                "experience": [],
+                "project_sections": [
+                    {
+                        "project": "AI Career Copilot",
+                        "role": "Backend / AI Workflow System",
+                        "bullets": [
+                            "Разработал workflow анализа вакансий и генерации tailored resume",
+                            (
+                                "Спроектировал FastAPI backend для AI Career Copilot, "
+                                "включающий pipeline анализа вакансий, генерацию tailored resume "
+                                "и workflow review"
+                            ),
+                        ],
+                    }
+                ],
+                "selected_achievements": [
+                    {
+                        "title": "Flat fallback should not render",
+                        "narrative": "Hidden when structured project sections exist",
+                    }
+                ],
+            },
+        }
+    )
+
+    assert "AI Career Copilot" in rendered
+    assert "Backend / AI Workflow System" in rendered
+    assert "- Разработал workflow анализа вакансий" in rendered
+    assert "- Спроектировал FastAPI backend для AI Career Copilot" in rendered
+    assert "Flat fallback should not render" not in rendered
 
 
 def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
@@ -572,13 +959,23 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
     )
 
     summary = tailoring["vacancy_aligned_summary"]
-    assert summary.startswith("Кандидат на позицию AI Automation Specialist")
-    assert "Prompt engineering" in summary
-    assert "AI tooling" in summary
+    assert summary.startswith("Python-разработчик и AI automation engineer")
+    assert "Кандидат на позицию" not in summary
     assert "Workflow automation" in tailoring["relevant_to_vacancy"]
     assert "Python-based AI systems" in tailoring["relevant_to_vacancy"]
     assert any(
         item["competency"] == "Prompt engineering"
-        and item["evidence_title"] == "Prompt Engineering"
+        and item["evidence"]
+        == "Проектирование prompt/workflow orchestration для AI-assisted resume tailoring"
+        for item in tailoring["competency_mapping"]
+    )
+    assert any(
+        item["competency"] == "Workflow automation"
+        and item["evidence"]
+        == "Разработка AI workflow pipeline для анализа вакансий и генерации документов"
+        for item in tailoring["competency_mapping"]
+    )
+    assert all(
+        item.get("evidence") != "Technology stack from resume"
         for item in tailoring["competency_mapping"]
     )

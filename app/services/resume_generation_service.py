@@ -53,6 +53,71 @@ PROTECTED_TECH_TERMS = {
     "sqlalchemy",
 }
 
+LOW_SIGNAL_SKILLS = {
+    "html",
+    "mako",
+    "dockerfile",
+    "powershell",
+}
+
+DISPLAY_NORMALIZATION_MAP = {
+    "devloher": "developer",
+    "chatgpt": "ChatGPT",
+    "llm": "LLM",
+    "ai": "AI",
+    "openai": "OpenAI",
+    "ai workflow": "AI Workflow",
+    "no-code": "No-code",
+}
+
+ACHIEVEMENT_CATEGORIES = {
+    "github_architecture",
+    "automation_project",
+    "computer_vision",
+    "analytics_project",
+    "backend_project",
+    "ai_workflow",
+}
+
+PROJECT_EVIDENCE_CATEGORIES = {
+    "project",
+    "ai_project",
+    "automation",
+    "prompt_engineering",
+    "internship",
+    "achievement",
+    "architecture_evidence",
+    *ACHIEVEMENT_CATEGORIES,
+}
+
+ENGINEERING_ACHIEVEMENT_CATEGORIES = {
+    "github_architecture",
+    "backend_project",
+    "architecture_evidence",
+}
+AUTOMATION_ACHIEVEMENT_CATEGORIES = {
+    "automation_project",
+    "automation",
+    "prompt_engineering",
+    "ai_project",
+    "ai_workflow",
+}
+BUSINESS_DOMAIN_ACHIEVEMENT_CATEGORIES = {
+    "computer_vision",
+    "analytics_project",
+    "project",
+    "internship",
+    "achievement",
+}
+
+EVIDENCE_DIVERSITY_BUCKET_LIMITS = {
+    "backend": 2,
+    "automation": 2,
+    "computer_vision": 1,
+    "analytics": 1,
+    "ai_workflow": 2,
+}
+
 
 class ResumeGenerationService:
     def __init__(
@@ -212,16 +277,25 @@ class ResumeGenerationService:
                         snippet.get("fact_status") or item.get("fact_status") or ""
                     ).strip() or "confirmed",
                     "evidence_strength": str(snippet.get("evidence_strength") or "").strip() or None,
+                    "source_type": str(snippet.get("source_type") or "").strip() or None,
+                    "category": self._achievement_category_from_evidence(snippet),
+                    "provenance_label": self._provenance_label_from_evidence(snippet),
+                    "skills": list(snippet.get("skills") or []),
                 }
             )
 
         if not selected_evidence_ids and evidence_snippets:
-            fallback_ranked_evidence = self.evidence_selection_service.rank_evidence(
+            ranked_evidence = self.evidence_selection_service.rank_evidence(
                 query_text=" ".join(matched_keywords or missing_keywords),
                 evidence_items=evidence_snippets,
                 required_skills=matched_keywords or missing_keywords,
                 source_types=EVIDENCE_BANK_SOURCE_TYPES,
-                limit=3,
+                limit=12,
+            )
+            fallback_ranked_evidence = self._balance_ranked_evidence_selection(
+                ranked_evidence=ranked_evidence,
+                evidence_by_id=evidence_by_id,
+                limit=5,
             )
             for item in fallback_ranked_evidence:
                 evidence_id = str(item.get("evidence_id") or "").strip()
@@ -242,6 +316,11 @@ class ResumeGenerationService:
                         "evidence_strength": str(
                             item.get("evidence_strength") or snippet.get("evidence_strength") or ""
                         ).strip() or None,
+                        "source_type": str(item.get("source_type") or snippet.get("source_type") or "").strip()
+                        or None,
+                        "category": self._achievement_category_from_evidence(snippet or item),
+                        "provenance_label": self._provenance_label_from_evidence(snippet or item),
+                        "skills": list(item.get("skills") or snippet.get("skills") or []),
                     }
                 )
 
@@ -333,6 +412,9 @@ class ResumeGenerationService:
             missing_keywords=missing_keywords,
         )
 
+        selected_achievements = self._add_project_narratives(selected_achievements)
+        project_sections = self._build_project_sections(selected_achievements)
+
         content_json = build_resume_content(
             candidate={
                 "full_name": profile.full_name,
@@ -354,6 +436,7 @@ class ResumeGenerationService:
             vacancy_aligned_summary=tailoring["vacancy_aligned_summary"],
             competency_mapping=tailoring["competency_mapping"],
             relevant_to_vacancy=tailoring["relevant_to_vacancy"],
+            project_sections=project_sections,
             summary_bullets=summary_bullets,
             skills=selected_skills,
             experience=experience_items,
@@ -564,11 +647,32 @@ class ResumeGenerationService:
 
         matched_skills = self._dedupe_preserve_order(matched_skills)
         remaining = [skill for skill in raw_skills if skill not in matched_skills]
-        return (matched_skills + remaining)[:12]
+        combined = matched_skills + remaining
+
+        normalized: list[str] = []
+        for item in combined:
+            cleaned = self._normalize_display_skill(item)
+            if cleaned.lower() in LOW_SIGNAL_SKILLS:
+                continue
+            normalized.append(cleaned)
+
+        return self._dedupe_preserve_order(normalized)[:10]
+
+    def _normalize_display_skill(self, value: str) -> str:
+        cleaned = re.sub(
+            r"^(Technologies|AI tools|Automation tools)\s*:\s*",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" .;-–—•")
+
+        lower = cleaned.lower()
+        return DISPLAY_NORMALIZATION_MAP.get(lower, cleaned)
 
     def _skill_matches_keyword(self, raw_skill: str, keyword: str) -> bool:
-        raw = raw_skill.strip().lower()
-        key = keyword.strip().lower()
+        raw = self._normalize_display_skill(raw_skill).strip().lower()
+        key = self._normalize_display_skill(keyword).strip().lower()
 
         if not raw or not key:
             return False
@@ -751,14 +855,7 @@ class ResumeGenerationService:
             if not snippet:
                 continue
             category = str((snippet.get("star_summary") or {}).get("category") or "")
-            if category not in {
-                "project",
-                "ai_project",
-                "automation",
-                "prompt_engineering",
-                "internship",
-                "achievement",
-            }:
+            if category not in PROJECT_EVIDENCE_CATEGORIES:
                 continue
             selected.append(
                 {
@@ -771,11 +868,398 @@ class ResumeGenerationService:
                     "metric_text": None,
                     "fact_status": str(snippet.get("fact_status") or "user_provided"),
                     "reason": "evidence_bank_project",
+                    "skills": list(snippet.get("skills") or []),
                 }
             )
-            if len(selected) >= 3:
+            if len(selected) >= 5:
                 break
         return selected
+
+    def _add_project_narratives(
+        self,
+        selected_achievements: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        enriched: list[dict[str, Any]] = []
+
+        for item in selected_achievements:
+            enriched_item = dict(item)
+            title = str(item.get("title") or "").lower()
+            action = str(item.get("action") or "")
+            skills = [
+                str(skill).strip()
+                for skill in (item.get("skills") or [])
+                if str(skill).strip()
+            ]
+
+            corpus = " ".join([title, action, " ".join(skills)]).lower()
+
+            if "workflow orchestration" in corpus or "ai workflow" in corpus:
+                enriched_item["narrative"] = (
+                    "backend workflow для анализа вакансий, генерации tailored resume, "
+                    "review flow и подготовки к интервью"
+                )
+            elif "fastapi" in corpus or "backend" in corpus:
+                enriched_item["narrative"] = (
+                    "API, persistence layer, application tracking, document generation "
+                    "и evidence review"
+                )
+            elif "computer vision" in corpus or "мониторинг" in corpus:
+                enriched_item["narrative"] = (
+                    "AI/CV pipeline для анализа изображений или видео и поддержки "
+                    "прикладного мониторинга"
+                )
+            elif "analytics" in corpus or "анализ" in corpus:
+                enriched_item["narrative"] = (
+                    "аналитический pipeline для обработки данных и извлечения полезных сигналов"
+                )
+
+            enriched.append(enriched_item)
+
+        return enriched
+
+    def _build_project_sections(
+        self,
+        selected_achievements: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, dict[str, Any]] = {}
+
+        for item in selected_achievements:
+            project_name = self._project_name_from_achievement(item)
+            role = self._project_role_from_achievement(item)
+            bullets = self._project_bullets_from_achievement(item)
+            if not bullets:
+                continue
+
+            section = grouped.setdefault(
+                project_name,
+                {
+                    "project": project_name,
+                    "role": role,
+                    "bullets": [],
+                },
+            )
+            if not section.get("role") and role:
+                section["role"] = role
+            section["bullets"] = self._dedupe_project_bullets(
+                [*section["bullets"], *bullets]
+            )[:5]
+
+        return list(grouped.values())[:4]
+
+    def _dedupe_project_bullets(self, bullets: list[str]) -> list[str]:
+        selected: list[str] = []
+        seen_text: set[str] = set()
+        seen_concepts: set[str] = set()
+
+        for bullet in bullets:
+            cleaned = re.sub(r"\s+", " ", str(bullet).strip())
+            normalized = cleaned.lower()
+            if not normalized or normalized in seen_text:
+                continue
+
+            concept = self._project_bullet_concept(normalized)
+            if concept and concept in seen_concepts:
+                continue
+
+            seen_text.add(normalized)
+            if concept:
+                seen_concepts.add(concept)
+            selected.append(cleaned)
+
+        return selected
+
+    def _project_bullet_concept(self, normalized_bullet: str) -> str | None:
+        if "fastapi" in normalized_bullet or "backend" in normalized_bullet:
+            return "backend"
+        if "workflow" in normalized_bullet and (
+            "tailored resume" in normalized_bullet
+            or "orchestration" in normalized_bullet
+            or "генерации" in normalized_bullet
+        ):
+            return "ai_workflow"
+        if "persistence" in normalized_bullet or "postgresql" in normalized_bullet:
+            return "persistence"
+        if "computer vision" in normalized_bullet or "мониторинг" in normalized_bullet:
+            return "computer_vision"
+        if "analytics" in normalized_bullet or "аналит" in normalized_bullet:
+            return "analytics"
+        return None
+
+    def _project_name_from_achievement(self, achievement: dict[str, Any]) -> str:
+        corpus = self._achievement_semantic_corpus(achievement)
+        title = str(achievement.get("title") or "").strip()
+
+        if any(marker in corpus for marker in ("computer vision", "quality control", "мониторинг", "качества")):
+            return "AI Quality Monitoring"
+        if any(marker in corpus for marker in ("analytics", "data pipeline", "аналит")):
+            return "Analytics Pipeline"
+        if (
+            "career copilot" in corpus
+            or "tailored resume" in corpus
+            or "evidence review" in corpus
+            or "application tracking" in corpus
+        ):
+            return "AI Career Copilot"
+        if "content-factory" in corpus or "telegram" in corpus and "openai" in corpus:
+            return "Content Factory"
+        return title or "Проект"
+
+    def _project_role_from_achievement(self, achievement: dict[str, Any]) -> str:
+        corpus = self._achievement_semantic_corpus(achievement)
+
+        if "computer vision" in corpus or "мониторинг" in corpus or "quality control" in corpus:
+            return "AI / Computer Vision Project"
+        if "workflow orchestration" in corpus or "ai workflow" in corpus:
+            return "Backend / AI Workflow System"
+        if "fastapi" in corpus or "backend" in corpus:
+            return "Backend Architecture"
+        if "analytics" in corpus or "аналит" in corpus:
+            return "Analytics Project"
+        return "Engineering Project"
+
+    def _project_bullets_from_achievement(
+        self,
+        achievement: dict[str, Any],
+    ) -> list[str]:
+        corpus = self._achievement_semantic_corpus(achievement)
+        bullets: list[str] = []
+
+        if "computer vision" in corpus or "мониторинг" in corpus or "quality control" in corpus:
+            bullets.append(self._computer_vision_impact_bullet(corpus))
+        if "analytics" in corpus or "аналит" in corpus:
+            bullets.append(
+                "Построил аналитический pipeline для выявления прикладных сигналов "
+                "и поддержки решений"
+            )
+        if "workflow orchestration" in corpus or "ai workflow" in corpus:
+            bullets.append(
+                "Разработал workflow анализа вакансий и генерации tailored resume"
+            )
+            bullets.append("Интегрировал AI orchestration flow")
+        if "fastapi" in corpus or "backend" in corpus:
+            if any(marker in corpus for marker in ("career copilot", "tailored resume", "workflow review")):
+                bullets.append(
+                    "Спроектировал FastAPI backend для AI Career Copilot, "
+                    "включающий pipeline анализа вакансий, генерацию tailored resume "
+                    "и workflow review"
+                )
+            else:
+                bullets.append("Реализовал FastAPI backend и document pipeline")
+        if any(marker in corpus for marker in ("evidence review", "review flow", "evidence-review")):
+            bullets.append("Спроектировал evidence-review architecture")
+        if any(marker in corpus for marker in ("postgresql", "sqlalchemy", "persistence layer")):
+            bullets.append("Спроектировал persistence layer для хранения прикладных данных")
+        if any(marker in corpus for marker in ("docker", "redis", "infrastructure")):
+            bullets.append("Настроил инфраструктуру для локальной разработки и интеграций")
+
+        narrative = str(achievement.get("narrative") or "").strip()
+        if narrative and not bullets:
+            bullets.append(self._sentence_to_project_bullet(narrative))
+
+        action = str(achievement.get("action") or "").strip()
+        if action and not bullets:
+            bullets.append(self._sentence_to_project_bullet(action))
+
+        result = str(achievement.get("metric_text") or achievement.get("result") or "").strip()
+        if result:
+            bullets.append(f"Зафиксировал результат: {result}")
+
+        return self._dedupe_preserve_order(bullets)[:5]
+
+    def _computer_vision_impact_bullet(self, corpus: str) -> str:
+        if any(marker in corpus for marker in ("пвх", "pvc", "окон", "издел")):
+            return (
+                "Автоматизировал анализ изображений и видео "
+                "для контроля качества ПВХ изделий"
+            )
+
+        if any(
+            marker in corpus
+            for marker in (
+                "пансионат",
+                "пожил",
+                "elderly",
+                "senior care",
+                "care home",
+                "nursing home",
+            )
+        ):
+            return (
+                "Разработал AI/CV pipeline для автоматизации мониторинга "
+                "безопасности в пансионатах для пожилых"
+            )
+
+        if any(marker in corpus for marker in ("безопас", "safety", "security")):
+            return (
+                "Разработал AI/CV pipeline для автоматизации прикладного "
+                "мониторинга безопасности"
+            )
+
+        return (
+            "Разработал AI/CV pipeline для автоматизации мониторинга качества "
+            "по изображениям и видео"
+        )
+
+    def _achievement_semantic_corpus(self, achievement: dict[str, Any]) -> str:
+        return " ".join(
+            [
+                str(achievement.get("title") or ""),
+                str(achievement.get("task") or ""),
+                str(achievement.get("action") or ""),
+                str(achievement.get("result") or ""),
+                str(achievement.get("metric_text") or ""),
+                str(achievement.get("narrative") or ""),
+                str(achievement.get("reason") or ""),
+                " ".join(str(skill) for skill in (achievement.get("skills") or [])),
+            ]
+        ).lower()
+
+    def _sentence_to_project_bullet(self, text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", text).strip(" .;-–—•")
+        if not cleaned:
+            return "Описал проектный вклад на основе подтверждённых фактов"
+
+        first_word = cleaned.split(" ", 1)[0].lower()
+        if first_word in {"разработал", "реализовал", "спроектировал", "интегрировал", "построил"}:
+            return cleaned
+        return f"Реализовал {cleaned}"
+
+    def _balance_ranked_evidence_selection(
+        self,
+        *,
+        ranked_evidence: list[dict[str, Any]],
+        evidence_by_id: dict[str, dict[str, Any]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        selected_ids: set[str] = set()
+        bucket_counts: dict[str, int] = {}
+
+        for bucket, bucket_limit in EVIDENCE_DIVERSITY_BUCKET_LIMITS.items():
+            while bucket_counts.get(bucket, 0) < bucket_limit and len(selected) < limit:
+                item = self._first_ranked_evidence_for_bucket(
+                    ranked_evidence=ranked_evidence,
+                    evidence_by_id=evidence_by_id,
+                    bucket=bucket,
+                    excluded_ids=selected_ids,
+                )
+                if item is None:
+                    break
+                selected.append(item)
+                bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+                evidence_id = str(item.get("evidence_id") or "").strip()
+                if evidence_id:
+                    selected_ids.add(evidence_id)
+                if len(selected) >= limit:
+                    return selected
+
+        for item in ranked_evidence:
+            evidence_id = str(item.get("evidence_id") or "").strip()
+            if evidence_id and evidence_id in selected_ids:
+                continue
+            snippet = evidence_by_id.get(evidence_id, item)
+            bucket = self._evidence_diversity_bucket(snippet)
+            bucket_limit = EVIDENCE_DIVERSITY_BUCKET_LIMITS.get(bucket, 1)
+            if bucket_counts.get(bucket, 0) >= bucket_limit:
+                continue
+            selected.append(item)
+            bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+            if evidence_id:
+                selected_ids.add(evidence_id)
+            if len(selected) >= limit:
+                break
+
+        return selected
+
+    def _first_ranked_evidence_for_bucket(
+        self,
+        *,
+        ranked_evidence: list[dict[str, Any]],
+        evidence_by_id: dict[str, dict[str, Any]],
+        bucket: str,
+        excluded_ids: set[str],
+    ) -> dict[str, Any] | None:
+        for item in ranked_evidence:
+            evidence_id = str(item.get("evidence_id") or "").strip()
+            if evidence_id and evidence_id in excluded_ids:
+                continue
+            snippet = evidence_by_id.get(evidence_id, item)
+            if self._evidence_diversity_bucket(snippet) == bucket:
+                return item
+        return None
+
+    def _evidence_diversity_bucket(self, evidence: dict[str, Any]) -> str:
+        category = self._achievement_category_from_evidence(evidence)
+        if category in {"github_architecture", "backend_project", "architecture_evidence"}:
+            return "backend"
+        if category == "ai_workflow":
+            return "ai_workflow"
+        if category in {"automation_project", "automation", "prompt_engineering", "ai_project"}:
+            return "automation"
+        if category == "computer_vision":
+            return "computer_vision"
+        if category == "analytics_project":
+            return "analytics"
+        return "automation"
+
+    def _achievement_category_from_evidence(self, evidence: dict[str, Any]) -> str:
+        star_summary = dict(evidence.get("star_summary") or {})
+        raw_category = str(
+            evidence.get("category")
+            or star_summary.get("category")
+            or star_summary.get("type")
+            or ""
+        ).strip().lower()
+        if raw_category in ACHIEVEMENT_CATEGORIES:
+            return raw_category
+        if raw_category == "architecture_evidence":
+            return "github_architecture"
+        if raw_category in {"ai_workflow", "workflow_orchestration"}:
+            return "ai_workflow"
+        if raw_category in {"automation", "prompt_engineering", "ai_project"}:
+            return "automation_project"
+
+        text = " ".join(
+            [
+                str(evidence.get("title") or ""),
+                str(evidence.get("snippet_text") or ""),
+                " ".join(str(skill) for skill in (evidence.get("skills") or [])),
+            ]
+        ).lower()
+        if any(marker in text for marker in ("computer vision", "monitoring", "изображ", "видео")):
+            return "computer_vision"
+        if any(marker in text for marker in ("analytics", "data analysis", "аналит")):
+            return "analytics_project"
+        if any(marker in text for marker in ("fastapi", "backend", "architecture", "sqlalchemy")):
+            return "backend_project"
+        if any(marker in text for marker in ("workflow orchestration", "ai workflow", "orchestration")):
+            return "ai_workflow"
+        if any(marker in text for marker in ("automation", "openai", "telegram", "llm")):
+            return "automation_project"
+        return raw_category or "project"
+
+    def _category_bucket(self, category: str) -> str:
+        if category in ENGINEERING_ACHIEVEMENT_CATEGORIES:
+            return "engineering"
+        if category in AUTOMATION_ACHIEVEMENT_CATEGORIES:
+            return "automation"
+        if category in BUSINESS_DOMAIN_ACHIEVEMENT_CATEGORIES:
+            return "business_domain"
+        return "business_domain"
+
+    def _provenance_label_from_evidence(self, evidence: dict[str, Any]) -> str:
+        category = self._achievement_category_from_evidence(evidence)
+        title = str(evidence.get("title") or "").strip()
+        labels = {
+            "github_architecture": "GitHub architecture evidence",
+            "automation_project": "AI workflow orchestration",
+            "computer_vision": "Computer vision project",
+            "analytics_project": "Analytics project",
+            "backend_project": "Backend project",
+        }
+        if category in labels:
+            return labels[category]
+        return title or "Resume achievement"
 
     def _build_fit_summary(
         self,
@@ -804,7 +1288,9 @@ class ResumeGenerationService:
         bullets: list[str] = []
 
         if profile.headline:
-            bullets.append(f"Профессиональный фокус: {profile.headline}.")
+            bullets.append(
+                f"Профессиональный фокус: {self._normalize_profile_focus(profile.headline)}."
+            )
 
         if matched_keywords:
             bullets.append(
@@ -824,6 +1310,31 @@ class ResumeGenerationService:
             )
 
         return bullets[:4]
+
+    def _normalize_profile_focus(self, value: str) -> str:
+        terms = [
+            self._normalize_display_skill(part)
+            for part in self._split_skill_text(value)
+        ]
+        normalized_terms = {
+            term.strip().lower()
+            for term in terms
+            if term and term.strip().lower() not in LOW_SIGNAL_SKILLS
+        }
+        corpus = " ".join(sorted(normalized_terms))
+
+        if (
+            "python" in corpus
+            and "automation" in corpus
+            and any(marker in corpus for marker in ("ai", "llm", "prompt", "workflow"))
+        ):
+            return "Python Automation & AI Workflow Engineer"
+        if "automation" in corpus and any(marker in corpus for marker in ("ai", "llm", "prompt")):
+            return "AI Automation Engineer / Prompt Engineer"
+        if "prompt engineering" in corpus and ("ai" in corpus or "llm" in corpus):
+            return "AI Automation Engineer / Prompt Engineer"
+
+        return ", ".join(self._dedupe_preserve_order(terms)) or value.strip()
 
     def _build_ats_tailoring_sections(
         self,
@@ -863,18 +1374,38 @@ class ResumeGenerationService:
         relevant_to_vacancy: list[str],
         selected_achievements: list[dict[str, Any]],
     ) -> str:
-        role = vacancy_title.strip() or "целевая позиция"
-        focus_terms = relevant_to_vacancy[:4]
-        if not focus_terms:
-            focus_terms = [
-                str(item.get("title") or "").strip()
-                for item in selected_achievements[:2]
-                if str(item.get("title") or "").strip()
+        role = vacancy_title.strip() or "целевую позицию"
+        corpus = " ".join(
+            [
+                role,
+                " ".join(relevant_to_vacancy),
+                " ".join(
+                    " ".join(
+                        str(item.get(field) or "")
+                        for field in ("title", "action", "narrative")
+                    )
+                    for item in selected_achievements
+                ),
             ]
-        focus = ", ".join(focus_terms) if focus_terms else "релевантные для роли задачи"
+        ).lower()
+
+        if any(marker in corpus for marker in ("workflow", "automation", "llm", "prompt", "openai")):
+            return (
+                "Python-разработчик и AI automation engineer с практическим опытом "
+                "создания AI workflow systems, orchestration pipelines и backend-сервисов "
+                "для AI-assisted workflows."
+            )
+        if any(marker in corpus for marker in ("fastapi", "backend", "api")):
+            return (
+                f"Backend-разработчик под {role} с опытом проектирования API, "
+                "document pipeline и evidence-driven workflow для прикладных продуктов."
+            )
+
+        focus_terms = relevant_to_vacancy[:3]
+        focus = ", ".join(focus_terms) if focus_terms else "прикладные инженерные задачи"
         return (
-            f"Кандидат на позицию {role} с практическим фокусом на: {focus}. "
-            "Резюме адаптировано под требования вакансии и опирается на извлечённые факты из профиля."
+            f"Инженерный профиль под {role}: практический опыт в зоне {focus}, "
+            "с акцентом на проверяемые факты и проектный вклад."
         )
 
     def _filter_document_usable_evidence(
@@ -909,7 +1440,9 @@ class ResumeGenerationService:
         for keyword in matched_keywords:
             normalized = keyword.strip()
             if normalized:
-                candidates.append(self._display_relevance_label(normalized))
+                display = self._normalize_display_skill(normalized)
+                if display.lower() not in LOW_SIGNAL_SKILLS:
+                    candidates.append(self._display_relevance_label(display))
 
         evidence_text = " ".join(
             [
@@ -932,8 +1465,9 @@ class ResumeGenerationService:
                 candidates.append(label)
 
         for skill in selected_skills:
-            if skill:
-                candidates.append(self._display_relevance_label(skill))
+            display = self._normalize_display_skill(skill)
+            if display and display.lower() not in LOW_SIGNAL_SKILLS:
+                candidates.append(self._display_relevance_label(display))
 
         return self._dedupe_preserve_order(candidates)[:8]
 
@@ -956,7 +1490,10 @@ class ResumeGenerationService:
                     "coverage": "supported" if evidence else "profile_keyword",
                     "evidence_id": evidence.get("id") if evidence else None,
                     "evidence_title": evidence.get("title") if evidence else None,
-                    "evidence": evidence.get("title") if evidence else "Matched profile keyword",
+                    "evidence": self._render_competency_evidence(
+                        competency=competency,
+                        evidence=evidence,
+                    ),
                     "fact_status": evidence.get("fact_status") if evidence else "needs_review",
                 }
             )
@@ -970,7 +1507,9 @@ class ResumeGenerationService:
                     "coverage": "gap",
                     "evidence_id": None,
                     "evidence_title": None,
-                    "evidence": "No strong extracted evidence yet",
+                    "evidence": (
+                        "Нужно подтвердить практический опыт или добавить проектный пример"
+                    ),
                     "fact_status": "needs_review",
                 }
             )
@@ -987,7 +1526,12 @@ class ResumeGenerationService:
             for token in re.split(r"[^a-z0-9а-яё]+", competency.lower())
             if len(token) >= 3
         }
+        competency_markers = self._competency_specific_markers(competency)
+        requires_direct_evidence = self._requires_direct_competency_evidence(
+            competency
+        )
         best: tuple[int, dict[str, Any]] | None = None
+        fallback_best: tuple[int, dict[str, Any]] | None = None
         for snippet in evidence_snippets:
             text = " ".join(
                 [
@@ -997,11 +1541,169 @@ class ResumeGenerationService:
                 ]
             ).lower()
             score = sum(1 for token in competency_tokens if token in text)
+            marker_score = sum(
+                1 for marker in competency_markers if marker in text
+            )
+            if competency_markers and marker_score <= 0:
+                if requires_direct_evidence:
+                    continue
+                if score > 0 and (
+                    fallback_best is None or score > fallback_best[0]
+                ):
+                    fallback_best = (score, snippet)
+                continue
+
+            score += marker_score * 4
+            score += self._category_competency_bonus(
+                competency=competency,
+                evidence=snippet,
+            )
             if score <= 0:
                 continue
             if best is None or score > best[0]:
                 best = (score, snippet)
-        return best[1] if best else None
+        if best:
+            return best[1]
+        if requires_direct_evidence:
+            return None
+        return fallback_best[1] if fallback_best else None
+
+    def _competency_specific_markers(self, competency: str) -> set[str]:
+        normalized = competency.strip().lower().replace("_", " ")
+        marker_map = {
+            "git": {"git", "github", "version control", "repository"},
+            "version control": {"git", "github", "version control", "repository"},
+            "fastapi": {"fastapi", "api", "backend", "apirouter"},
+            "backend": {"backend", "fastapi", "api", "persistence"},
+            "docker": {"docker", "dockerfile", "docker-compose", "infrastructure"},
+            "pytest": {"pytest", "tests", "testclient", "testing"},
+            "testing": {"pytest", "tests", "testclient", "testing"},
+            "postgresql": {"postgresql", "postgres", "sqlalchemy", "persistence"},
+            "sqlalchemy": {"sqlalchemy", "postgresql", "persistence"},
+            "workflow automation": {"workflow", "automation", "pipeline"},
+            "prompt engineering": {"prompt", "prompt engineering"},
+        }
+        for key, markers in marker_map.items():
+            if key in normalized:
+                return markers
+        if self._is_generic_ai_competency(normalized):
+            return {
+                "artificial intelligence",
+                "искусственный интеллект",
+                "machine learning",
+                "computer vision",
+                "нейросети",
+                "ai system",
+                "ai monitoring",
+                "ai/cv",
+            }
+        return set()
+
+    def _requires_direct_competency_evidence(self, competency: str) -> bool:
+        normalized = competency.strip().lower().replace("_", " ")
+        return "git" in normalized or self._is_generic_ai_competency(normalized)
+
+    def _is_generic_ai_competency(self, normalized_competency: str) -> bool:
+        return normalized_competency in {
+            "ai",
+            "искусственный интеллект",
+            "artificial intelligence",
+        }
+
+    def _category_competency_bonus(
+        self,
+        *,
+        competency: str,
+        evidence: dict[str, Any],
+    ) -> int:
+        normalized = competency.strip().lower()
+        bucket = self._evidence_diversity_bucket(evidence)
+        if any(marker in normalized for marker in ("fastapi", "backend", "api")):
+            return 3 if bucket == "backend" else 0
+        if any(marker in normalized for marker in ("docker", "infra")):
+            return 3 if bucket == "backend" else 0
+        if any(marker in normalized for marker in ("pytest", "testing", "test")):
+            text = " ".join(
+                [
+                    str(evidence.get("title") or ""),
+                    str(evidence.get("snippet_text") or ""),
+                    " ".join(str(skill) for skill in evidence.get("skills") or []),
+                ]
+            ).lower()
+            return 4 if any(marker in text for marker in ("pytest", "testing", "testclient")) else 0
+        if "workflow" in normalized:
+            return 3 if bucket in {"ai_workflow", "automation"} else 0
+        return 0
+
+    def _render_competency_evidence(
+        self,
+        *,
+        competency: str,
+        evidence: dict[str, Any] | None,
+    ) -> str:
+        competency_lower = competency.lower()
+        evidence_text = ""
+        if evidence:
+            evidence_text = " ".join(
+                [
+                    str(evidence.get("title") or ""),
+                    str(evidence.get("snippet_text") or ""),
+                    " ".join(str(skill) for skill in (evidence.get("skills") or [])),
+                ]
+            ).lower()
+        corpus = f"{competency_lower} {evidence_text}"
+
+        if "git" in competency_lower:
+            if evidence:
+                return "Использование Git/repository workflow в проектной разработке"
+            return "Использование Git в проектной разработке требует отдельного подтверждения"
+        if self._is_generic_ai_competency(competency_lower.strip().replace("_", " ")):
+            if evidence:
+                return "Применение AI/ML подходов в подтверждённом проектном контексте"
+            return "Практический опыт с искусственным интеллектом требует отдельного подтверждения"
+
+        if "prompt" in competency_lower:
+            return (
+                "Проектирование prompt/workflow orchestration для AI-assisted resume tailoring"
+            )
+        if "workflow automation" in competency_lower or "automation" in competency_lower:
+            return (
+                "Разработка AI workflow pipeline для анализа вакансий и генерации документов"
+            )
+        if any(marker in competency_lower for marker in ("ai tooling", "llm", "chatgpt", "openai")):
+            return "Интеграция LLM/OpenAI tooling в прикладной workflow"
+        if any(marker in competency_lower for marker in ("python", "fastapi", "backend")):
+            return "Разработка backend/AI workflow компонентов на Python"
+
+        if "prompt" in corpus:
+            return (
+                "Проектирование prompt/workflow orchestration для AI-assisted resume tailoring"
+            )
+        if "workflow automation" in corpus or "automation" in corpus or "workflow" in corpus:
+            return (
+                "Разработка AI workflow pipeline для анализа вакансий и генерации документов"
+            )
+        if any(marker in corpus for marker in ("ai tooling", "llm", "chatgpt", "openai")):
+            return "Интеграция LLM/OpenAI tooling в прикладной workflow"
+        if any(marker in corpus for marker in ("python", "fastapi", "backend")):
+            return "Разработка backend/AI workflow компонентов на Python"
+        if any(marker in corpus for marker in ("analytics", "analysis", "data")):
+            return "Обработка данных и извлечение сигналов для принятия решений"
+
+        if evidence:
+            skills = [
+                self._normalize_display_skill(str(skill))
+                for skill in (evidence.get("skills") or [])
+                if str(skill).strip()
+            ]
+            skills = [
+                skill for skill in self._dedupe_preserve_order(skills)
+                if skill.lower() not in LOW_SIGNAL_SKILLS
+            ]
+            if skills:
+                return f"Практическое применение: {', '.join(skills[:4])}"
+
+        return "Практический опыт требует дополнительного подтверждения"
 
     def _display_relevance_label(self, value: str) -> str:
         normalized = value.strip().replace("_", " ")

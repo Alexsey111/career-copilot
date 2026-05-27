@@ -211,6 +211,12 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     assert recommended_evidence
     assert recommended_evidence[0]["score"] >= recommended_evidence[-1]["score"]
     assert recommended_evidence[0]["title"] == "Built Python and FastAPI backend with PostgreSQL"
+    suggested_answer = technical_python_question["suggested_answer"]
+    assert suggested_answer["format"] == "STAR_plus_tradeoffs"
+    assert suggested_answer["situation"] == "We needed a backend for a new product workflow."
+    assert "Python" in suggested_answer["tech_stack"]
+    assert "FastAPI" in suggested_answer["tech_stack"]
+    assert suggested_answer["source_title"] == "Built Python and FastAPI backend with PostgreSQL"
 
     evidence_links = payload["evidence_links"]
     assert any(
@@ -229,6 +235,10 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     assert "No confirmed Kubernetes evidence" in readiness["blockers"]
     assert "No leadership examples" in readiness["blockers"]
     assert "No scale metrics" in readiness["warnings"]
+
+    gap_question = next(item for item in questions if item["category"] == "gap-risk")
+    assert gap_question["suggested_answer"]["format"] == "honest_gap_response"
+    assert gap_question["suggested_answer"]["requires_human_review"] is True
 
     provenance = payload["provenance"]
     assert provenance["source"] == "achievement_mapping"

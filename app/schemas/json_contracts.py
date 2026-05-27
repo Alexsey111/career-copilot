@@ -201,6 +201,8 @@ class AchievementItem(StrictBaseModel):
     action: str | None = None
     result: str | None = None
     metric_text: str | None = None
+    narrative: str | None = None
+    skills: list[str] = Field(default_factory=list)
     fact_status: FactStatus = "confirmed"
     reason: str = "profile_core"
 
@@ -249,6 +251,7 @@ class BaseResumeSections(StrictBaseModel):
     summary_bullets: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     experience: list[ExperienceItem] = Field(default_factory=list)
+    project_sections: list[dict[str, Any]] = Field(default_factory=list)
     selected_achievements: list[AchievementItem] = Field(default_factory=list)
     matched_keywords: list[str] = Field(default_factory=list)
     missing_keywords: list[str] = Field(default_factory=list)

@@ -39,6 +39,7 @@ from app.services.github_public_import_service import (
 from app.services.profile_import_service import ProfileImportService
 from app.services.profile_intake_service import ProfileIntakeService
 from app.services.profile_structuring_service import ProfileStructuringService
+from app.services.repository_achievement_service import RepositoryAchievementService
 
 
 router = APIRouter(prefix="/profile", tags=["profile"])
@@ -338,6 +339,47 @@ async def extract_achievements(
     return AchievementExtractResponse(
         profile_id=result.profile.id,
         extraction_id=payload.extraction_id,
+        achievement_count=len(result.achievements),
+        achievements=[
+            _achievement_item_to_read(item)
+            for item in result.achievements
+            if item.id is not None
+        ],
+        warnings=result.warnings,
+    )
+
+
+@router.post("/repository-achievements/generate", response_model=AchievementExtractResponse)
+async def generate_repository_achievements(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> AchievementExtractResponse:
+    profile_repository = CandidateProfileRepository()
+    profile = await profile_repository.get_with_related_by_user_id(
+        session,
+        current_user.id,
+    )
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="candidate profile not found",
+        )
+
+    service = RepositoryAchievementService()
+    try:
+        result = await service.generate_repository_achievement_drafts(
+            session,
+            user_id=current_user.id,
+            profile_id=profile.id,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    return AchievementExtractResponse(
+        profile_id=profile.id,
+        extraction_id=result.extraction_id,
         achievement_count=len(result.achievements),
         achievements=[
             _achievement_item_to_read(item)

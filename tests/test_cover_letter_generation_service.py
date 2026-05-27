@@ -181,7 +181,7 @@ def test_cover_letter_relevance_paragraph_does_not_include_missing_keywords() ->
     assert "Python" in paragraph
     assert "Redis" not in paragraph
     assert "PostgreSQL" not in paragraph
-    assert "подтверждённое пересечение" in paragraph
+    assert "backend/API-разработки" in paragraph
     assert "confirmed overlap" not in paragraph
 
 
@@ -207,11 +207,61 @@ def test_cover_letter_relevance_paragraph_uses_extracted_evidence() -> None:
         vacancy_title="AI Automation Specialist",
     )
 
-    assert "AI workflow" in paragraph
-    assert "automation" in paragraph
-    assert "извлечённые факты из резюме" in paragraph
-    assert "ИИ-система мониторинга безопасности" in paragraph
-    assert "computer vision" in paragraph
+    assert "автоматизации workflow" in paragraph
+    assert "AI/CV мониторинга безопасности" in paragraph
+    assert "извлечённые факты из резюме" not in paragraph
+    assert "computer vision" not in paragraph
+
+
+def test_cover_letter_relevance_paragraph_avoids_buzzword_list() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=["LLM", "ChatGPT", "Automation", "AI Workflow", "No-code"],
+        selected_achievements=[
+            {
+                "title": "AI Career Copilot",
+                "action": "Built backend for vacancy analysis and tailored resume generation.",
+                "fact_status": "confirmed",
+            }
+        ],
+        selected_evidence=[],
+        missing_keywords=[],
+        profile_skills=[],
+        vacancy_title="AI Automation Specialist",
+    )
+
+    assert "LLM, ChatGPT, Automation" not in paragraph
+    assert "AI-assisted процессов" in paragraph
+    assert "backend-системы" in paragraph
+    assert "качестве конкретного вклада" in paragraph
+
+
+def test_cover_letter_evidence_phrases_render_human_readable_project_context() -> None:
+    service = CoverLetterGenerationService()
+
+    phrases = service._build_evidence_relevance_phrases(
+        selected_evidence=[
+            {
+                "evidence_id": "ev-1",
+                "title": "content-factory",
+                "source_type": "github_public",
+                "skills": ["Technologies: Python", "HTML", "Mako", "OpenAI"],
+            },
+            {
+                "evidence_id": "ev-2",
+                "title": "Technology stack from resume",
+                "source_type": "resume_structured",
+                "skills": ["chatgpt", "llm", "Dockerfile", "AI workflow"],
+            },
+        ],
+        selected_achievements=[],
+    )
+
+    assert phrases == [
+        "content-factory — Telegram/OpenAI automation workflow (Python, OpenAI)",
+        "ChatGPT, LLM, AI Workflow",
+    ]
 
 
 def test_cover_letter_alignment_sections_are_evidence_grounded() -> None:
@@ -320,8 +370,8 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
 
     assert "Здравствуйте" in rendered
     assert "Меня зовут Перминов Алексей" in rendered
-    assert "Рассматриваю вакансию Backend Developer" in rendered
-    assert "По текущему профилю" in rendered
+    assert "Роль Backend Developer" in rendered
+    assert "В требованиях вижу совпадение" in rendered
     assert "Буду рад обсудить" in rendered
 
     assert "Dear hiring team" not in rendered
