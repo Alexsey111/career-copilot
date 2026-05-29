@@ -5,7 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.orchestrator import AIOrchestrator
 from app.ai.clients.base import BaseLLMClient
-from app.services.cover_letter_generation_service import CoverLetterGenerationService
+from app.services.cover_letter_generation_service import (
+    CoverLetterGenerationService,
+    PROJECT_DISPLAY_HINTS,
+)
 from app.services.resume_renderer import render_cover_letter
 
 
@@ -208,12 +211,35 @@ def test_cover_letter_relevance_paragraph_uses_extracted_evidence() -> None:
     )
 
     assert "автоматизации workflow" in paragraph
-    assert "AI/CV мониторинга безопасности" in paragraph
+    assert "подтверждённый контекст обработки визуальных данных" in paragraph
     assert "извлечённые факты из резюме" not in paragraph
     assert "computer vision" not in paragraph
 
 
-def test_cover_letter_relevance_paragraph_avoids_buzzword_list() -> None:
+def test_cover_letter_project_context_is_domain_neutral_for_visual_monitoring() -> None:
+    service = CoverLetterGenerationService()
+
+    context = service._cover_letter_project_phrase(
+        title="Computer vision monitoring",
+        body="Image and video workflow for quality control",
+        skills=["computer vision", "python"],
+        fact_status="confirmed",
+        ownership_confidence="high",
+        requires_confirmation=False,
+    )
+
+    assert context == "подтверждённый контекст обработки визуальных данных"
+    assert "пвх" not in context.lower()
+    assert "пансионат" not in context.lower()
+    assert "career copilot" not in context.lower()
+
+
+def test_cover_letter_project_display_hints_are_neutral() -> None:
+    assert PROJECT_DISPLAY_HINTS["career-copilot"] == "backend workflow evidence"
+    assert PROJECT_DISPLAY_HINTS["content-factory"] == "automation workflow evidence"
+
+
+def test_cover_letter_relevance_paragraph_avoids_buzzword_list_and_fabricated_role() -> None:
     service = CoverLetterGenerationService()
 
     paragraph = service._build_relevance_paragraph(
@@ -233,8 +259,34 @@ def test_cover_letter_relevance_paragraph_avoids_buzzword_list() -> None:
 
     assert "LLM, ChatGPT, Automation" not in paragraph
     assert "AI-assisted процессов" in paragraph
-    assert "backend-системы" in paragraph
+    assert "backend-системы" not in paragraph
+    assert "подтверждённый проектный контекст" in paragraph
     assert "качестве конкретного вклада" in paragraph
+
+
+def test_cover_letter_blocks_unconfirmed_evidence_from_strong_project_phrase() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=["FastAPI", "PostgreSQL"],
+        selected_achievements=[
+            {
+                "title": "Repository evidence: backend-related implementation signals",
+                "action": "Repository evidence indicates backend-related implementation signals.",
+                "fact_status": "needs_confirmation",
+                "candidate_ownership_confidence": "low",
+                "requires_confirmation": True,
+            }
+        ],
+        selected_evidence=[],
+        missing_keywords=[],
+        profile_skills=[],
+        vacancy_title="Backend Developer",
+    )
+
+    assert "опыт проектирования backend/API" not in paragraph
+    assert "backend-системы" not in paragraph
+    assert "подтверждаемый проектный контекст" in paragraph
 
 
 def test_cover_letter_evidence_phrases_render_human_readable_project_context() -> None:
@@ -259,7 +311,7 @@ def test_cover_letter_evidence_phrases_render_human_readable_project_context() -
     )
 
     assert phrases == [
-        "content-factory — Telegram/OpenAI automation workflow (Python, OpenAI)",
+        "content-factory — automation workflow evidence (Python, OpenAI)",
         "ChatGPT, LLM, AI Workflow",
     ]
 

@@ -136,10 +136,10 @@ Python с нуля
         set(evidence_by_title["ИИ-система мониторинга безопасности"].skills)
     )
 
-    assert "Автоматизированный ИИ-контроль качества" in evidence_by_title
-    assert evidence_by_title["Автоматизированный ИИ-контроль качества"].category == "automation"
+    assert "ИИ-контроль качества ПВХ изделий" in evidence_by_title
+    assert evidence_by_title["ИИ-контроль качества ПВХ изделий"].category == "automation"
     assert {"automation", "computer vision"}.issubset(
-        set(evidence_by_title["Автоматизированный ИИ-контроль качества"].skills)
+        set(evidence_by_title["ИИ-контроль качества ПВХ изделий"].skills)
     )
 
     assert "Prompt Engineering" in evidence_by_title
@@ -153,3 +153,108 @@ Python с нуля
     )
     assert draft.competency_signals
     assert all(item.fact_status == "user_provided" for item in draft.evidence_snippets)
+
+
+def test_profile_structuring_exposes_normalized_contribution_layer() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Portfolio
+
+1. Clinic Operations Dashboard
+Built a dashboard for appointment load and patient flow metrics.
+Stack: SQL, Python.
+
+2. Contract Review Playbook
+Prepared reusable legal review checklist and reduced manual review steps.
+""",
+        source_file_kind="portfolio",
+    )
+
+    assert [item.title for item in draft.contribution_signals] == [
+        "Clinic Operations Dashboard",
+        "Contract Review Playbook",
+    ]
+    assert all(
+        item.source_layer == "normalized_contribution_signal"
+        for item in draft.contribution_signals
+    )
+    assert all(item.category == "portfolio_project" for item in draft.contribution_signals)
+
+
+def test_profile_structuring_legacy_recovery_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert service._recover_private_noisy_ai_signal_title_legacy(
+        [
+            "Автоматизированный ИИ-контроль качества",
+            "ПВХ оконных изделий по изображениям и видео",
+        ]
+    ) is None
+
+
+def test_profile_structuring_legacy_education_course_recovery_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert service._extract_known_formal_education_lines(
+        "Алтайский государственный технический университет имени И.И. Ползунова, Барнаул"
+    ) == []
+
+    assert service._extract_known_course_lines(
+        "Курсы Python с нуля Университет Зерокодинга 2024"
+    ) == []
+
+
+def test_profile_structuring_legacy_internship_fragment_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert (
+        service._prefer_internship_layout_fragment(
+            "Python с нуля    ИИ-контроль качества ПВХ изделий"
+        )
+        == "Python с нуля    ИИ-контроль качества ПВХ изделий"
+    )
+
+
+def test_profile_structuring_legacy_formal_education_line_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert (
+        service._looks_like_formal_education_line(
+            "Алтайский государственный технический университет имени И.И. Ползунова"
+        )
+        is False
+    )
+
+
+def test_profile_structuring_legacy_formal_education_line_detection_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert service._looks_like_formal_education_line(
+        "Алтайский государственный технический университет имени И.И. Ползунова"
+    ) is False
+
+
+def test_profile_structuring_legacy_resume_layout_noise_detection_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert service._looks_like_resume_layout_noise(
+        "Алтайский Государственный Медицинский Университет"
+    ) is False
+
+
+def test_profile_structuring_legacy_target_role_noise_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert service._looks_like_target_role_noise(
+        "для мониторинга безопасности в пансионатах для пожилых"
+    ) is False
+
+
+def test_profile_structuring_legacy_mixed_education_layout_noise_can_be_disabled() -> None:
+    service = ProfileStructuringService(enable_legacy_recovery=False)
+
+    assert service._looks_like_mixed_education_layout_noise(
+        "прогнозирования развития городской среды"
+    ) is False

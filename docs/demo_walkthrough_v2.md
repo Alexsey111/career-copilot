@@ -20,7 +20,7 @@ candidate data -> evidence -> tailored documents -> application tracking -> inte
 Optional deterministic seed:
 
 ```powershell
-python -m scripts.seed_demo
+python scripts/reset_demo_state.py
 ```
 
 ## Script
@@ -134,4 +134,3 @@ python -m scripts.seed_demo
 - Review controls and warnings are visible.
 - Application tracking works as an internal workflow.
 - Interview prep shows questions, readiness, supporting evidence, and suggested answers.
-

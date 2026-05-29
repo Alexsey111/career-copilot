@@ -32,7 +32,7 @@ class RepositoryEvidence:
 
 
 class GitHubRepositoryEvidenceService:
-    """Extract engineering capability evidence from lightweight GitHub repo signals."""
+    """Extract candidate-neutral technical signals from lightweight GitHub repo data."""
 
     def analyze_repository(
         self,
@@ -68,11 +68,11 @@ class GitHubRepositoryEvidenceService:
             evidence.append(
                 RepositoryEvidence(
                     type="architecture_evidence",
-                    title="Implemented FastAPI backend architecture",
-                    skills=["FastAPI", "Backend Architecture", "Async API"],
+                    title="Repository signal: FastAPI/API implementation",
+                    skills=["FastAPI", "API", "Async API"],
                     evidence_strength=self._strength(fastapi_signals, strong_at=3),
                     snippet_text=self._sentence(
-                        "Implemented async FastAPI backend architecture",
+                        "Repository evidence indicates FastAPI/API implementation signals",
                         repo=repo,
                         signals=fastapi_signals,
                     ),
@@ -85,7 +85,7 @@ class GitHubRepositoryEvidenceService:
             evidence.append(
                 RepositoryEvidence(
                     type="architecture_evidence",
-                    title="Designed PostgreSQL persistence layer",
+                    title="Repository signal: database persistence",
                     skills=[
                         "PostgreSQL",
                         "SQLAlchemy",
@@ -94,7 +94,7 @@ class GitHubRepositoryEvidenceService:
                     ],
                     evidence_strength=self._strength(persistence_signals, strong_at=3),
                     snippet_text=self._sentence(
-                        "Designed database persistence layer with SQLAlchemy/PostgreSQL signals",
+                        "Repository evidence indicates database persistence signals",
                         repo=repo,
                         signals=persistence_signals,
                     ),
@@ -107,11 +107,11 @@ class GitHubRepositoryEvidenceService:
             evidence.append(
                 RepositoryEvidence(
                     type="architecture_evidence",
-                    title="Configured Docker-based local infrastructure",
+                    title="Repository signal: containerized infrastructure",
                     skills=["Docker", "Infrastructure", *self._infra_skill_addons(infrastructure_signals)],
                     evidence_strength=self._strength(infrastructure_signals, strong_at=3),
                     snippet_text=self._sentence(
-                        "Configured Docker-based local infrastructure",
+                        "Repository evidence indicates containerized infrastructure signals",
                         repo=repo,
                         signals=infrastructure_signals,
                     ),
@@ -124,11 +124,11 @@ class GitHubRepositoryEvidenceService:
             evidence.append(
                 RepositoryEvidence(
                     type="architecture_evidence",
-                    title="Implemented automated test coverage",
+                    title="Repository signal: automated testing",
                     skills=["Pytest", "Testing", "Test Automation"],
                     evidence_strength=self._strength(testing_signals, strong_at=3),
                     snippet_text=self._sentence(
-                        "Implemented automated testing for repository behavior",
+                        "Repository evidence indicates automated testing signals",
                         repo=repo,
                         signals=testing_signals,
                     ),
@@ -141,11 +141,11 @@ class GitHubRepositoryEvidenceService:
             evidence.append(
                 RepositoryEvidence(
                     type="architecture_evidence",
-                    title="Implemented AI workflow orchestration",
+                    title="Repository signal: automation/workflow integration",
                     skills=self._ai_workflow_skills(ai_workflow_signals),
                     evidence_strength=self._strength(ai_workflow_signals, strong_at=3),
                     snippet_text=self._sentence(
-                        "Implemented AI workflow orchestration and integrations",
+                        "Repository evidence indicates automation/workflow integration signals",
                         repo=repo,
                         signals=ai_workflow_signals,
                     ),

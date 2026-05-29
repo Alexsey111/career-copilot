@@ -77,6 +77,9 @@ def build_resume_content(
     competency_mapping: list[dict[str, Any]] | None = None,
     relevant_to_vacancy: list[str] | None = None,
     project_sections: list[dict[str, Any]] | None = None,
+    education: list[dict[str, Any]] | None = None,
+    courses: list[dict[str, Any]] | None = None,
+    internships: list[dict[str, Any]] | None = None,
 ) -> dict:
     provenance = build_document_provenance(
         source=source,
@@ -105,6 +108,9 @@ def build_resume_content(
             "summary_bullets": summary_bullets,
             "skills": skills,
             "experience": to_jsonable(experience),
+            "education": to_jsonable(education or []),
+            "courses": to_jsonable(courses or []),
+            "internships": to_jsonable(internships or []),
             "project_sections": to_jsonable(project_sections or []),
             "selected_achievements": [
                 serialize_achievement(item)

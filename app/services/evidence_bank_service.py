@@ -29,6 +29,7 @@ PROJECT_EVIDENCE_CATEGORIES = {
     "automation",
     "prompt_engineering",
     "internship",
+    "portfolio_project",
     "achievement",
     "architecture_evidence",
 }

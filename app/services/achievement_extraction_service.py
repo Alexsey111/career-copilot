@@ -9,10 +9,14 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.contribution import NormalizedContributionSignal, ReviewedCandidateOwnership
+from app.domain.evidence import extract_skill_tags
 from app.models import CandidateProfile
 from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
+from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
+from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryService
 
 
 NUMBERED_ITEM_RE = re.compile(r"^\d{1,2}\s*[.)\-–—:]\s+")
@@ -30,6 +34,8 @@ class AchievementDraft:
     metric_text: str | None = None
     evidence_note: str | None = None
     fact_status: str = "needs_confirmation"
+    ownership_confidence: str = "low"
+    requires_confirmation: bool = True
 
 
 @dataclass
@@ -40,11 +46,14 @@ class AchievementExtractionResult:
 
 
 class AchievementExtractionService:
+    legacy_private_recovery_marker = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
+
     def __init__(
         self,
         file_extraction_repository: FileExtractionRepository | None = None,
         candidate_profile_repository: CandidateProfileRepository | None = None,
         candidate_achievement_repository: CandidateAchievementRepository | None = None,
+        enable_legacy_recovery: bool = True,
     ) -> None:
         self.file_extraction_repository = file_extraction_repository or FileExtractionRepository()
         self.candidate_profile_repository = (
@@ -52,6 +61,9 @@ class AchievementExtractionService:
         )
         self.candidate_achievement_repository = (
             candidate_achievement_repository or CandidateAchievementRepository()
+        )
+        self.legacy_recovery_service = LegacyResumeRecoveryService(
+            enabled=enable_legacy_recovery,
         )
 
     async def extract_achievements(
@@ -103,6 +115,8 @@ class AchievementExtractionService:
                     "metric_text": draft.metric_text,
                     "evidence_note": draft.evidence_note,
                     "fact_status": draft.fact_status,
+                    "ownership_confidence": draft.ownership_confidence,
+                    "requires_confirmation": draft.requires_confirmation,
                     "experience_id": None,
                 }
                 for draft in drafts
@@ -122,6 +136,8 @@ class AchievementExtractionService:
                     metric_text=item.metric_text,
                     evidence_note=item.evidence_note,
                     fact_status=item.fact_status,
+                    ownership_confidence="low",
+                    requires_confirmation=True,
                 )
                 for item in created_items
             ],
@@ -129,67 +145,99 @@ class AchievementExtractionService:
         )
 
     def _build_achievement_drafts(self, text: str) -> tuple[list[AchievementDraft], list[str]]:
-        lines = self._clean_lines(text)
-        warnings: list[str] = []
+        signals, warnings = self.extract_contribution_signals_for_review(text)
 
-        section_start = self._find_projects_start(lines)
-        if section_start is None:
-            warnings.append("no internship/project section detected confidently")
+        if not signals:
             return [], warnings
 
-        candidate_lines = lines[section_start + 1 :]
-        blocks = self._split_numbered_blocks(candidate_lines)
-
-        if not blocks:
-            warnings.append("no numbered achievement blocks were extracted")
-            return [], warnings
-
-        drafts: list[AchievementDraft] = []
-
-        for block in blocks:
-            title = self._clean_achievement_title(block)
-            if not title:
-                continue
-
-            if self._looks_like_noise_title(title):
-                continue
-
-            drafts.append(
-                AchievementDraft(
-                    title=title,
-                    evidence_note=(
-                        "Auto-extracted from resume raw text; requires user confirmation "
-                        "before strong use in documents."
-                    ),
-                    fact_status="needs_confirmation",
-                )
-            )
-
-        if not drafts:
-            warnings.append("all extracted achievement candidates were filtered as low-confidence")
-            return [], warnings
-
-        warnings.append(
-            "titles were extracted conservatively; metrics/results were not inferred in v1"
-        )
+        reviewed = self._build_reviewed_candidate_ownership(signals)
+        drafts = self._achievement_drafts_from_reviewed_ownership(reviewed)
 
         return drafts, warnings
 
-    def _clean_lines(self, text: str) -> list[str]:
-        cleaned_lines: list[str] = []
-        for raw_line in text.splitlines():
-            line = ZERO_WIDTH_RE.sub("", raw_line).strip()
-            if line:
-                cleaned_lines.append(line)
-        return cleaned_lines
+    def extract_contribution_signals_for_review(
+        self,
+        text: str,
+    ) -> tuple[list[NormalizedContributionSignal], list[str]]:
+        signals = self._extract_normalized_contribution_signals(text)
 
-    def _find_projects_start(self, lines: list[str]) -> int | None:
+        if not signals:
+            return [], ["no contribution signals detected confidently"]
+
+        return signals, [
+            "normalized contribution signals were extracted; candidate ownership requires review"
+        ]
+
+    def _extract_normalized_contribution_signals(
+        self,
+        text: str,
+    ) -> list[NormalizedContributionSignal]:
+        lines = self._clean_lines(text)
+        if not lines:
+            return []
+
+        section_start = self._find_contribution_section_start(lines)
+        candidate_lines = lines[section_start + 1 :] if section_start is not None else lines
+        blocks = self._split_contribution_blocks(candidate_lines)
+
+        signals: list[NormalizedContributionSignal] = []
+        for block in blocks:
+            title = self._clean_contribution_title(block)
+            if not title or self._looks_like_noise_title(title):
+                continue
+
+            source_text = re.sub(r"\s+", " ", " ".join(block)).strip()
+            signals.append(
+                NormalizedContributionSignal(
+                    title=title,
+                    contribution_type=self._classify_contribution_type(title, source_text),
+                    source_text=source_text or title,
+                    skills=self._extract_contribution_skills(title, source_text),
+                    confidence="medium",
+                    ownership_confidence="low",
+                    requires_confirmation=True,
+                    source_layer="generic_extraction",
+                )
+            )
+
+        return self._dedupe_contribution_signals(signals)
+
+    def _build_reviewed_candidate_ownership(
+        self,
+        signals: list[NormalizedContributionSignal],
+    ) -> list[ReviewedCandidateOwnership]:
+        return [
+            ReviewedCandidateOwnership(signal=signal)
+            for signal in signals
+        ]
+
+    def _achievement_drafts_from_reviewed_ownership(
+        self,
+        reviewed_items: list[ReviewedCandidateOwnership],
+    ) -> list[AchievementDraft]:
+        return [
+            AchievementDraft(
+                title=item.signal.title,
+                evidence_note=item.reviewer_note,
+                fact_status=item.fact_status,
+                ownership_confidence=item.ownership_confidence,
+                requires_confirmation=item.requires_confirmation,
+            )
+            for item in reviewed_items
+        ]
+
+    def _find_contribution_section_start(self, lines: list[str]) -> int | None:
         markers = [
-            "ПРОШЕЛ 3 СТАЖИРОВКИ",
-            "ПРОШЁЛ 3 СТАЖИРОВКИ",
-            "СТАЖИРОВКИ",
+            "ДОСТИЖЕНИЯ",
             "ПРОЕКТЫ",
             "ПОРТФОЛИО",
+            "СТАЖИРОВКИ",
+            "ОПЫТ",
+            "ACHIEVEMENTS",
+            "PROJECTS",
+            "PORTFOLIO",
+            "INTERNSHIPS",
+            "EXPERIENCE",
         ]
 
         for idx, line in enumerate(lines):
@@ -198,6 +246,142 @@ class AchievementExtractionService:
                 return idx
 
         return None
+
+    def _split_contribution_blocks(self, lines: list[str]) -> list[list[str]]:
+        numbered_blocks = self._split_numbered_blocks(lines)
+        if numbered_blocks:
+            return numbered_blocks
+
+        bullet_blocks: list[list[str]] = []
+        for line in lines:
+            if self._looks_like_hard_achievement_stop(line):
+                break
+            if re.match(r"^\s*[-•]\s+", line):
+                bullet_blocks.append([re.sub(r"^\s*[-•]\s+", "", line).strip()])
+        if bullet_blocks:
+            return bullet_blocks
+
+        section_lines = [
+            line
+            for line in lines
+            if not self._looks_like_layout_heading(line)
+            and not self._looks_like_hard_achievement_stop(line)
+            and not self._looks_like_resume_layout_noise(line)
+        ]
+        if section_lines and self._line_has_contribution_signal(" ".join(section_lines)):
+            return [section_lines[:6]]
+        return []
+
+    def _clean_contribution_title(self, lines: list[str]) -> str:
+        useful_lines: list[str] = []
+
+        for line in lines:
+            if self._looks_like_layout_heading(line):
+                continue
+            if self._looks_like_hard_achievement_stop(line):
+                break
+            if self._looks_like_resume_layout_noise(line):
+                continue
+            useful_lines.append(self._strip_inline_noise(line))
+
+        title = re.sub(r"\s+", " ", " ".join(part.strip() for part in useful_lines if part.strip()))
+        title = title.strip(" -–—•")
+
+        sentence_match = re.match(r"^(.{12,180}?[.!?])\s+", title)
+        if sentence_match:
+            title = sentence_match.group(1).strip()
+
+        if ")" in title and title.rfind(")") < 160:
+            title = title[: title.rfind(")") + 1].strip()
+
+        if len(title) > 180:
+            title = title[:180].rsplit(" ", 1)[0].strip()
+
+        return title
+
+    def _strip_inline_noise(self, line: str) -> str:
+        text = line.strip()
+        for marker in ("ОПЫТ РАБОТЫ", "ОБРАЗОВАНИЕ", "КУРСЫ", "CONTACTS", "EDUCATION"):
+            parts = re.split(rf"\b{re.escape(marker)}\b", text, flags=re.IGNORECASE)
+            if len(parts) > 1:
+                text = parts[0].strip() or parts[-1].strip()
+        return text
+
+    def _classify_contribution_type(self, title: str, source_text: str) -> str:
+        text = f"{title} {source_text}".lower()
+        if any(marker in text for marker in ("стажиров", "internship")):
+            return "internship"
+        if any(marker in text for marker in ("проект", "project", "portfolio")):
+            return "project"
+        if any(
+            marker in text
+            for marker in (
+                "достиж",
+                "achievement",
+                "result",
+                "reduced",
+                "improved",
+                "prepared",
+                "negotiated",
+                "увелич",
+                "сократ",
+                "подготов",
+                "соглас",
+            )
+        ):
+            return "achievement"
+        if any(marker in text for marker in ("managed", "coordinated", "led", "руковод", "координир")):
+            return "operational_contribution"
+        return "contribution"
+
+    def _extract_contribution_skills(self, title: str, source_text: str) -> list[str]:
+        tags = extract_skill_tags(title, source_text)
+        return self._dedupe_preserve_order(
+            [tag.replace("_", " ").title() if tag.islower() else tag for tag in tags]
+        )
+
+    def _line_has_contribution_signal(self, text: str) -> bool:
+        lowered = text.lower()
+        markers = (
+            "разработ",
+            "создал",
+            "реализ",
+            "сократ",
+            "увелич",
+            "улучш",
+            "managed",
+            "built",
+            "implemented",
+            "reduced",
+            "improved",
+            "launched",
+            "coordinated",
+            "prepared",
+            "negotiated",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def _dedupe_contribution_signals(
+        self,
+        signals: list[NormalizedContributionSignal],
+    ) -> list[NormalizedContributionSignal]:
+        result: list[NormalizedContributionSignal] = []
+        seen: set[str] = set()
+        for signal in signals:
+            key = signal.title.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(signal)
+        return result
+
+    def _clean_lines(self, text: str) -> list[str]:
+        cleaned_lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = ZERO_WIDTH_RE.sub("", raw_line).strip()
+            if line:
+                cleaned_lines.append(line)
+        return cleaned_lines
 
     def _split_numbered_blocks(self, lines: list[str]) -> list[list[str]]:
         blocks: list[list[str]] = []
@@ -229,33 +413,6 @@ class AchievementExtractionService:
 
         return blocks
 
-    def _clean_achievement_title(self, lines: list[str]) -> str:
-        recovered_title = self._recover_known_noisy_ai_achievement_title(lines)
-        if recovered_title:
-            return recovered_title
-
-        useful_lines: list[str] = []
-
-        for line in lines:
-            if self._looks_like_layout_heading(line):
-                continue
-            if self._looks_like_hard_achievement_stop(line):
-                break
-            if self._looks_like_resume_layout_noise(line):
-                continue
-            useful_lines.append(line)
-
-        title = re.sub(r"\s+", " ", " ".join(part.strip() for part in useful_lines if part.strip()))
-        title = title.strip(" -–—•")
-
-        if ")" in title:
-            title = title[: title.rfind(")") + 1].strip()
-
-        if len(title) > 255:
-            title = title[:255].rsplit(" ", 1)[0].strip()
-
-        return title
-
     def _looks_like_noise_title(self, title: str) -> bool:
         normalized = self._normalize(title)
 
@@ -276,35 +433,8 @@ class AchievementExtractionService:
 
         return False
 
-    def _recover_known_noisy_ai_achievement_title(self, lines: list[str]) -> str | None:
-        text = re.sub(r"\s+", " ", " ".join(lines)).strip()
-
-        if "Создание ИИ-системы" in text:
-            if (
-                "мониторинг" in text.lower()
-                and "пансионат" in text.lower()
-                and "пожил" in text.lower()
-            ):
-                return "Создание ИИ-системы для мониторинга безопасности в пансионатах для пожилых"
-            return "Создание ИИ-системы"
-
-        if "Автоматизированный" in text and "ИИ-контроль качества" in text:
-            title_parts = ["Автоматизированный ИИ-контроль качества"]
-
-            if "ПВХ оконных изделий" in text:
-                title_parts.append("ПВХ оконных изделий")
-
-            if "по изображениям" in text and "видео" in text:
-                title_parts.append("по изображениям и видео")
-
-            return " ".join(title_parts)
-
-        if "ИИ-анализ текстовых" in text:
-            if "отзывов населения" in text:
-                return "ИИ-анализ текстовых отзывов населения"
-            return "ИИ-анализ текстовых"
-
-        return None
+    def _recover_private_noisy_ai_achievement_title_legacy(self, lines: list[str]) -> str | None:
+        return self.legacy_recovery_service.recover_noisy_ai_achievement_title(lines)
 
     def _looks_like_layout_heading(self, line: str) -> bool:
         normalized = self._normalize(line)
@@ -318,27 +448,7 @@ class AchievementExtractionService:
         }
 
     def _looks_like_resume_layout_noise(self, line: str) -> bool:
-        normalized = self._normalize(line)
-
-        if re.search(r"\d{2}\.\d{2}\.\d{4}\s*-\s*", line):
-            return True
-
-        if re.match(r"^\d{4}\b", line.strip()):
-            return True
-
-        noise_markers = {
-            "АЛТАЙСКИЙ ГОСУДАРСТВЕННЫЙ",
-            "МЕДИЦИНСКИЙ УНИВЕРСИТЕТ",
-            "УНИВЕРСИТЕТ ИМЕНИ",
-            "ЭЛЕКТРОМОНТЕР",
-            "ОБСЛУЖИВАНИЮ ЭЛЕКТРООБОРУДОВАНИЯ",
-            "ИНЖЕНЕР,",
-            "АВТОМОБИЛЕ- И ТРАКТОРОСТРОЕНИЕ",
-            "РЯЗАНСКОЕ ВЫСШЕЕ",
-            "ВОЗДУШНО-ДЕСАНТНОЕ",
-        }
-
-        return any(marker in normalized for marker in noise_markers)
+        return self.legacy_recovery_service.looks_like_legacy_resume_layout_noise(line)
 
     def _looks_like_hard_achievement_stop(self, line: str) -> bool:
         normalized = self._normalize(line)
@@ -366,8 +476,17 @@ class AchievementExtractionService:
     def _strip_numbering(self, line: str) -> str:
         return NUMBERED_ITEM_RE.sub("", line).strip()
 
-    def _looks_like_achievement_stop(self, line: str) -> bool:
-        return self._looks_like_hard_achievement_stop(line)
-
     def _normalize(self, line: str) -> str:
         return re.sub(r"\s+", " ", line.strip()).upper()
+
+    def _dedupe_preserve_order(self, values: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            cleaned = re.sub(r"\s+", " ", str(value).strip())
+            normalized = cleaned.casefold()
+            if not cleaned or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(cleaned)
+        return result

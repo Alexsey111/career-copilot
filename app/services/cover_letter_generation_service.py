@@ -36,8 +36,10 @@ from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.resume_renderer import render_cover_letter
+from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
 
 logger = logging.getLogger(__name__)
+LEGACY_DOMAIN_SPECIFIC_SYNTHESIS = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
 
 LOW_SIGNAL_SKILLS = {
     "html",
@@ -47,8 +49,8 @@ LOW_SIGNAL_SKILLS = {
 }
 
 PROJECT_DISPLAY_HINTS = {
-    "content-factory": "Telegram/OpenAI automation workflow",
-    "career-copilot": "AI career copilot backend",
+    "content-factory": "automation workflow evidence",
+    "career-copilot": "backend workflow evidence",
 }
 
 
@@ -777,6 +779,13 @@ class CoverLetterGenerationService:
                     for field in ("situation", "task", "action", "result", "metric_text")
                 ),
                 skills=[],
+                fact_status=str(item.get("fact_status") or ""),
+                ownership_confidence=str(
+                    item.get("ownership_confidence")
+                    or item.get("candidate_ownership_confidence")
+                    or ""
+                ),
+                requires_confirmation=bool(item.get("requires_confirmation") is True),
             )
             if phrase:
                 project_phrases.append(phrase)
@@ -786,6 +795,13 @@ class CoverLetterGenerationService:
                 title=str(item.get("title") or ""),
                 body=str(item.get("snippet_text") or ""),
                 skills=[str(skill) for skill in item.get("skills") or []],
+                fact_status=str(item.get("fact_status") or ""),
+                ownership_confidence=str(
+                    item.get("ownership_confidence")
+                    or item.get("candidate_ownership_confidence")
+                    or ""
+                ),
+                requires_confirmation=bool(item.get("requires_confirmation") is True),
             )
             if phrase:
                 project_phrases.append(phrase)
@@ -801,20 +817,32 @@ class CoverLetterGenerationService:
         title: str,
         body: str,
         skills: list[str],
+        fact_status: str = "",
+        ownership_confidence: str = "",
+        requires_confirmation: bool = False,
     ) -> str:
+        # Legacy marker: existing domain-specific synthesis must not be extended.
         corpus = " ".join([title, body, " ".join(skills)]).lower()
+        confirmed = str(fact_status or "").strip().lower() in {"confirmed", "user_provided"}
+        low_ownership = str(ownership_confidence or "").strip().lower() in {
+            "low",
+            "unknown",
+            "needs_review",
+        }
+        if requires_confirmation or low_ownership or not confirmed:
+            cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
+            return f"подтверждаемый проектный контекст: {cleaned_title}" if cleaned_title else ""
 
-        if any(marker in corpus for marker in ("пвх", "pvc", "quality control", "контроль качества")):
-            return "опыт автоматизации анализа изображений и видео для контроля качества"
-        if any(marker in corpus for marker in ("пансионат", "elderly", "care home", "safety", "безопас")):
-            return "опыт AI/CV мониторинга безопасности в прикладном домене"
-        if any(marker in corpus for marker in ("career copilot", "tailored resume", "vacancy", "резюме")):
-            return (
-                "опыт backend-системы, которая связывает анализ вакансий, "
-                "генерацию документов и review workflow"
-            )
+        if any(marker in corpus for marker in ("computer vision", "image", "изображ", "video", "видео")):
+            return "подтверждённый контекст обработки визуальных данных"
+
+        if any(marker in corpus for marker in ("quality control", "контроль качества", "safety", "безопас")):
+            return "подтверждённый контекст прикладного мониторинга и контроля"
+
+        if any(marker in corpus for marker in ("vacancy", "резюме", "document", "review")):
+            return "подтверждённый проектный контекст без расширения роли"
         if any(marker in corpus for marker in ("fastapi", "backend", "api")):
-            return "опыт проектирования backend/API и document pipeline"
+            return "подтверждённые backend/API implementation signals"
         if any(marker in corpus for marker in ("automation", "workflow", "openai", "telegram")):
             return "опыт автоматизации рабочих процессов с интеграциями"
         if any(marker in corpus for marker in ("analytics", "analysis", "аналит")):

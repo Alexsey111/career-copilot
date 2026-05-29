@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.services.github_repository_evidence_service import GitHubRepositoryEvidenceService
 
 
-def test_repository_evidence_service_extracts_engineering_capabilities() -> None:
+def test_repository_evidence_service_extracts_neutral_repository_signals() -> None:
     service = GitHubRepositoryEvidenceService()
 
     evidence = service.analyze_repository(
@@ -43,26 +43,26 @@ def test_repository_evidence_service_extracts_engineering_capabilities() -> None
     )
 
     titles = {item["title"] for item in evidence}
-    assert "Implemented FastAPI backend architecture" in titles
-    assert "Designed PostgreSQL persistence layer" in titles
-    assert "Configured Docker-based local infrastructure" in titles
-    assert "Implemented automated test coverage" in titles
-    assert "Implemented AI workflow orchestration" in titles
+    assert "Repository signal: FastAPI/API implementation" in titles
+    assert "Repository signal: database persistence" in titles
+    assert "Repository signal: containerized infrastructure" in titles
+    assert "Repository signal: automated testing" in titles
+    assert "Repository signal: automation/workflow integration" in titles
 
     fastapi = next(
         item
         for item in evidence
-        if item["title"] == "Implemented FastAPI backend architecture"
+        if item["title"] == "Repository signal: FastAPI/API implementation"
     )
     assert fastapi == {
         "type": "architecture_evidence",
-        "title": "Implemented FastAPI backend architecture",
-        "skills": ["FastAPI", "Backend Architecture", "Async API"],
+        "title": "Repository signal: FastAPI/API implementation",
+        "skills": ["FastAPI", "API", "Async API"],
         "evidence_strength": "strong",
         "fact_status": "needs_confirmation",
         "source": "github_repository_analysis",
         "snippet_text": (
-            "Implemented async FastAPI backend architecture in career-copilot. "
+            "Repository evidence indicates FastAPI/API implementation signals in career-copilot. "
             "Signals: FastAPI dependency, FastAPI(, APIRouter(, Depends(, async def. "
             "Source: https://github.com/example/career-copilot"
         ),
@@ -75,6 +75,13 @@ def test_repository_evidence_service_extracts_engineering_capabilities() -> None
             "api routes path",
         ],
     }
+
+    rendered = "\n".join(
+        f"{item['title']} {item['snippet_text']}" for item in evidence
+    )
+    assert "Implemented FastAPI backend architecture" not in rendered
+    assert "Designed PostgreSQL persistence layer" not in rendered
+    assert "Implemented AI workflow orchestration" not in rendered
 
 
 def test_repository_evidence_service_does_not_emit_keyword_only_fastapi_claim() -> None:

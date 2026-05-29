@@ -49,6 +49,9 @@ resume upload
 4. Keep Streamlit state predictable.
 5. Keep demo path reproducible from a seeded or manually prepared workspace.
 
+The next milestone is [MVP Demo Freeze Candidate](./mvp_demo_freeze_candidate.md):
+feature work is frozen unless it improves bugs, UX clarity, stability, docs, or demo quality.
+
 ## Demo Readiness Bar
 
 The demo is ready when a user can complete the core workflow without explaining backend internals:
@@ -61,4 +64,3 @@ The demo is ready when a user can complete the core workflow without explaining 
 - review state is visible;
 - application tracker reflects the target vacancy;
 - interview prep includes suggested answers and risk notes.
-

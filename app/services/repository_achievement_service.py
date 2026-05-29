@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
 from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
-from app.repositories.file_extraction_repository import FileExtractionRepository
+from app.services.core_service_policy import CORE_SERVICE_INVARIANT
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,10 @@ class RepositoryAchievementDraft:
     action: str | None = None
     result: str | None = None
     fact_status: str = "needs_confirmation"
+    candidate_ownership: str = "unknown"
+    candidate_ownership_confidence: str = "low"
+    requires_confirmation: bool = True
+    repository_signal: bool = True
     source: str = "github_repository_analysis"
     source_evidence_ids: list[str] = field(default_factory=list)
 
@@ -37,6 +41,10 @@ class RepositoryAchievementDraft:
             "action": self.action,
             "result": self.result,
             "fact_status": self.fact_status,
+            "candidate_ownership": self.candidate_ownership,
+            "candidate_ownership_confidence": self.candidate_ownership_confidence,
+            "requires_confirmation": self.requires_confirmation,
+            "repository_signal": self.repository_signal,
             "source": self.source,
             "source_evidence_ids": list(self.source_evidence_ids),
         }
@@ -51,21 +59,23 @@ class RepositoryAchievementGenerationResult:
 
 
 class RepositoryAchievementService:
-    """Synthesize review-ready project drafts from repository architecture evidence."""
+    """Synthesize review-ready project drafts from repository architecture evidence.
+
+    Core invariant: no candidate/domain-specific narrative synthesis here.
+    """
+
+    engineering_invariant = CORE_SERVICE_INVARIANT
 
     def __init__(
         self,
         *,
         evidence_repository: EvidenceSnippetRepository | None = None,
         achievement_repository: CandidateAchievementRepository | None = None,
-        file_extraction_repository: FileExtractionRepository | None = None,
+        file_extraction_repository: Any | None = None,
     ) -> None:
         self.evidence_repository = evidence_repository or EvidenceSnippetRepository()
         self.achievement_repository = (
             achievement_repository or CandidateAchievementRepository()
-        )
-        self.file_extraction_repository = (
-            file_extraction_repository or FileExtractionRepository()
         )
 
     async def generate_repository_achievement_drafts(
@@ -75,11 +85,6 @@ class RepositoryAchievementService:
         user_id: UUID,
         profile_id: UUID,
     ) -> RepositoryAchievementGenerationResult:
-        extraction = await self.file_extraction_repository.get_latest_for_active_source_file_kind(
-            session,
-            user_id,
-            file_kind="resume",
-        )
         snippets = await self.evidence_repository.list_by_user_id(
             session,
             user_id=user_id,
@@ -124,7 +129,7 @@ class RepositoryAchievementService:
 
         return RepositoryAchievementGenerationResult(
             profile_id=profile_id,
-            extraction_id=extraction.id if extraction is not None else None,
+            extraction_id=None,
             achievements=achievements,
             warnings=warnings,
         )
@@ -143,7 +148,7 @@ class RepositoryAchievementService:
         ]
         drafts.sort(
             key=lambda item: (
-                len(item.skills),
+                self._evidence_count(item),
                 len(item.source_evidence_ids),
             ),
             reverse=True,
@@ -196,9 +201,8 @@ class RepositoryAchievementService:
         items: list[dict[str, Any]],
     ) -> RepositoryAchievementDraft:
         skills = self._aggregate_skills(items)
-        title = self._draft_title(skills=skills, items=items)
+        title = self._draft_title(skills=skills)
         summary = self._summary(project_key=project_key, items=items, skills=skills)
-        star = self._star_narrative(project_key=project_key, items=items, skills=skills)
         evidence_ids = [
             str(item.get("id") or item.get("evidence_id") or "").strip()
             for item in items
@@ -208,11 +212,15 @@ class RepositoryAchievementService:
             title=title,
             skills=skills,
             summary=summary,
-            situation=star["situation"],
-            task=star["task"],
-            action=star["action"],
-            result=star["result"],
+            situation=None,
+            task="Review candidate ownership before using repository signals in documents.",
+            action=summary,
+            result=None,
             fact_status="needs_confirmation",
+            candidate_ownership="unknown",
+            candidate_ownership_confidence="low",
+            requires_confirmation=True,
+            repository_signal=True,
             source="github_repository_analysis",
             source_evidence_ids=self._dedupe(evidence_ids),
         )
@@ -227,59 +235,18 @@ class RepositoryAchievementService:
             )
 
         skills = self._dedupe(skills)
-        priority = {
-            "fastapi": 0,
-            "openai": 1,
-            "ai workflow": 2,
-            "workflow orchestration": 3,
-            "backend architecture": 4,
-            "async api": 5,
-            "postgresql": 6,
-            "sqlalchemy": 7,
-            "persistence layer": 8,
-            "docker": 9,
-            "infrastructure": 10,
-            "pytest": 11,
-            "testing": 12,
-        }
         return sorted(
             skills,
-            key=lambda value: (
-                priority.get(value.strip().lower(), 100),
-                value.strip().lower(),
-            ),
+            key=lambda value: value.strip().lower(),
         )
 
     def _draft_title(
         self,
         *,
         skills: list[str],
-        items: Sequence[Mapping[str, Any]],
     ) -> str:
-        skill_set = {skill.strip().lower() for skill in skills}
-        title_text = " ".join(str(item.get("title") or "") for item in items).lower()
-
-        if (
-            "ai workflow" in skill_set
-            or "workflow orchestration" in skill_set
-            or "implemented ai workflow orchestration" in title_text
-        ):
-            return "Разработка AI workflow orchestration системы"
-
-        if "fastapi" in skill_set or "backend architecture" in skill_set:
-            return "Разработка FastAPI backend сервиса"
-
-        if (
-            "postgresql" in skill_set
-            or "sqlalchemy" in skill_set
-            or "persistence layer" in skill_set
-        ):
-            return "Проектирование PostgreSQL persistence layer"
-
-        if "docker" in skill_set or "infrastructure" in skill_set:
-            return "Настройка Docker-based инфраструктуры"
-
-        return "Разработка backend repository architecture"
+        scope = self._implementation_scope(skills)
+        return f"Repository evidence: {scope} implementation signals"
 
     def _summary(
         self,
@@ -288,142 +255,45 @@ class RepositoryAchievementService:
         items: Sequence[Mapping[str, Any]],
         skills: list[str],
     ) -> str:
-        capability_titles = self._dedupe(
-            [
-                str(item.get("title") or "").strip()
-                for item in items
-                if str(item.get("title") or "").strip()
-            ]
-        )
-        capability_text = "; ".join(capability_titles[:4])
         skill_text = ", ".join(skills[:6])
-        project_phrase = (
-            f"На основе GitHub repository evidence по проекту {project_key}"
-            if project_key != "repository_project"
-            else "На основе GitHub repository evidence"
-        )
+        scope = self._implementation_scope(skills)
 
         parts = [
-            project_phrase,
-            f"синтезирован проектный черновик: {capability_text}"
-            if capability_text
-            else "синтезирован проектный черновик",
-            f"Ключевые навыки: {skill_text}" if skill_text else "",
-            "Требует подтверждения кандидатом перед использованием в документах.",
+            f"Repository evidence indicates {scope} implementation signals.",
+            f"Signals found: {skill_text}." if skill_text else "",
+            "Candidate ownership is unknown and confidence is low.",
+            "Requires candidate confirmation before use in resume.",
         ]
         return " ".join(part for part in parts if part).strip()
 
-    def _star_narrative(
-        self,
-        *,
-        project_key: str,
-        items: Sequence[Mapping[str, Any]],
-        skills: list[str],
-    ) -> dict[str, str]:
-        skill_set = {skill.strip().lower() for skill in skills}
-        title_text = " ".join(str(item.get("title") or "") for item in items).lower()
-        snippet_text = " ".join(str(item.get("snippet_text") or "") for item in items).lower()
-        corpus = " ".join([title_text, snippet_text, " ".join(skill_set)])
-        project_name = self._display_project_name(project_key)
-
-        has_ai_workflow = any(
-            marker in skill_set
-            for marker in {"ai workflow", "workflow orchestration", "openai", "llm"}
-        ) or any(marker in corpus for marker in ("workflow", "orchestrat", "openai", "llm"))
-        has_fastapi = any(
-            marker in skill_set
-            for marker in {"fastapi", "backend architecture", "async api"}
-        )
-        has_persistence = any(
-            marker in skill_set
-            for marker in {"postgresql", "sqlalchemy", "persistence layer", "async database"}
-        )
-        has_infra = any(
-            marker in skill_set
-            for marker in {"docker", "infrastructure", "redis", "celery"}
-        )
-        has_testing = any(
-            marker in skill_set
-            for marker in {"pytest", "testing", "test automation"}
-        )
-
-        situation = (
-            f"Нужно было собрать инженерную основу проекта {project_name}, "
-            "где backend, AI workflow и review-процессы должны работать как единый продуктовый pipeline."
-            if has_ai_workflow
-            else f"Нужно было оформить repository evidence проекта {project_name} в проверяемый инженерный опыт."
-        )
-
-        task_parts: list[str] = []
-        if has_fastapi:
-            task_parts.append("спроектировать FastAPI backend")
-        if has_persistence:
-            task_parts.append("подготовить persistence layer")
-        if has_ai_workflow:
-            task_parts.append("связать AI orchestration flow")
-        if has_infra:
-            task_parts.append("настроить локальную инфраструктуру")
-        if has_testing:
-            task_parts.append("закрыть поведение автотестами")
-
-        task = (
-            "Задача: "
-            + ", ".join(task_parts)
-            + "."
-            if task_parts
-            else "Задача: описать архитектурный вклад на основе GitHub evidence."
-        )
-
-        action_parts: list[str] = []
-        if has_fastapi and has_ai_workflow:
-            action_parts.append(
-                f"Спроектировал FastAPI backend для {project_name}, включающий "
-                "pipeline анализа вакансий, генерацию tailored resume и workflow review"
-            )
-        elif has_fastapi:
-            action_parts.append(
-                f"Спроектировал FastAPI backend для {project_name} с async API и routing architecture"
-            )
-        if has_persistence:
-            action_parts.append(
-                "описал PostgreSQL/SQLAlchemy persistence layer для хранения документов, evidence и workflow-состояний"
-            )
-        if has_infra:
-            action_parts.append(
-                "выделил Docker-based инфраструктуру для локального запуска и интеграций"
-            )
-        if has_testing:
-            action_parts.append(
-                "зафиксировал automated testing signals как подтверждение проверяемости решения"
-            )
-
-        action = ". ".join(action_parts) + "." if action_parts else self._summary(
-            project_key=project_key,
-            items=items,
-            skills=skills,
-        )
-
-        result_parts = [
-            "Получился review-ready проектный нарратив, который связывает repository evidence с инженерными capability."
-        ]
-        if has_ai_workflow and has_fastapi:
-            result_parts.append(
-                "Его можно использовать в резюме как evidence-backed backend/AI workflow experience."
-            )
-        result = " ".join(result_parts)
-
-        return {
-            "situation": situation,
-            "task": task,
-            "action": action,
-            "result": result,
+    def _implementation_scope(self, skills: Sequence[str]) -> str:
+        normalized = {skill.strip().lower() for skill in skills}
+        backend_markers = {
+            "api",
+            "async api",
+            "backend",
+            "backend architecture",
+            "database",
+            "fastapi",
+            "postgresql",
+            "sqlalchemy",
+            "persistence layer",
+            "docker",
+            "infrastructure",
         }
+        if normalized.intersection(backend_markers):
+            return "backend-related"
+        if normalized:
+            return "technical"
+        return "repository"
 
-    def _display_project_name(self, project_key: str) -> str:
-        cleaned = re.sub(r"[-_]+", " ", project_key).strip()
-        if cleaned.lower() == "career copilot":
-            return "AI Career Copilot"
-        return cleaned.title() if cleaned else "repository project"
+    def _skill_summary(self, skills: Sequence[str], *, limit: int) -> str:
+        return ", ".join(
+            skill
+            for skill in self._dedupe(
+                [str(skill).strip() for skill in skills if str(skill).strip()]
+            )[:limit]
+        )
 
     def _draft_to_achievement_payload(self, draft: Mapping[str, Any]) -> dict[str, Any]:
         skills = [
@@ -437,7 +307,9 @@ class RepositoryAchievementService:
             if str(item).strip()
         ]
         evidence_note_parts = [
-            "Synthesized from GitHub repository architecture evidence; requires user confirmation.",
+            "Repository evidence indicates implementation signals; candidate ownership is unknown.",
+            "Candidate ownership confidence: low.",
+            "Requires candidate confirmation before use in resume.",
             "Skills: " + ", ".join(skills[:8]) if skills else "",
             "Evidence ids: " + ", ".join(source_ids[:8]) if source_ids else "",
         ]
@@ -445,7 +317,7 @@ class RepositoryAchievementService:
             "title": str(draft.get("title") or "").strip(),
             "situation": str(draft.get("situation") or "").strip() or None,
             "task": str(draft.get("task") or "").strip()
-            or "Сформировать проектный опыт на основе GitHub repository evidence.",
+            or "Review candidate ownership before using repository signals in documents.",
             "action": str(draft.get("action") or draft.get("summary") or "").strip() or None,
             "result": str(draft.get("result") or "").strip() or None,
             "metric_text": None,
@@ -453,6 +325,9 @@ class RepositoryAchievementService:
             "fact_status": str(draft.get("fact_status") or "needs_confirmation"),
             "experience_id": None,
         }
+
+    def _evidence_count(self, draft: RepositoryAchievementDraft) -> int:
+        return len(draft.source_evidence_ids)
 
     def _dedupe(self, values: Sequence[str]) -> list[str]:
         result: list[str] = []

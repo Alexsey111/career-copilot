@@ -54,7 +54,7 @@ class InterviewAnswerSynthesisService:
         if category == "gap-risk":
             return self._build_gap_answer(question=question, weak_area=weak_area)
 
-        star = self._resolve_star(evidence)
+        star = {} if self._requires_ownership_review(evidence) else self._resolve_star(evidence)
         skills = self._resolve_skills(evidence)
         competency = str(
             question.get("competency_name")
@@ -108,6 +108,19 @@ class InterviewAnswerSynthesisService:
             return dict(evidence_by_id[source_id])
 
         return {}
+
+    def _requires_ownership_review(self, evidence: Mapping[str, Any]) -> bool:
+        fact_status = str(evidence.get("fact_status") or "").strip().lower()
+        ownership_confidence = str(
+            evidence.get("ownership_confidence")
+            or evidence.get("candidate_ownership_confidence")
+            or ""
+        ).strip().lower()
+        return (
+            bool(evidence.get("requires_confirmation") is True)
+            or ownership_confidence in {"low", "unknown", "needs_review"}
+            or fact_status in {"needs_confirmation", "unverified", "partial"}
+        )
 
     def _resolve_star(self, evidence: Mapping[str, Any]) -> dict[str, str]:
         star = dict(evidence.get("star_summary") or {})
@@ -220,10 +233,11 @@ class InterviewAnswerSynthesisService:
             return self._clean_sentence(text)
         if "fastapi" in competency.lower():
             return (
-                "Спроектировал backend API, разделил ответственность между endpoint-ами, "
-                "persistence layer и workflow logic."
+                "Можно описать backend/API пример через подтверждённые действия, "
+                "границы endpoint-ов, persistence layer и workflow logic — без добавления "
+                "непроверенных claims."
             )
-        return "Описал решение через concrete implementation steps и проверяемые evidence."
+        return "Описать решение через concrete implementation steps и проверяемые evidence."
 
     def _fallback_result(self, *, evidence: Mapping[str, Any]) -> str:
         title = str(evidence.get("title") or "").strip()

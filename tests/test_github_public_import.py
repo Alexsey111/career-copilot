@@ -200,15 +200,16 @@ async def test_github_public_profile_import_creates_unconfirmed_evidence(
     architecture = next(
         item
         for item in bank["project_evidence"]
-        if item["title"] == "Implemented FastAPI backend architecture"
+        if item["title"] == "Repository signal: FastAPI/API implementation"
     )
     assert architecture["source_type"] == "github_public"
     assert architecture["fact_status"] == "needs_confirmation"
     assert architecture["evidence_strength"] == "strong"
     assert architecture["star_summary"]["source"] == "github_repository_analysis"
     assert architecture["star_summary"]["category"] == "architecture_evidence"
-    assert "Backend Architecture" in architecture["skills"]
+    assert "API" in architecture["skills"]
     assert "Async API" in architecture["skills"]
+    assert "Implemented FastAPI backend architecture" not in architecture["snippet_text"]
 
 
 @pytest.mark.asyncio

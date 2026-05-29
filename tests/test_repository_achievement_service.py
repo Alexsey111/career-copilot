@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import pytest
+
+from app.services.core_service_policy import CORE_SERVICE_INVARIANT
+from app.services.repository_achievement_service import (
+    RepositoryAchievementGenerationResult,
+)
 from app.services.repository_achievement_service import RepositoryAchievementService
 
 
-def test_repository_achievement_service_synthesizes_project_draft() -> None:
+def test_repository_achievement_service_builds_cautious_contribution_evidence() -> None:
     service = RepositoryAchievementService()
 
     drafts = service.synthesize_project_drafts(
@@ -46,56 +52,47 @@ def test_repository_achievement_service_synthesizes_project_draft() -> None:
 
     assert drafts == [
         {
-            "title": "Разработка AI workflow orchestration системы",
+            "title": "Repository evidence: backend-related implementation signals",
             "skills": [
+                "AI Workflow",
+                "Async API",
+                "Backend Architecture",
                 "FastAPI",
                 "OpenAI",
-                "AI Workflow",
-                "Workflow Orchestration",
-                "Backend Architecture",
-                "Async API",
+                "Persistence Layer",
                 "PostgreSQL",
                 "SQLAlchemy",
-                "Persistence Layer",
+                "Workflow Orchestration",
             ],
             "summary": (
-                "На основе GitHub repository evidence по проекту career-copilot "
-                "синтезирован проектный черновик: "
-                "Implemented FastAPI backend architecture; "
-                "Implemented AI workflow orchestration; "
-                "Designed PostgreSQL persistence layer "
-                "Ключевые навыки: FastAPI, OpenAI, AI Workflow, "
-                "Workflow Orchestration, Backend Architecture, Async API "
-                "Требует подтверждения кандидатом перед использованием в документах."
+                "Repository evidence indicates backend-related implementation signals. "
+                "Signals found: AI Workflow, Async API, Backend Architecture, "
+                "FastAPI, OpenAI, Persistence Layer. "
+                "Candidate ownership is unknown and confidence is low. "
+                "Requires candidate confirmation before use in resume."
             ),
-            "situation": (
-                "Нужно было собрать инженерную основу проекта AI Career Copilot, "
-                "где backend, AI workflow и review-процессы должны работать как "
-                "единый продуктовый pipeline."
-            ),
-            "task": (
-                "Задача: спроектировать FastAPI backend, подготовить persistence layer, "
-                "связать AI orchestration flow."
-            ),
+            "situation": None,
+            "task": "Review candidate ownership before using repository signals in documents.",
             "action": (
-                "Спроектировал FastAPI backend для AI Career Copilot, включающий "
-                "pipeline анализа вакансий, генерацию tailored resume и workflow review. "
-                "описал PostgreSQL/SQLAlchemy persistence layer для хранения документов, "
-                "evidence и workflow-состояний."
+                "Repository evidence indicates backend-related implementation signals. "
+                "Signals found: AI Workflow, Async API, Backend Architecture, "
+                "FastAPI, OpenAI, Persistence Layer. "
+                "Candidate ownership is unknown and confidence is low. "
+                "Requires candidate confirmation before use in resume."
             ),
-            "result": (
-                "Получился review-ready проектный нарратив, который связывает repository "
-                "evidence с инженерными capability. Его можно использовать в резюме как "
-                "evidence-backed backend/AI workflow experience."
-            ),
+            "result": None,
             "fact_status": "needs_confirmation",
+            "candidate_ownership": "unknown",
+            "candidate_ownership_confidence": "low",
+            "requires_confirmation": True,
+            "repository_signal": True,
             "source": "github_repository_analysis",
             "source_evidence_ids": ["ev-fastapi", "ev-ai", "ev-db"],
         }
     ]
 
 
-def test_repository_achievement_payload_uses_star_narrative() -> None:
+def test_repository_achievement_payload_requires_candidate_confirmation() -> None:
     service = RepositoryAchievementService()
 
     draft = service.synthesize_project_drafts(
@@ -123,12 +120,58 @@ def test_repository_achievement_payload_uses_star_narrative() -> None:
 
     payload = service._draft_to_achievement_payload(draft)
 
-    assert payload["situation"].startswith(
-        "Нужно было собрать инженерную основу проекта AI Career Copilot"
+    assert payload["situation"] is None
+    assert payload["task"] == (
+        "Review candidate ownership before using repository signals in documents."
     )
-    assert "спроектировать FastAPI backend" in payload["task"]
-    assert "pipeline анализа вакансий" in payload["action"]
-    assert "evidence-backed backend/AI workflow experience" in payload["result"]
+    assert payload["action"].startswith(
+        "Repository evidence indicates backend-related implementation signals."
+    )
+    assert payload["result"] is None
+    assert "candidate ownership is unknown" in payload["evidence_note"].lower()
+    assert "candidate ownership confidence: low" in payload["evidence_note"].lower()
+
+
+def test_repository_achievement_service_keeps_core_synthesis_neutral() -> None:
+    service = RepositoryAchievementService()
+
+    draft = service.synthesize_project_drafts(
+        [
+            {
+                "id": "ev-fastapi",
+                "title": "Implemented FastAPI backend architecture",
+                "skills": ["FastAPI", "Backend Architecture"],
+                "star_summary": {
+                    "category": "architecture_evidence",
+                    "project": "career-copilot",
+                },
+            },
+            {
+                "id": "ev-ai",
+                "title": "Implemented AI workflow orchestration",
+                "skills": ["AI Workflow", "Workflow Orchestration"],
+                "star_summary": {
+                    "category": "architecture_evidence",
+                    "project": "career-copilot",
+                },
+            },
+        ]
+    )[0]
+
+    generated_narrative = " ".join(
+        str(draft.get(field) or "")
+        for field in ("title", "situation", "task", "action", "result")
+    )
+
+    assert service.engineering_invariant == CORE_SERVICE_INVARIANT
+    assert "AI Career Copilot" not in generated_narrative
+    assert "pipeline анализа вакансий" not in generated_narrative
+    assert "tailored resume" not in generated_narrative
+    assert "спроектировать FastAPI backend" not in generated_narrative
+    assert draft["candidate_ownership"] == "unknown"
+    assert draft["candidate_ownership_confidence"] == "low"
+    assert draft["requires_confirmation"] is True
+    assert draft["repository_signal"] is True
 
 
 def test_repository_achievement_service_ignores_non_architecture_evidence() -> None:
@@ -146,3 +189,44 @@ def test_repository_achievement_service_ignores_non_architecture_evidence() -> N
     )
 
     assert drafts == []
+
+
+class _NoResumeExtractionRepository:
+    async def get_latest_for_active_source_file_kind(self, *args, **kwargs):
+        raise AssertionError("repository achievement generation must not require resume")
+
+
+class _EmptyEvidenceRepository:
+    async def list_by_user_id(self, *args, **kwargs):
+        return []
+
+
+class _NoopAchievementRepository:
+    async def append_for_profile(self, *args, **kwargs):
+        return []
+
+    async def list_for_profile(self, *args, **kwargs):
+        return []
+
+
+@pytest.mark.asyncio
+async def test_repository_achievement_generation_does_not_assume_resume_exists(
+    db_session,
+    test_user,
+) -> None:
+    service = RepositoryAchievementService(
+        evidence_repository=_EmptyEvidenceRepository(),
+        achievement_repository=_NoopAchievementRepository(),
+        file_extraction_repository=_NoResumeExtractionRepository(),
+    )
+
+    result = await service.generate_repository_achievement_drafts(
+        db_session,
+        user_id=test_user.id,
+        profile_id=test_user.id,
+    )
+
+    assert isinstance(result, RepositoryAchievementGenerationResult)
+    assert result.extraction_id is None
+    assert result.achievements == []
+    assert result.warnings == ["no github repository evidence found"]

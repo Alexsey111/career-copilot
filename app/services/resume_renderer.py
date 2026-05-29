@@ -72,6 +72,70 @@ def render_resume(content_json: dict) -> str:
             if item.get("description_raw"):
                 lines.append(f"- {item['description_raw']}")
 
+    education_items = sections.get("education") or []
+    if education_items:
+        lines.append("")
+        lines.append("ОБРАЗОВАНИЕ")
+        for item in education_items:
+            if isinstance(item, dict):
+                details = item.get("details")
+                institution = item.get("institution")
+                degree = item.get("degree")
+                specialty = item.get("specialty")
+                period = item.get("period")
+
+                parts = [
+                    part
+                    for part in [institution, degree, specialty, period]
+                    if part
+                ]
+                if details:
+                    lines.append(str(details))
+                elif parts:
+                    lines.append(" — ".join(str(part) for part in parts))
+            else:
+                lines.append(str(item))
+
+    course_items = sections.get("courses") or []
+    if course_items:
+        lines.append("")
+        lines.append("КУРСЫ")
+        for item in course_items:
+            if isinstance(item, dict):
+                details = item.get("details")
+                provider = item.get("provider")
+                title = item.get("title")
+                year = item.get("year")
+                parts = [part for part in [provider, year, title] if part]
+                if details:
+                    lines.append(str(details))
+                elif parts:
+                    lines.append(" — ".join(str(part) for part in parts))
+            else:
+                lines.append(str(item))
+
+    internship_items = sections.get("internships") or []
+    if internship_items:
+        lines.append("")
+        lines.append("СТАЖИРОВКИ / УЧЕБНЫЕ ПРОЕКТЫ")
+        for item in internship_items:
+            if isinstance(item, dict):
+                details = item.get("details")
+                title = item.get("title")
+                organization = item.get("organization") or item.get("provider")
+                period = item.get("period") or item.get("year")
+                snippet_text = item.get("snippet_text")
+                parts = [part for part in [title, organization, period] if part]
+
+                if details:
+                    lines.append(str(details))
+                elif parts:
+                    lines.append(" — ".join(str(part) for part in parts))
+                elif snippet_text:
+                    lines.append(str(snippet_text))
+            else:
+                lines.append(str(item))
+
     project_sections = sections.get("project_sections") or []
     selected_achievements = sections["selected_achievements"]
     if project_sections or selected_achievements:

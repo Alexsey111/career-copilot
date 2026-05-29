@@ -35,7 +35,13 @@ from app.services.document_builders import build_resume_content
 from app.services.evidence_bank_service import EVIDENCE_BANK_SOURCE_TYPES, EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
+from app.services.profile_structuring_service import ProfileStructuringService
+from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryService
 from app.services.resume_renderer import render_resume
+from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
+
+
+LEGACY_DOMAIN_SPECIFIC_SYNTHESIS = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
 
 
 MAX_RESUME_WORDS = 1200
@@ -85,6 +91,7 @@ PROJECT_EVIDENCE_CATEGORIES = {
     "automation",
     "prompt_engineering",
     "internship",
+    "portfolio_project",
     "achievement",
     "architecture_evidence",
     *ACHIEVEMENT_CATEGORIES,
@@ -132,6 +139,7 @@ class ResumeGenerationService:
         evidence_extraction_service: EvidenceExtractionService | None = None,
         evidence_selection_service: EvidenceSelectionService | None = None,
         evidence_bank_service: EvidenceBankService | None = None,
+        enable_legacy_recovery: bool = True,
     ) -> None:
         self.vacancy_repository = vacancy_repository or VacancyRepository()
         self.vacancy_analysis_repository = (
@@ -157,6 +165,9 @@ class ResumeGenerationService:
         self.evidence_bank_service = evidence_bank_service or EvidenceBankService(
             repository=self.evidence_snippet_repository,
             extraction_service=self.evidence_extraction_service,
+        )
+        self.legacy_recovery_service = LegacyResumeRecoveryService(
+            enabled=enable_legacy_recovery,
         )
 
     async def generate_resume(
@@ -414,6 +425,16 @@ class ResumeGenerationService:
 
         selected_achievements = self._add_project_narratives(selected_achievements)
         project_sections = self._build_project_sections(selected_achievements)
+        education_items = self._build_education_items(
+            profile,
+            latest_extraction.extracted_text if latest_extraction else "",
+        )
+        course_items = self._build_course_items(
+            latest_extraction.extracted_text if latest_extraction else "",
+        )
+        internship_items = self._build_internship_items(
+            latest_extraction.extracted_text if latest_extraction else "",
+        )
 
         content_json = build_resume_content(
             candidate={
@@ -440,6 +461,9 @@ class ResumeGenerationService:
             summary_bullets=summary_bullets,
             skills=selected_skills,
             experience=experience_items,
+            education=education_items,
+            courses=course_items,
+            internships=internship_items,
             selected_achievements=selected_achievements,
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
@@ -879,6 +903,7 @@ class ResumeGenerationService:
         self,
         selected_achievements: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        # Legacy marker: existing domain-specific synthesis must not be extended.
         enriched: list[dict[str, Any]] = []
 
         for item in selected_achievements:
@@ -895,13 +920,11 @@ class ResumeGenerationService:
 
             if "workflow orchestration" in corpus or "ai workflow" in corpus:
                 enriched_item["narrative"] = (
-                    "backend workflow для анализа вакансий, генерации tailored resume, "
-                    "review flow и подготовки к интервью"
+                    "workflow/orchestration implementation signals; ownership requires review"
                 )
             elif "fastapi" in corpus or "backend" in corpus:
                 enriched_item["narrative"] = (
-                    "API, persistence layer, application tracking, document generation "
-                    "и evidence review"
+                    "backend/API implementation signals; ownership requires review"
                 )
             elif "computer vision" in corpus or "мониторинг" in corpus:
                 enriched_item["narrative"] = (
@@ -924,6 +947,8 @@ class ResumeGenerationService:
         grouped: dict[str, dict[str, Any]] = {}
 
         for item in selected_achievements:
+            if not self._allows_strong_project_claim(item):
+                continue
             project_name = self._project_name_from_achievement(item)
             role = self._project_role_from_achievement(item)
             bullets = self._project_bullets_from_achievement(item)
@@ -945,6 +970,263 @@ class ResumeGenerationService:
             )[:5]
 
         return list(grouped.values())[:4]
+
+    def _allows_strong_project_claim(self, achievement: dict[str, Any]) -> bool:
+        fact_status = str(achievement.get("fact_status") or "").strip().lower()
+        ownership_confidence = str(
+            achievement.get("ownership_confidence")
+            or achievement.get("candidate_ownership_confidence")
+            or "medium"
+        ).strip().lower()
+        requires_confirmation = bool(achievement.get("requires_confirmation") is True)
+
+        if requires_confirmation:
+            return False
+        if ownership_confidence in {"low", "unknown", "needs_review"}:
+            return False
+        return fact_status in {"confirmed", "user_provided"}
+
+    def _build_education_items(
+        self,
+        profile,
+        latest_extraction_text: str = "",
+    ) -> list[dict[str, Any]]:
+        if not latest_extraction_text:
+            return []
+
+        lines = [
+            line.strip()
+            for line in latest_extraction_text.splitlines()
+            if line.strip()
+        ]
+        section = self._extract_raw_section(
+            lines,
+            start_heading="ОБРАЗОВАНИЕ",
+            stop_headings={
+                "ПРОЕКТЫ",
+                "ПОРТФОЛИО",
+                "СТАЖИРОВКИ",
+                "КУРСЫ",
+                "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                "КОНТАКТЫ",
+                "О СЕБЕ",
+            },
+        )
+
+        if not section:
+            return []
+
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for line in [*section, " ".join(section)]:
+            for details in self._extract_formal_education_details(line):
+                normalized = details.casefold()
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                items.append({"details": details})
+
+        return items[:4]
+
+    def _build_course_items(
+        self,
+        latest_extraction_text: str = "",
+    ) -> list[dict[str, Any]]:
+        if not latest_extraction_text:
+            return []
+
+        lines = [
+            line.strip()
+            for line in latest_extraction_text.splitlines()
+            if line.strip()
+        ]
+
+        sections: list[str] = []
+        course_section = self._extract_raw_section(
+            lines,
+            start_heading="КУРСЫ",
+            stop_headings={
+                "ПРОЕКТЫ",
+                "ПОРТФОЛИО",
+                "СТАЖИРОВКИ",
+                "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                "КОНТАКТЫ",
+                "О СЕБЕ",
+            },
+        )
+        if course_section:
+            sections.extend(course_section)
+
+        education_section = self._extract_raw_section(
+            lines,
+            start_heading="ОБРАЗОВАНИЕ",
+            stop_headings={
+                "ПРОЕКТЫ",
+                "ПОРТФОЛИО",
+                "СТАЖИРОВКИ",
+                "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                "КОНТАКТЫ",
+                "О СЕБЕ",
+            },
+        )
+        if education_section:
+            sections.extend(education_section)
+
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for line in [*sections, " ".join(sections)]:
+            for item in self._extract_course_details(line):
+                key = str(item.get("details") or "").casefold()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                items.append(item)
+
+        return items[:6]
+
+    def _build_internship_items(
+        self,
+        latest_extraction_text: str = "",
+    ) -> list[dict[str, Any]]:
+        if not latest_extraction_text:
+            return []
+
+        draft = ProfileStructuringService()._build_draft(latest_extraction_text)
+        items: list[dict[str, Any]] = []
+
+        for internship in draft.internships:
+            title = re.sub(r"\s+", " ", str(internship.title or "")).strip()
+            snippet_text = re.sub(
+                r"\s+",
+                " ",
+                str(internship.snippet_text or "").strip(),
+            )
+            if not title:
+                continue
+
+            details = title
+            if snippet_text and snippet_text.casefold() != title.casefold():
+                details = f"{title} — {snippet_text}"
+                if len(details) > 220:
+                    details = details[:220].rsplit(" ", 1)[0].strip()
+
+            items.append(
+                {
+                    "title": title,
+                    "details": details,
+                    "snippet_text": snippet_text or title,
+                    "skills": list(internship.skills or []),
+                    "category": "internship",
+                }
+            )
+
+        return self._dedupe_dicts_by_key(items, key="title")
+
+    def _dedupe_dicts_by_key(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        key: str,
+    ) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in items:
+            marker = str(item.get(key) or "").strip().casefold()
+            if not marker or marker in seen:
+                continue
+            seen.add(marker)
+            result.append(item)
+        return result
+
+    def _extract_formal_education_details(self, value: str) -> list[str]:
+        return self.legacy_recovery_service.recover_known_formal_education_lines(value)
+
+    def _extract_course_details(self, value: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "title": item,
+                "provider": None,
+                "year": None,
+                "details": item,
+            }
+            for item in self.legacy_recovery_service.recover_known_course_lines(value)
+        ]
+
+    def _normalize_layout_text(self, value: str) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        return text.strip(" -–—•")
+
+    def _looks_like_mixed_layout_noise(self, value: str) -> bool:
+        return self.legacy_recovery_service.looks_like_legacy_mixed_education_layout_noise(value)
+
+    def _looks_like_standalone_education_line(self, value: str) -> bool:
+        text = self._normalize_layout_text(value)
+        lowered = text.lower()
+        if len(text) < 18 or len(text) > 180:
+            return False
+        if any(marker in text for marker in ("»", ")", "(", "/", "|")):
+            return False
+        if any(
+            marker in lowered
+            for marker in (
+                "программист на python",
+                "аналитик данных",
+                "chatgpt",
+                "искусственного интеллекта",
+                "специальность",
+                "высшее образование",
+                "среднее образование",
+                "бакалавр",
+                "магистр",
+            )
+        ):
+            return False
+        return lowered.startswith(
+            (
+                "алтай",
+                "рязан",
+                "москов",
+                "санкт-петербург",
+                "университет",
+                "институт",
+                "колледж",
+                "техникум",
+                "академия",
+            )
+        )
+
+    def _extract_raw_section(
+        self,
+        lines: list[str],
+        *,
+        start_heading: str,
+        stop_headings: set[str],
+    ) -> list[str]:
+        capture = False
+        result: list[str] = []
+
+        for line in lines:
+            normalized = re.sub(r"[:：]+$", "", line.strip()).upper()
+
+            if normalized == start_heading or normalized.startswith(f"{start_heading} "):
+                capture = True
+                remainder = re.sub(
+                    rf"^{re.escape(start_heading)}\s*",
+                    "",
+                    normalized,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if remainder:
+                    result.append(line)
+                continue
+
+            if capture and normalized in stop_headings:
+                break
+
+            if capture:
+                result.append(line)
+
+        return result
 
     def _dedupe_project_bullets(self, bullets: list[str]) -> list[str]:
         selected: list[str] = []
@@ -972,11 +1254,10 @@ class ResumeGenerationService:
         if "fastapi" in normalized_bullet or "backend" in normalized_bullet:
             return "backend"
         if "workflow" in normalized_bullet and (
-            "tailored resume" in normalized_bullet
-            or "orchestration" in normalized_bullet
+            "orchestration" in normalized_bullet
             or "генерации" in normalized_bullet
         ):
-            return "ai_workflow"
+            return "workflow"
         if "persistence" in normalized_bullet or "postgresql" in normalized_bullet:
             return "persistence"
         if "computer vision" in normalized_bullet or "мониторинг" in normalized_bullet:
@@ -986,41 +1267,48 @@ class ResumeGenerationService:
         return None
 
     def _project_name_from_achievement(self, achievement: dict[str, Any]) -> str:
-        corpus = self._achievement_semantic_corpus(achievement)
         title = str(achievement.get("title") or "").strip()
+        if title:
+            return title
 
-        if any(marker in corpus for marker in ("computer vision", "quality control", "мониторинг", "качества")):
-            return "AI Quality Monitoring"
+        corpus = self._achievement_semantic_corpus(achievement)
+
+        if any(marker in corpus for marker in ("computer vision", "cv", "изображен", "video", "видео")):
+            return "Visual Data Processing Project"
+
         if any(marker in corpus for marker in ("analytics", "data pipeline", "аналит")):
-            return "Analytics Pipeline"
-        if (
-            "career copilot" in corpus
-            or "tailored resume" in corpus
-            or "evidence review" in corpus
-            or "application tracking" in corpus
-        ):
-            return "AI Career Copilot"
-        if "content-factory" in corpus or "telegram" in corpus and "openai" in corpus:
-            return "Content Factory"
-        return title or "Проект"
+            return "Analytics Project"
+
+        if any(marker in corpus for marker in ("workflow orchestration", "ai workflow", "pipeline")):
+            return "Workflow Implementation Project"
+
+        if any(marker in corpus for marker in ("backend", "fastapi", "api")):
+            return "Backend Implementation Project"
+
+        return "Project Evidence"
 
     def _project_role_from_achievement(self, achievement: dict[str, Any]) -> str:
         corpus = self._achievement_semantic_corpus(achievement)
 
-        if "computer vision" in corpus or "мониторинг" in corpus or "quality control" in corpus:
-            return "AI / Computer Vision Project"
-        if "workflow orchestration" in corpus or "ai workflow" in corpus:
-            return "Backend / AI Workflow System"
-        if "fastapi" in corpus or "backend" in corpus:
-            return "Backend Architecture"
-        if "analytics" in corpus or "аналит" in corpus:
-            return "Analytics Project"
-        return "Engineering Project"
+        if any(marker in corpus for marker in ("computer vision", "cv", "изображен", "video", "видео")):
+            return "Visual Data Processing Evidence"
+
+        if any(marker in corpus for marker in ("workflow orchestration", "ai workflow", "pipeline")):
+            return "Workflow Implementation Evidence"
+
+        if any(marker in corpus for marker in ("fastapi", "backend", "api")):
+            return "Backend/API Implementation Evidence"
+
+        if any(marker in corpus for marker in ("analytics", "data pipeline", "аналит")):
+            return "Analytics Evidence"
+
+        return "Project Evidence"
 
     def _project_bullets_from_achievement(
         self,
         achievement: dict[str, Any],
     ) -> list[str]:
+        # Legacy marker: existing domain-specific synthesis must not be extended.
         corpus = self._achievement_semantic_corpus(achievement)
         bullets: list[str] = []
 
@@ -1032,25 +1320,15 @@ class ResumeGenerationService:
                 "и поддержки решений"
             )
         if "workflow orchestration" in corpus or "ai workflow" in corpus:
-            bullets.append(
-                "Разработал workflow анализа вакансий и генерации tailored resume"
-            )
-            bullets.append("Интегрировал AI orchestration flow")
+            bullets.append("Зафиксированы workflow/orchestration implementation signals")
         if "fastapi" in corpus or "backend" in corpus:
-            if any(marker in corpus for marker in ("career copilot", "tailored resume", "workflow review")):
-                bullets.append(
-                    "Спроектировал FastAPI backend для AI Career Copilot, "
-                    "включающий pipeline анализа вакансий, генерацию tailored resume "
-                    "и workflow review"
-                )
-            else:
-                bullets.append("Реализовал FastAPI backend и document pipeline")
+            bullets.append("Зафиксированы backend/API implementation signals")
         if any(marker in corpus for marker in ("evidence review", "review flow", "evidence-review")):
-            bullets.append("Спроектировал evidence-review architecture")
+            bullets.append("Зафиксированы evidence-review implementation signals")
         if any(marker in corpus for marker in ("postgresql", "sqlalchemy", "persistence layer")):
-            bullets.append("Спроектировал persistence layer для хранения прикладных данных")
+            bullets.append("Зафиксированы persistence-layer implementation signals")
         if any(marker in corpus for marker in ("docker", "redis", "infrastructure")):
-            bullets.append("Настроил инфраструктуру для локальной разработки и интеграций")
+            bullets.append("Зафиксированы infrastructure implementation signals")
 
         narrative = str(achievement.get("narrative") or "").strip()
         if narrative and not bullets:
@@ -1067,37 +1345,30 @@ class ResumeGenerationService:
         return self._dedupe_preserve_order(bullets)[:5]
 
     def _computer_vision_impact_bullet(self, corpus: str) -> str:
-        if any(marker in corpus for marker in ("пвх", "pvc", "окон", "издел")):
-            return (
-                "Автоматизировал анализ изображений и видео "
-                "для контроля качества ПВХ изделий"
-            )
-
         if any(
             marker in corpus
             for marker in (
-                "пансионат",
-                "пожил",
-                "elderly",
-                "senior care",
-                "care home",
-                "nursing home",
+                "computer vision",
+                "cv",
+                "изображен",
+                "video",
+                "видео",
             )
         ):
             return (
-                "Разработал AI/CV pipeline для автоматизации мониторинга "
-                "безопасности в пансионатах для пожилых"
+                "Реализовал обработку изображений и видео "
+                "для прикладных задач мониторинга и контроля"
             )
 
         if any(marker in corpus for marker in ("безопас", "safety", "security")):
             return (
-                "Разработал AI/CV pipeline для автоматизации прикладного "
-                "мониторинга безопасности"
+                "Реализовал pipeline прикладного мониторинга "
+                "с использованием AI/CV компонентов"
             )
 
         return (
-            "Разработал AI/CV pipeline для автоматизации мониторинга качества "
-            "по изображениям и видео"
+            "Реализовал AI/CV pipeline "
+            "для обработки визуальных данных"
         )
 
     def _achievement_semantic_corpus(self, achievement: dict[str, Any]) -> str:
@@ -1743,16 +2014,9 @@ class ResumeGenerationService:
             str(item.get(field) or "")
             for field in ("company", "role", "description_raw")
         )
-        normalized = combined.lower()
-        # Оставляем только явный шум от PDF-парсера
-        noise_patterns = [
-            r"\b\d+\.\s+",  # нумерация вместо названия
-            r"ии-контроль",
-            r"пвх оконных",
-            r"по изображениям",
-            r"видео layout noise",
-        ]
-        return any(re.search(pattern, normalized) for pattern in noise_patterns)
+        return self.legacy_recovery_service.looks_like_legacy_low_confidence_experience_noise(
+            combined
+        )
 
     def _build_claims_needing_confirmation(
         self,

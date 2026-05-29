@@ -1,3 +1,4 @@
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -5,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.orchestrator import AIOrchestrator
 from app.ai.clients.base import BaseLLMClient
+from app.services.evidence_bank_service import EvidenceBankItem, EvidenceBankService
+from app.services.profile_structuring_service import ProfileStructuringService
 from app.services.resume_generation_service import ResumeGenerationService
 from app.services.resume_renderer import render_resume
 
@@ -477,6 +480,39 @@ def test_resume_filters_low_confidence_experience_from_noisy_layout() -> None:
     )
 
 
+def test_resume_keeps_honest_non_it_work_experience() -> None:
+    service = ResumeGenerationService()
+
+    profile = SimpleNamespace(
+        experiences=[
+            SimpleNamespace(
+                company="Алтайский Государственный Медицинский Университет",
+                role="электромонтер по ремонту и обслуживанию электрооборудования",
+                start_date=date(2015, 1, 1),
+                end_date=None,
+                description_raw=(
+                    "Алтайский Государственный Медицинский Университет, "
+                    "электромонтер по ремонту и обслуживанию электрооборудования"
+                ),
+            )
+        ]
+    )
+
+    items = service._build_experience_items(profile)
+
+    assert items == [
+        {
+            "company": "Алтайский Государственный Медицинский Университет",
+            "role": "электромонтер по ремонту и обслуживанию электрооборудования",
+            "period": "01.2015 - н.в.",
+            "description_raw": (
+                "Алтайский Государственный Медицинский Университет, "
+                "электромонтер по ремонту и обслуживанию электрооборудования"
+            ),
+        }
+    ]
+
+
 
 def test_resume_generation_uses_only_confirmed_achievement_titles() -> None:
     service = ResumeGenerationService()
@@ -750,14 +786,14 @@ def test_resume_project_sections_ground_computer_vision_and_analytics() -> None:
         )
     )
 
-    assert sections[0]["project"] == "AI Quality Monitoring"
-    assert sections[0]["role"] == "AI / Computer Vision Project"
-    assert any("мониторинга качества" in item for item in sections[0]["bullets"])
-    assert sections[1]["project"] == "Analytics Pipeline"
+    assert sections[0]["project"] == "ИИ-контроль качества по изображениям"
+    assert sections[0]["role"] == "Visual Data Processing Evidence"
+    assert any("обработку изображений и видео" in item for item in sections[0]["bullets"])
+    assert sections[1]["project"] == "Analytics pipeline"
     assert any("прикладных сигналов" in item for item in sections[1]["bullets"])
 
 
-def test_resume_project_bullets_include_domain_impact_for_safety_monitoring() -> None:
+def test_resume_project_bullets_include_generic_impact_for_safety_monitoring() -> None:
     service = ResumeGenerationService()
 
     sections = service._build_project_sections(
@@ -775,14 +811,15 @@ def test_resume_project_bullets_include_domain_impact_for_safety_monitoring() ->
         )
     )
 
-    assert sections[0]["project"] == "AI Quality Monitoring"
+    assert sections[0]["project"] == "AI monitoring system для пансионатов"
     assert any(
-        "мониторинга безопасности в пансионатах для пожилых" in item
+        "обработку изображений и видео" in item
+        and "мониторинга" in item
         for item in sections[0]["bullets"]
     )
 
 
-def test_resume_project_bullets_include_domain_impact_for_pvc_quality_control() -> None:
+def test_resume_project_bullets_include_generic_impact_for_pvc_quality_control() -> None:
     service = ResumeGenerationService()
 
     sections = service._build_project_sections(
@@ -799,12 +836,12 @@ def test_resume_project_bullets_include_domain_impact_for_pvc_quality_control() 
     )
 
     assert any(
-        item == "Автоматизировал анализ изображений и видео для контроля качества ПВХ изделий"
+        "обработку изображений и видео" in item
         for item in sections[0]["bullets"]
     )
 
 
-def test_resume_adds_project_narratives_for_architecture_achievements() -> None:
+def test_resume_does_not_invent_architecture_narratives_from_technical_keywords() -> None:
     service = ResumeGenerationService()
 
     enriched = service._add_project_narratives(
@@ -824,8 +861,11 @@ def test_resume_adds_project_narratives_for_architecture_achievements() -> None:
         ]
     )
 
-    assert "tailored resume" in enriched[0]["narrative"]
-    assert "application tracking" in enriched[1]["narrative"]
+    joined = "\n".join(str(item.get("narrative") or "") for item in enriched)
+
+    assert "tailored resume" not in joined
+    assert "application tracking" not in joined
+    assert "pipeline анализа вакансий" not in joined
 
 
 def test_resume_renderer_prints_project_narrative() -> None:
@@ -836,7 +876,14 @@ def test_resume_renderer_prints_project_narrative() -> None:
             "sections": {
                 "summary_bullets": [],
                 "skills": ["Python"],
-                "experience": [],
+                "experience": [
+                    {
+                        "company": "Алтайский Государственный Медицинский Университет",
+                        "role": "электромонтер по ремонту и обслуживанию электрооборудования",
+                        "period": "01.2015 - н.в.",
+                        "description_raw": "non-IT operational experience",
+                    }
+                ],
                 "selected_achievements": [
                     {
                         "title": "Разработка FastAPI backend сервиса",
@@ -869,21 +916,39 @@ def test_resume_builds_structured_project_sections_from_achievements() -> None:
 
     assert project_sections == [
         {
-            "project": "AI Career Copilot",
-            "role": "Backend / AI Workflow System",
+            "project": "Разработка AI workflow orchestration системы",
+            "role": "Workflow Implementation Evidence",
             "bullets": [
-                "Разработал workflow анализа вакансий и генерации tailored resume",
-                "Интегрировал AI orchestration flow",
-                (
-                    "Спроектировал FastAPI backend для AI Career Copilot, "
-                    "включающий pipeline анализа вакансий, генерацию tailored resume "
-                    "и workflow review"
-                ),
-                "Спроектировал evidence-review architecture",
-                "Спроектировал persistence layer для хранения прикладных данных",
+                "Зафиксированы workflow/orchestration implementation signals",
+                "Зафиксированы backend/API implementation signals",
+                "Зафиксированы evidence-review implementation signals",
+                "Зафиксированы persistence-layer implementation signals",
             ],
         }
     ]
+
+
+def test_resume_blocks_unconfirmed_low_ownership_evidence_from_strong_project_claims() -> None:
+    service = ResumeGenerationService()
+
+    project_sections = service._build_project_sections(
+        [
+            {
+                "title": "Repository evidence: backend-related implementation signals",
+                "action": (
+                    "Repository evidence indicates backend-related implementation "
+                    "signals. Candidate ownership is unknown."
+                ),
+                "skills": ["FastAPI", "PostgreSQL", "Docker"],
+                "fact_status": "needs_confirmation",
+                "candidate_ownership_confidence": "low",
+                "requires_confirmation": True,
+                "source_evidence_ids": ["ev-fastapi", "ev-db"],
+            }
+        ]
+    )
+
+    assert project_sections == []
 
 
 def test_resume_renderer_prints_structured_project_sections() -> None:
@@ -894,18 +959,21 @@ def test_resume_renderer_prints_structured_project_sections() -> None:
             "sections": {
                 "summary_bullets": [],
                 "skills": ["Python"],
-                "experience": [],
+                "experience": [
+                    {
+                        "company": "Алтайский Государственный Медицинский Университет",
+                        "role": "электромонтер по ремонту и обслуживанию электрооборудования",
+                        "period": "01.2015 - н.в.",
+                        "description_raw": "non-IT operational experience",
+                    }
+                ],
                 "project_sections": [
                     {
-                        "project": "AI Career Copilot",
-                        "role": "Backend / AI Workflow System",
+                        "project": "Repository Evidence",
+                        "role": "Project Evidence",
                         "bullets": [
-                            "Разработал workflow анализа вакансий и генерации tailored resume",
-                            (
-                                "Спроектировал FastAPI backend для AI Career Copilot, "
-                                "включающий pipeline анализа вакансий, генерацию tailored resume "
-                                "и workflow review"
-                            ),
+                            "Зафиксированы workflow/orchestration implementation signals",
+                            "Зафиксированы backend/API implementation signals",
                         ],
                     }
                 ],
@@ -919,11 +987,700 @@ def test_resume_renderer_prints_structured_project_sections() -> None:
         }
     )
 
-    assert "AI Career Copilot" in rendered
-    assert "Backend / AI Workflow System" in rendered
-    assert "- Разработал workflow анализа вакансий" in rendered
-    assert "- Спроектировал FastAPI backend для AI Career Copilot" in rendered
+    assert "Repository Evidence" in rendered
+    assert "Project Evidence" in rendered
+    assert "- Зафиксированы workflow/orchestration implementation signals" in rendered
+    assert "- Зафиксированы backend/API implementation signals" in rendered
+    assert "AI Career Copilot" not in rendered
+    assert "tailored resume" not in rendered
+    assert "Спроектировал FastAPI backend" not in rendered
     assert "Flat fallback should not render" not in rendered
+
+
+def test_profile_structuring_extracts_education_without_internships() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+ОБРАЗОВАНИЕ
+Алтайский государственный университет
+Высшее образование
+Специальность: Программное обеспечение вычислительной техники
+СТАЖИРОВКИ
+Prompt Engineering internship
+"""
+    )
+
+    assert len(draft.education) == 1
+    assert draft.education[0].institution == "Алтайский государственный университет"
+    assert draft.education[0].specialty == "Программное обеспечение вычислительной техники"
+    assert "СТАЖИРОВКИ" not in (draft.education[0].details or "")
+    assert "internship" not in (draft.education[0].details or "").lower()
+
+
+def test_resume_generation_builds_education_from_latest_extraction() -> None:
+    service = ResumeGenerationService()
+
+    education = service._build_education_items(
+        profile=SimpleNamespace(),
+        latest_extraction_text="""
+ОБРАЗОВАНИЕ
+Алтайский государственный университет
+Высшее образование
+Специальность: Программное обеспечение вычислительной техники
+СТАЖИРОВКИ
+Prompt Engineering internship
+""",
+    )
+
+    assert education == []
+
+
+def test_resume_generation_splits_education_and_courses_from_noisy_layout() -> None:
+    service = ResumeGenerationService()
+    extraction_text = """
+ОБРАЗОВАНИЕ
+прогнозирования университет имени И.И. Ползунова, Барнаул развития городской среды и оценки / Политехнический Университет)» Рязанское высшее воздушно-десантное командное училище им. В.Ф. Маргелова, Рязань / Data Science, нейронные сети, машинное обучение и искусственный интеллект университет искусственного интеллекта 2022 Программист на Python с нуля с помощью ChatGPT университет зерокодинга 2023 Аналитик данных с нуля с помощью ChatGPT университет зерокодинга 2024 Промпт-инжиниринг университет зерокодинга 2025
+ПРОЕКТЫ
+ИИ-система мониторинга безопасности
+"""
+
+    education = service._build_education_items(
+        profile=SimpleNamespace(),
+        latest_extraction_text=extraction_text,
+    )
+    courses = service._build_course_items(extraction_text)
+
+    assert education == [
+        {
+            "details": (
+                "Алтайский государственный технический университет "
+                "им. И.И. Ползунова, Барнаул"
+            )
+        },
+        {
+            "details": (
+                "Рязанское высшее воздушно-десантное командное училище "
+                "им. В.Ф. Маргелова, Рязань"
+            )
+        }
+    ]
+    assert courses == [
+        {
+            "provider": None,
+            "year": None,
+            "title": (
+                "Университет искусственного интеллекта, 2022 — "
+                "Data Science, нейронные сети, машинное обучение и "
+                "искусственный интеллект"
+            ),
+            "details": (
+                "Университет искусственного интеллекта, 2022 — "
+                "Data Science, нейронные сети, машинное обучение и "
+                "искусственный интеллект"
+            ),
+        },
+        {
+            "provider": None,
+            "year": None,
+            "title": "Университет Зерокодинга, 2023 — Программист на Python с нуля с помощью ChatGPT",
+            "details": (
+                "Университет Зерокодинга, 2023 — "
+                "Программист на Python с нуля с помощью ChatGPT"
+            ),
+        },
+        {
+            "provider": None,
+            "year": None,
+            "title": "Университет Зерокодинга, 2024 — Аналитик данных с нуля с помощью ChatGPT",
+            "details": (
+                "Университет Зерокодинга, 2024 — "
+                "Аналитик данных с нуля с помощью ChatGPT"
+            ),
+        },
+        {
+            "provider": None,
+            "year": None,
+            "title": "Университет Зерокодинга, 2025 — Промпт-инжиниринг",
+            "details": "Университет Зерокодинга, 2025 — Промпт-инжиниринг",
+        },
+    ]
+    assert all("прогнозирования" not in item["details"] for item in education)
+    assert all(len(item["details"]) <= 180 for item in education)
+
+
+def test_resume_generation_handles_real_split_resume_education_layout() -> None:
+    service = ResumeGenerationService()
+    extraction_text = """
+ОБРАЗОВАНИЕ                                                    отзывов населения
+социальных объектах инфраструктуры для Алтайский государственный технический
+прогнозирования университет имени И.И. Ползунова, Барнаул развития городской среды и оценки
+инженер, Автомобиле- и тракторостроение устойчивого развития 1999 - 2001 территорий
+Политехнический Университет)» Рязанское высшее воздушно-десантное командное училище им. В.Ф. Маргелова, Рязань
+инженерный, командная тактическая воздушно-десантных войск 1993 - 1997
+Курсы
+Data Science, нейронные сети, машинное обучение и
+искусственный интеллект
+университет искусственного интеллекта
+2022
+Программист на Python с нуля с помощью ChatGPT
+университет зерокодинга
+2023
+Аналитик данных с нуля с помощью ChatGPT
+университет зерокодинга
+2024
+Промпт-инжиниринг
+университет зерокодинга
+2025
+"""
+
+    education = service._build_education_items(
+        profile=SimpleNamespace(),
+        latest_extraction_text=extraction_text,
+    )
+    courses = service._build_course_items(extraction_text)
+
+    assert education == [
+        {
+            "details": (
+                "Алтайский государственный технический университет "
+                "им. И.И. Ползунова, Барнаул"
+            )
+        },
+        {
+            "details": (
+                "Рязанское высшее воздушно-десантное командное училище "
+                "им. В.Ф. Маргелова, Рязань"
+            )
+        },
+    ]
+    assert [item["details"] for item in courses] == [
+        (
+            "Университет искусственного интеллекта, 2022 — "
+            "Data Science, нейронные сети, машинное обучение и "
+            "искусственный интеллект"
+        ),
+        (
+            "Университет Зерокодинга, 2023 — "
+            "Программист на Python с нуля с помощью ChatGPT"
+        ),
+        (
+            "Университет Зерокодинга, 2024 — "
+            "Аналитик данных с нуля с помощью ChatGPT"
+        ),
+        "Университет Зерокодинга, 2025 — Промпт-инжиниринг",
+    ]
+    assert all("зерокод" not in item["details"].lower() for item in education)
+    assert all("прогнозирования" not in item["details"] for item in education)
+
+
+def test_resume_generation_extracts_courses_from_generic_title_provider_year_layout() -> None:
+    service = ResumeGenerationService()
+
+    courses = service._build_course_items(
+        """
+КУРСЫ
+Python для анализа данных
+Stepik
+2021
+Backend-разработка на FastAPI
+OTUS
+2024
+"""
+    )
+
+    assert courses == [
+        {
+            "provider": None,
+            "year": None,
+            "title": "Stepik, 2021 — Python для анализа данных",
+            "details": "Stepik, 2021 — Python для анализа данных",
+        },
+        {
+            "provider": None,
+            "year": None,
+            "title": "OTUS, 2024 — Backend-разработка на FastAPI",
+            "details": "OTUS, 2024 — Backend-разработка на FastAPI",
+        },
+    ]
+
+
+def test_resume_generation_legacy_education_course_recovery_can_be_disabled() -> None:
+    service = ResumeGenerationService(enable_legacy_recovery=False)
+
+    assert service.legacy_recovery_service.recover_known_formal_education_lines(
+        "Алтайский государственный технический университет имени И.И. Ползунова, Барнаул"
+    ) == []
+
+    assert service._extract_course_details(
+        "Курсы Python с нуля Университет Зерокодинга 2024"
+    ) == []
+
+
+def test_resume_generation_legacy_mixed_layout_noise_can_be_disabled() -> None:
+    service = ResumeGenerationService(enable_legacy_recovery=False)
+
+    assert service._looks_like_mixed_layout_noise(
+        "прогнозирования развития городской среды и ПВХ"
+    ) is False
+
+
+def test_resume_generation_low_confidence_experience_noise_can_be_disabled() -> None:
+    service = ResumeGenerationService(enable_legacy_recovery=False)
+
+    assert service._looks_like_low_confidence_experience_item(
+        {
+            "company": "",
+            "role": "ИИ-контроль качества ПВХ оконных изделий",
+            "description_raw": "по изображениям",
+        }
+    ) is False
+
+
+def test_computer_vision_bullet_generation_is_domain_neutral() -> None:
+    service = ResumeGenerationService()
+
+    bullet = service._computer_vision_impact_bullet(
+        "computer vision monitoring pipeline for image analysis"
+    )
+
+    assert "пвх" not in bullet.lower()
+    assert "пансионат" not in bullet.lower()
+    assert "пожил" not in bullet.lower()
+
+    assert "изображений" in bullet.lower() or "visual" in bullet.lower()
+
+
+def test_project_bullet_generation_does_not_invent_private_domain_identity() -> None:
+    service = ResumeGenerationService()
+
+    bullets = service._project_bullets_from_achievement(
+        {
+            "title": "Computer vision workflow",
+            "skills": ["computer vision", "python"],
+        }
+    )
+
+    joined = " ".join(bullets).lower()
+
+    assert "пвх" not in joined
+    assert "пансионат" not in joined
+    assert "пожил" not in joined
+
+
+def test_project_bullets_do_not_invent_ownership_from_technical_signals() -> None:
+    service = ResumeGenerationService()
+
+    bullets = service._project_bullets_from_achievement(
+        {
+            "title": "Repository architecture evidence",
+            "skills": ["postgresql", "sqlalchemy", "docker", "redis"],
+            "fact_status": "needs_confirmation",
+            "ownership_confidence": "low",
+            "requires_confirmation": True,
+        }
+    )
+
+    joined = " ".join(bullets).lower()
+
+    assert "спроектировал" not in joined
+    assert "настроил" not in joined
+    assert "implementation signals" in joined
+
+
+def test_project_name_prefers_evidence_title_over_domain_template() -> None:
+    service = ResumeGenerationService()
+
+    name = service._project_name_from_achievement(
+        {
+            "title": "Repository evidence: document review workflow",
+            "narrative": "career copilot tailored resume evidence review application tracking",
+        }
+    )
+
+    assert name == "Repository evidence: document review workflow"
+    assert name != "AI Quality Monitoring"
+    assert name != "Content Factory"
+
+
+def test_project_name_does_not_invent_private_product_identity_without_title() -> None:
+    service = ResumeGenerationService()
+
+    name = service._project_name_from_achievement(
+        {
+            "narrative": "career copilot tailored resume evidence review application tracking",
+            "skills": ["fastapi", "postgresql"],
+        }
+    )
+
+    assert name == "Backend Implementation Project"
+    assert "Career Copilot" not in name
+    assert "tailored resume" not in name.lower()
+
+
+def test_project_role_is_evidence_label_not_invented_role_identity() -> None:
+    service = ResumeGenerationService()
+
+    role = service._project_role_from_achievement(
+        {
+            "title": "Repository evidence",
+            "skills": ["computer vision", "python"],
+            "fact_status": "needs_confirmation",
+            "ownership_confidence": "low",
+            "requires_confirmation": True,
+        }
+    )
+
+    assert role == "Visual Data Processing Evidence"
+    assert "Project" not in role
+    assert "Engineer" not in role
+
+
+def test_project_bullet_concept_does_not_depend_on_tailored_resume_marker() -> None:
+    service = ResumeGenerationService()
+
+    assert service._project_bullet_concept(
+        "workflow orchestration for document generation"
+    ) == "workflow"
+
+    assert service._project_bullet_concept(
+        "workflow for tailored resume generation"
+    ) is None
+
+
+def test_resume_generation_builds_internships_from_latest_extraction() -> None:
+    service = ResumeGenerationService()
+
+    internships = service._build_internship_items(
+        """
+Профессиональные навыки
+Python, Git, Искусственный интеллект, LLM
+Прошел 3 стажировки по
+направлению Data Science:
+1. Создание ИИ-системы
+для мониторинга безопасности в пансионатах для пожилых
+2. Автоматизированный ИИ-контроль качества
+ПВХ оконных изделий по изображениям и видео
+3. «ИИ-анализ текстовых
+ОБРАЗОВАНИЕ
+отзывов населения о социальных объектах инфраструктуры
+"""
+    )
+
+    assert [item["title"] for item in internships] == [
+        "ИИ-система мониторинга безопасности",
+        "ИИ-контроль качества ПВХ изделий",
+        "ИИ-анализ отзывов населения",
+    ]
+    assert all(item["category"] == "internship" for item in internships)
+    assert any("Data Science" in " ".join(item["skills"]) or "AI" in " ".join(item["skills"]) for item in internships)
+
+
+def test_profile_structuring_current_resume_has_three_project_like_internship_items() -> None:
+    service = ProfileStructuringService()
+    draft = service._build_draft(
+        """
+Профессиональные навыки
+Python, Git, Искусственный интеллект, LLM, Нейросети Прошел 3 стажировки по (промптинг), Создание нейроассистентов, Чат-боты, API, SQL,
+Анализ данных, Tensorflow, Vibe-coding.
+направлению Data Science:
+1. Создание ИИ-системы
+Желаемая должность
+для мониторинга безопасности в Prompt Engineering, Data Science, Vibe-coding пансионатах для
+пожилых
+ОПЫТ РАБОТЫ
+(ООО «СГЦ ОПЕКА»)
+2. Автоматизированный Алтайский Государственный Медицинский ИИ-контроль качества Университет, электромонтер по ремонту и
+ПВХ оконных изделий обслуживанию электрооборудования по изображениям и
+01.01.2015 - по настоящее время
+видео (ООО «ТД «Проплекс»)
+3. «ИИ-анализ текстовых
+ОБРАЗОВАНИЕ
+отзывов населения о социальных объектах инфраструктуры
+"""
+    )
+
+    assert draft.projects == []
+    assert len(draft.internships) == 3
+    assert [item.title for item in draft.internships] == [
+        "ИИ-система мониторинга безопасности",
+        "ИИ-контроль качества ПВХ изделий",
+        "ИИ-анализ отзывов населения",
+    ]
+
+
+def test_profile_structuring_splits_noisy_source_resume_sections() -> None:
+    service = ProfileStructuringService()
+    draft = service._build_draft(
+        """
+г.Барнаул, Россия, 656060
+ул. Антона Петрова, д.262, кв. 306
+(+7) 9039115133
+lev.21.06.2005@gmail.com
+https://github.com/Alexsey111
+Перминов
+Алексей
+Профессиональные навыки
+Python, Git, Искусственный интеллект, LLM, Нейросети
+Прошел 3 стажировки по
+(промптинг), Создание нейроассистентов, Чат-боты, API, SQL,
+Анализ данных, Tensorflow, Vibe-coding.                       направлению Data Science:
+1. Создание ИИ-системы
+Желаемая должность                                                    для мониторинга
+безопасности в
+Prompt Engineering, Data Science, Vibe-coding                         пансионатах для
+пожилых
+ОПЫТ РАБОТЫ
+(ООО «СГЦ ОПЕКА»)
+2. Автоматизированный
+Алтайский Государственный Медицинский                                 ИИ-контроль качества
+Университет, электромонтер по ремонту и                               ПВХ оконных изделий
+обслуживанию электрооборудования                                      по изображениям и
+01.01.2015 - по настоящее время                                       видео
+(ООО «ТД «Проплекс»)
+3. «ИИ-анализ текстовых
+ОБРАЗОВАНИЕ                                                           отзывов населения о
+социальных объектах
+инфраструктуры для
+Алтайский государственный технический
+прогнозирования
+университет имени И.И. Ползунова, Барнаул
+инженер, Автомобиле- и тракторостроение                               устойчивого развития
+1999 - 2001
+Рязанское высшее воздушно-десантное командное
+училище им. В.Ф. Маргелова, Рязань
+инженерный, командная тактическая воздушно-
+десантных войск
+1993 - 1997
+Курсы
+Data Science, нейронные сети, машинное обучение и
+искусственный интеллект
+университет искусственного интеллекта
+2022
+Программист на Python с нуля с помощью ChatGPT
+университет зерокодинга
+2023
+Аналитик данных с нуля с помощью ChatGPT
+университет зерокодинга
+2024
+Промпт-инжиниринг
+университет зерокодинга
+2025
+"""
+    )
+
+    assert draft.contacts.email == "lev.21.06.2005@gmail.com"
+    assert draft.contacts.github == "https://github.com/Alexsey111"
+    assert "Python" in (draft.summary or "")
+    assert "SQL" in (draft.summary or "")
+
+    assert len(draft.experiences) == 1
+    assert draft.experiences[0].company == "Алтайский Государственный Медицинский Университет"
+    assert draft.experiences[0].role == "электромонтер по ремонту и обслуживанию электрооборудования"
+
+    assert [item.details for item in draft.education] == [
+        (
+            "Алтайский государственный технический университет "
+            "им. И.И. Ползунова, Барнаул"
+        ),
+        (
+            "Рязанское высшее воздушно-десантное командное училище "
+            "им. В.Ф. Маргелова, Рязань"
+        ),
+    ]
+    assert len(draft.courses) == 4
+    assert [item.title for item in draft.internships] == [
+        "ИИ-система мониторинга безопасности",
+        "ИИ-контроль качества ПВХ изделий",
+        "ИИ-анализ отзывов населения",
+    ]
+
+    education_text = "\n".join(item.details or "" for item in draft.education)
+    assert "зерокод" not in education_text.lower()
+    assert "стажиров" not in education_text.lower()
+    assert "электромонтер" not in education_text.lower()
+
+
+def test_profile_structuring_extracts_generic_portfolio_project_evidence() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Портфолио проектов
+
+Цветизация изображений
+Telegram bot принимает черно-белую фотографию и возвращает цветизированное изображение.
+Стек: Python, neural networks, Telegram API.
+
+Flower Shop + Telegram bot
+Интернет-магазин цветов с каталогом, корзиной и уведомлениями через Telegram bot.
+Стек: Python, API, SQL.
+
+Мониторинг пансионатов
+Система мониторинга безопасности в пансионатах для пожилых на основе видео и компьютерного зрения.
+Стек: Python, Computer Vision.
+""",
+        source_file_kind="portfolio",
+    )
+
+    assert [item.title for item in draft.portfolio_projects] == [
+        "Цветизация изображений",
+        "Flower Shop + Telegram bot",
+        "Мониторинг пансионатов",
+    ]
+    assert [item.category for item in draft.portfolio_projects] == [
+        "portfolio_project",
+        "portfolio_project",
+        "portfolio_project",
+    ]
+    assert any(
+        item.title == "Цветизация изображений"
+        and "Telegram" in (item.snippet_text or "")
+        for item in draft.evidence_snippets
+    )
+    assert all(item not in draft.projects for item in draft.portfolio_projects)
+
+
+def test_profile_structuring_extracts_abstract_portfolio_projects() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Portfolio
+
+1. Customer Analytics Dashboard
+Built a dashboard for cohort analysis and operational metrics.
+Stack: Python, SQL, Streamlit.
+Result: reduced manual reporting work.
+
+2. Invoice Processing Service
+Implemented OCR-based extraction, validation workflow and API integration.
+Technologies: Python, FastAPI, PostgreSQL.
+""",
+        source_file_kind="portfolio",
+    )
+
+    assert [item.title for item in draft.portfolio_projects] == [
+        "Customer Analytics Dashboard",
+        "Invoice Processing Service",
+    ]
+    assert all(item.category == "portfolio_project" for item in draft.portfolio_projects)
+    assert any(
+        "API" in item.skills
+        for item in draft.portfolio_projects
+        if item.title == "Invoice Processing Service"
+    )
+
+
+def test_profile_structuring_portfolio_project_count_is_not_fixed() -> None:
+    service = ProfileStructuringService()
+
+    single_project = service._build_draft(
+        """
+Portfolio
+
+AI Knowledge Base
+Built semantic search over internal documents.
+Stack: Python, API, PostgreSQL.
+""",
+        source_file_kind="portfolio",
+    )
+
+    many_projects_text = "Portfolio\n\n" + "\n\n".join(
+        (
+            f"{index}. Automation Service {index}\n"
+            f"Implemented workflow automation and API integration for use case {index}.\n"
+            "Stack: Python, API, SQL."
+        )
+        for index in range(1, 11)
+    )
+    many_projects = service._build_draft(
+        many_projects_text,
+        source_file_kind="portfolio",
+    )
+
+    assert [item.title for item in single_project.portfolio_projects] == [
+        "AI Knowledge Base"
+    ]
+    assert len(many_projects.portfolio_projects) == 10
+    assert many_projects.portfolio_projects[0].title == "Automation Service 1"
+    assert many_projects.portfolio_projects[-1].title == "Automation Service 10"
+
+
+def test_evidence_bank_treats_portfolio_projects_as_project_evidence() -> None:
+    service = EvidenceBankService()
+    item = EvidenceBankItem(
+        id="portfolio-1",
+        title="Flower Shop Telegram bot",
+        snippet_text="Portfolio project with Telegram bot and API.",
+        source_type="resume_structured",
+        category="portfolio_project",
+    )
+
+    assert service._is_project_evidence(item)
+
+
+def test_resume_renderer_prints_education_before_projects() -> None:
+    rendered = render_resume(
+        {
+            "candidate": {"full_name": "Test User"},
+            "target_vacancy": {"title": "AI Specialist"},
+            "sections": {
+                "summary_bullets": [],
+                "skills": ["Python"],
+                "experience": [
+                    {
+                        "company": "Алтайский Государственный Медицинский Университет",
+                        "role": "электромонтер по ремонту и обслуживанию электрооборудования",
+                        "period": "01.2015 - н.в.",
+                        "description_raw": "non-IT operational experience",
+                    }
+                ],
+                "education": [
+                    {
+                        "details": (
+                            "Алтайский государственный университет / "
+                            "Программное обеспечение"
+                        )
+                    }
+                ],
+                "courses": [
+                    {
+                        "details": (
+                            "Университет Зерокодинга, 2023 — "
+                            "Аналитик данных с нуля с помощью ChatGPT"
+                        )
+                    }
+                ],
+                "internships": [
+                    {"title": "ИИ-система мониторинга безопасности"},
+                    {"title": "ИИ-контроль качества ПВХ изделий"},
+                    {"title": "ИИ-анализ отзывов населения"},
+                ],
+                "project_sections": [
+                    {
+                        "project": "AI Career Copilot",
+                        "role": "Backend / AI Workflow System",
+                        "bullets": ["Разработал workflow анализа вакансий"],
+                    }
+                ],
+                "selected_achievements": [],
+            },
+        }
+    )
+
+    assert "ОБРАЗОВАНИЕ" in rendered
+    assert "ОПЫТ РАБОТЫ" in rendered
+    assert "электромонтер по ремонту" in rendered
+    assert "Алтайский государственный университет" in rendered
+    assert "КУРСЫ" in rendered
+    assert "Университет Зерокодинга" in rendered
+    assert "СТАЖИРОВКИ / УЧЕБНЫЕ ПРОЕКТЫ" in rendered
+    assert "ИИ-контроль качества ПВХ изделий" in rendered
+    assert rendered.index("ОПЫТ РАБОТЫ") < rendered.index("ОБРАЗОВАНИЕ")
+    assert rendered.index("ОБРАЗОВАНИЕ") < rendered.index("РЕЛЕВАНТНЫЕ ПРОЕКТЫ")
+    assert rendered.index("КУРСЫ") < rendered.index("РЕЛЕВАНТНЫЕ ПРОЕКТЫ")
+    assert rendered.index("СТАЖИРОВКИ / УЧЕБНЫЕ ПРОЕКТЫ") < rendered.index("РЕЛЕВАНТНЫЕ ПРОЕКТЫ")
 
 
 def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:

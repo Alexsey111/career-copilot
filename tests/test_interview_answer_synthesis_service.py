@@ -5,7 +5,7 @@ from app.services.interview_answer_synthesis_service import (
 )
 
 
-def test_interview_answer_synthesis_builds_star_answer_from_repository_evidence() -> None:
+def test_interview_answer_synthesis_does_not_use_unconfirmed_repository_star_as_ownership() -> None:
     service = InterviewAnswerSynthesisService()
 
     question = {
@@ -21,7 +21,9 @@ def test_interview_answer_synthesis_builds_star_answer_from_repository_evidence(
         "title": "Разработка AI workflow orchestration системы",
         "snippet_text": "FastAPI backend with OpenAI workflow orchestration.",
         "skills": ["FastAPI", "PostgreSQL", "OpenAI", "AI Workflow"],
-        "fact_status": "confirmed",
+        "fact_status": "needs_confirmation",
+        "candidate_ownership_confidence": "low",
+        "requires_confirmation": True,
         "star_summary": {
             "situation": "Нужно было собрать AI Career Copilot workflow.",
             "task": "Спроектировать backend для анализа вакансий и генерации документов.",
@@ -39,13 +41,15 @@ def test_interview_answer_synthesis_builds_star_answer_from_repository_evidence(
     )
 
     assert answer["format"] == "STAR_plus_tradeoffs"
-    assert answer["situation"] == "Нужно было собрать AI Career Copilot workflow."
-    assert "FastAPI backend" in answer["action"]
+    assert answer["situation"] != "Нужно было собрать AI Career Copilot workflow."
+    assert "pipeline анализа вакансий" not in answer["action"]
+    assert "tailored resume" not in answer["action"]
     assert "FastAPI" in answer["tech_stack"]
     assert "OpenAI" in answer["tech_stack"]
     assert any("persistence boundaries" in item for item in answer["tradeoffs"])
     assert "Situation:" in answer["draft_text"]
     assert answer["source_evidence_id"] == "ev-career-copilot"
+    assert answer["fact_status"] == "needs_confirmation"
 
 
 def test_interview_answer_synthesis_builds_honest_gap_answer() -> None:
@@ -71,6 +75,22 @@ def test_interview_answer_synthesis_builds_honest_gap_answer() -> None:
     assert "No confirmed Kubernetes evidence" in answer["task"]
     assert "Не заявлять production experience" in answer["tradeoffs"][0]
     assert answer["fact_status"] == "inferred_needs_review"
+
+
+def test_fallback_action_does_not_invent_backend_ownership_claim() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    action = service._fallback_action(
+        evidence={},
+        competency="FastAPI backend development",
+    )
+
+    lowered = action.lower()
+
+    assert "спроектировал" not in lowered
+    assert "разработал" not in lowered
+    assert "можно описать" in lowered
+    assert "подтвержд" in lowered
 
 
 def test_interview_answer_synthesis_attaches_answers_to_questions() -> None:

@@ -17,7 +17,9 @@ from app.domain.evidence import build_evidence_fingerprint, extract_skill_tags
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
+from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
 from app.services.evidence_strength_service import EvidenceStrengthService
+from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryService
 
 
 DATE_RANGE_RE = re.compile(
@@ -79,6 +81,10 @@ class StructuredResumeSignal:
     skills: list[str] = field(default_factory=list)
     snippet_text: str | None = None
     fact_status: str = "user_provided"
+    source_type: str = "resume_structured"
+    source_layer: str = "generic_extraction"
+    ownership_confidence: str = "medium"
+    requires_confirmation: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -87,7 +93,20 @@ class StructuredResumeSignal:
             "skills": list(self.skills),
             "snippet_text": self.snippet_text or self.title,
             "fact_status": self.fact_status,
+            "source_type": self.source_type,
+            "source_layer": self.source_layer,
+            "ownership_confidence": self.ownership_confidence,
+            "requires_confirmation": self.requires_confirmation,
         }
+
+
+@dataclass
+class StructuredEducationDraft:
+    institution: str
+    degree: str | None = None
+    specialty: str | None = None
+    period: str | None = None
+    details: str | None = None
 
 
 @dataclass
@@ -99,7 +118,10 @@ class StructuredProfileDraft:
     summary: str | None = None
     target_roles: list[str] = field(default_factory=list)
     experiences: list[StructuredExperienceDraft] = field(default_factory=list)
+    education: list[StructuredEducationDraft] = field(default_factory=list)
+    courses: list[StructuredResumeSignal] = field(default_factory=list)
     projects: list[StructuredResumeSignal] = field(default_factory=list)
+    portfolio_projects: list[StructuredResumeSignal] = field(default_factory=list)
     internships: list[StructuredResumeSignal] = field(default_factory=list)
     achievements: list[StructuredResumeSignal] = field(default_factory=list)
     ai_tools: list[str] = field(default_factory=list)
@@ -108,16 +130,20 @@ class StructuredProfileDraft:
     technologies: list[str] = field(default_factory=list)
     evidence_snippets: list[StructuredResumeSignal] = field(default_factory=list)
     competency_signals: list[StructuredResumeSignal] = field(default_factory=list)
+    contribution_signals: list[StructuredResumeSignal] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
 class ProfileStructuringService:
+    legacy_private_recovery_marker = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
+
     def __init__(
         self,
         file_extraction_repository: FileExtractionRepository | None = None,
         candidate_profile_repository: CandidateProfileRepository | None = None,
         evidence_snippet_repository: EvidenceSnippetRepository | None = None,
         evidence_strength_service: EvidenceStrengthService | None = None,
+        enable_legacy_recovery: bool = True,
     ) -> None:
         self.file_extraction_repository = file_extraction_repository or FileExtractionRepository()
         self.candidate_profile_repository = (
@@ -127,6 +153,9 @@ class ProfileStructuringService:
             evidence_snippet_repository or EvidenceSnippetRepository()
         )
         self.evidence_strength_service = evidence_strength_service or EvidenceStrengthService()
+        self.legacy_recovery_service = LegacyResumeRecoveryService(
+            enabled=enable_legacy_recovery,
+        )
 
     async def extract_into_profile(
         self,
@@ -152,7 +181,11 @@ class ProfileStructuringService:
                 detail="source file for extraction not found",
             )
 
-        draft = self._build_draft(extraction.extracted_text)
+        source_file_kind = str(extraction.source_file.file_kind or "").strip().lower()
+        draft = self._build_draft(
+            extraction.extracted_text,
+            source_file_kind=source_file_kind,
+        )
 
         profile = await self.candidate_profile_repository.get_by_user_id(
             session,
@@ -164,15 +197,21 @@ class ProfileStructuringService:
                 user_id=user_id,
             )
 
-        self._apply_profile_fields(profile, draft)
-        await self._replace_experiences(session, profile.id, draft.experiences)
+        if source_file_kind not in {"portfolio", "other"}:
+            self._apply_profile_fields(profile, draft)
+            await self._replace_experiences(session, profile.id, draft.experiences)
         await self._upsert_structured_evidence(session, user_id=user_id, draft=draft)
 
         await session.flush()
         await session.refresh(profile)
         return profile, draft
 
-    def _build_draft(self, text: str) -> StructuredProfileDraft:
+    def _build_draft(
+        self,
+        text: str,
+        *,
+        source_file_kind: str | None = None,
+    ) -> StructuredProfileDraft:
         lines = self._clean_lines(text)
         draft = StructuredProfileDraft()
 
@@ -183,7 +222,13 @@ class ProfileStructuringService:
         draft.target_roles = self._extract_target_roles(lines)
         draft.headline = ", ".join(draft.target_roles[:3]) if draft.target_roles else None
         draft.experiences = self._extract_experiences(lines)
-        self._apply_structured_resume_v2(lines, draft)
+        draft.education = self._extract_education(lines)
+        draft.courses = self._extract_courses(lines)
+        self._apply_structured_resume_v2(
+            lines,
+            draft,
+            source_file_kind=source_file_kind,
+        )
 
         if not draft.full_name:
             draft.warnings.append("full_name was not extracted confidently")
@@ -211,6 +256,7 @@ class ProfileStructuringService:
         for signal in draft.evidence_snippets:
             snippet_text = signal.snippet_text or signal.title
             skills = self._dedupe_preserve_order(signal.skills)
+            source_type = str(signal.source_type or "resume_structured").strip().lower()
             strength = self.evidence_strength_service.classify_strength(
                 self.evidence_strength_service.calculate_strength_score(
                     {
@@ -227,13 +273,13 @@ class ProfileStructuringService:
                         user_id=str(user_id),
                         title=signal.title,
                         snippet_text=snippet_text,
-                        source_type="resume_structured",
+                        source_type=source_type,
                         skills=skills,
                         fact_status=signal.fact_status,
                     ),
                     "title": signal.title,
                     "snippet_text": snippet_text,
-                    "source_type": "resume_structured",
+                    "source_type": source_type,
                     "skills": skills,
                     "evidence_strength": str(strength),
                     "fact_status": signal.fact_status,
@@ -242,7 +288,11 @@ class ProfileStructuringService:
                     "used_in_interviews_count": 0,
                     "star_summary": {
                         "category": signal.category,
-                        "source": "structured_resume_extraction_v2",
+                        "source": (
+                            "portfolio_project_extraction_v1"
+                            if signal.category == "portfolio_project"
+                            else "structured_resume_extraction_v2"
+                        ),
                         "fact_status": signal.fact_status,
                     },
                 }
@@ -308,22 +358,44 @@ class ProfileStructuringService:
         self,
         lines: list[str],
         draft: StructuredProfileDraft,
+        *,
+        source_file_kind: str | None = None,
     ) -> None:
         text = "\n".join(lines)
         project_signals = self._extract_project_like_signals(lines)
+        internship_signals = self._extract_internship_signals(lines)
+        portfolio_project_signals = self._extract_portfolio_project_signals(
+            lines,
+            source_file_kind=source_file_kind,
+        )
+        internship_title_keys = {
+            signal.title.casefold()
+            for signal in internship_signals
+        }
+        project_signals_without_internships = [
+            signal
+            for signal in project_signals
+            if signal.title.casefold() not in internship_title_keys
+        ]
         technology_signals = self._extract_technology_signals(text)
         competency_signals = self._extract_competency_signals(lines, technology_signals)
 
         draft.projects = [
             signal
-            for signal in project_signals
+            for signal in project_signals_without_internships
             if signal.category in {"project", "ai_project", "automation", "prompt_engineering"}
         ]
-        draft.internships = [
-            signal
-            for signal in project_signals
-            if signal.category == "internship"
-        ]
+        draft.portfolio_projects = portfolio_project_signals
+        draft.internships = self._dedupe_signals(
+            [
+                *[
+                    signal
+                    for signal in project_signals_without_internships
+                    if signal.category == "internship"
+                ],
+                *internship_signals,
+            ]
+        )
         draft.achievements = [
             signal
             for signal in project_signals
@@ -331,7 +403,7 @@ class ProfileStructuringService:
         ]
         draft.workflow_experience = [
             signal
-            for signal in project_signals + competency_signals
+            for signal in project_signals_without_internships + competency_signals
             if signal.category in {"automation", "workflow_experience", "competency_signal"}
         ]
         draft.technologies = technology_signals
@@ -346,8 +418,33 @@ class ProfileStructuringService:
             if item in {"automation", "API", "workflow"}
         ]
         draft.competency_signals = competency_signals
+        draft.contribution_signals = self._build_normalized_contribution_signals(
+            [
+                *project_signals_without_internships,
+                *internship_signals,
+                *portfolio_project_signals,
+                *[
+                    signal
+                    for signal in project_signals
+                    if signal.category == "achievement"
+                ],
+            ]
+        )
 
-        evidence_candidates = project_signals + competency_signals
+        project_titles = {
+            signal.title.casefold()
+            for signal in project_signals
+        }
+        evidence_candidates = [
+            *project_signals,
+            *[
+                signal
+                for signal in internship_signals
+                if signal.title.casefold() not in project_titles
+            ],
+            *portfolio_project_signals,
+            *competency_signals,
+        ]
         if technology_signals:
             evidence_candidates.append(
                 StructuredResumeSignal(
@@ -359,6 +456,202 @@ class ProfileStructuringService:
             )
 
         draft.evidence_snippets = self._dedupe_signals(evidence_candidates)
+
+    def _extract_portfolio_project_signals(
+        self,
+        lines: list[str],
+        *,
+        source_file_kind: str | None = None,
+    ) -> list[StructuredResumeSignal]:
+        if not self._should_extract_portfolio_projects(lines, source_file_kind):
+            return []
+
+        signals: list[StructuredResumeSignal] = []
+        for block in self._split_portfolio_project_blocks(lines):
+            title = self._clean_portfolio_project_title(block[0])
+            if not title:
+                continue
+
+            snippet_text = self._clean_portfolio_project_snippet(block)
+            if not snippet_text:
+                continue
+
+            signals.append(
+                StructuredResumeSignal(
+                    title=title,
+                    category="portfolio_project",
+                    skills=self._extract_signal_skills(title, snippet_text),
+                    snippet_text=snippet_text,
+                    source_type="resume_structured",
+                )
+            )
+
+        return self._dedupe_signals(signals)
+
+    def _should_extract_portfolio_projects(
+        self,
+        lines: list[str],
+        source_file_kind: str | None,
+    ) -> bool:
+        normalized_kind = str(source_file_kind or "").strip().lower()
+        if normalized_kind in {"portfolio", "other"}:
+            return True
+
+        normalized_text = "\n".join(self._normalize_heading(line) for line in lines[:20])
+        return any(
+            marker in normalized_text
+            for marker in ("ПОРТФОЛИО", "PORTFOLIO", "ПЕТ-ПРОЕКТ", "PET PROJECT")
+        )
+
+    def _split_portfolio_project_blocks(self, lines: list[str]) -> list[list[str]]:
+        content_lines = self._portfolio_content_lines(lines)
+        blocks: list[list[str]] = []
+        current: list[str] = []
+
+        for line in content_lines:
+            if self._looks_like_portfolio_project_title(line):
+                if current:
+                    blocks.append(current)
+                current = [line]
+                continue
+
+            if current:
+                current.append(line)
+
+        if current:
+            blocks.append(current)
+
+        return [
+            block[:8]
+            for block in blocks
+            if self._portfolio_project_block_has_evidence(block)
+        ]
+
+    def _portfolio_content_lines(self, lines: list[str]) -> list[str]:
+        content: list[str] = []
+        started = False
+        for line in lines:
+            normalized = self._normalize_heading(line)
+            if normalized in {"ПОРТФОЛИО", "PORTFOLIO", "ПРОЕКТЫ", "PROJECTS"}:
+                started = True
+                continue
+            if normalized.startswith(("ПОРТФОЛИО ", "PORTFOLIO ", "ПРОЕКТЫ ", "PROJECTS ")):
+                started = True
+                remainder = re.sub(
+                    r"^(портфолио|portfolio|проекты|projects)\s*[:：-]?\s*",
+                    "",
+                    line.strip(),
+                    flags=re.IGNORECASE,
+                ).strip()
+                if remainder:
+                    content.append(remainder)
+                continue
+            if started or not self._looks_like_layout_heading(line):
+                content.append(line)
+        return content
+
+    def _looks_like_portfolio_project_title(self, line: str) -> bool:
+        cleaned = self._clean_portfolio_project_title(line)
+        if not cleaned:
+            return False
+
+        lowered = cleaned.lower()
+        if any(
+            lowered.startswith(prefix)
+            for prefix in (
+                "стек",
+                "технологии",
+                "задача",
+                "результат",
+                "описание",
+                "роль",
+                "ссылка",
+                "github",
+                "demo",
+            )
+        ):
+            return False
+
+        if len(cleaned) > 110:
+            return False
+        if cleaned.endswith(".") and len(cleaned.split()) > 4:
+            return False
+
+        title_markers = (
+            "проект",
+            "bot",
+            "бот",
+            "shop",
+            "app",
+            "сервис",
+            "система",
+            "dashboard",
+            "pipeline",
+            "monitoring",
+            "мониторинг",
+            "анализ",
+            "contract",
+            "review",
+            "playbook",
+            "цветизац",
+            "нейро",
+            "ai",
+            "ии",
+        )
+        if any(marker in lowered for marker in title_markers):
+            return True
+
+        return bool(
+            re.match(r"^(?:\d{1,2}[.)\-–—:]\s+|[-•]\s+|#{1,4}\s+)", line.strip())
+        )
+
+    def _portfolio_project_block_has_evidence(self, block: list[str]) -> bool:
+        if len(block) < 2:
+            return False
+        text = " ".join(block).lower()
+        evidence_markers = (
+            "python",
+            "api",
+            "sql",
+            "telegram",
+            "bot",
+            "бот",
+            "ai",
+            "ии",
+            "нейро",
+            "computer vision",
+            "машин",
+            "данн",
+            "автомат",
+            "backend",
+            "frontend",
+            "стек",
+            "результат",
+            "разработ",
+            "реализ",
+            "интеграц",
+            "prepared",
+            "reduced",
+            "legal",
+            "contract",
+        )
+        return any(marker in text for marker in evidence_markers)
+
+    def _clean_portfolio_project_title(self, line: str) -> str | None:
+        title = re.sub(r"^\s*(?:\d{1,2}[.)\-–—:]|[-•]|#{1,4})\s*", "", line.strip())
+        title = re.sub(r"^(?:проект|project)\s*[:：-]\s*", "", title, flags=re.IGNORECASE)
+        title = re.sub(r"\s+", " ", title).strip(" -–—•:;")
+        if len(title) < 3:
+            return None
+        if self._looks_like_layout_heading(title):
+            return None
+        return title
+
+    def _clean_portfolio_project_snippet(self, block: list[str]) -> str | None:
+        snippet = re.sub(r"\s+", " ", " ".join(block)).strip()
+        if len(snippet) > 360:
+            snippet = snippet[:360].rsplit(" ", 1)[0].strip()
+        return snippet or None
 
     def _extract_project_like_signals(self, lines: list[str]) -> list[StructuredResumeSignal]:
         section_start = self._find_project_or_internship_start(lines)
@@ -394,6 +687,112 @@ class ProfileStructuringService:
             )
 
         return self._dedupe_signals(signals)
+
+    def _extract_internship_signals(self, lines: list[str]) -> list[StructuredResumeSignal]:
+        marker_index = self._find_internship_marker(lines)
+        if marker_index is None:
+            section = self._extract_section(
+                lines,
+                start_heading="СТАЖИРОВКИ",
+                stop_headings={
+                    "ОПЫТ РАБОТЫ",
+                    "ОБРАЗОВАНИЕ",
+                    "КУРСЫ",
+                    "ПРОЕКТЫ",
+                    "ПОРТФОЛИО",
+                    "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                    "КОНТАКТЫ",
+                    "О СЕБЕ",
+                },
+            )
+            blocks = self._split_numbered_signal_blocks(section)
+            if not blocks and section:
+                blocks = [[line] for line in section if not self._looks_like_layout_heading(line)]
+        else:
+            blocks = self._split_numbered_signal_blocks(lines[marker_index + 1 :])
+
+        signals: list[StructuredResumeSignal] = []
+        for block in blocks:
+            cleaned_block = self._clean_internship_block(block)
+            title = self._clean_signal_title(cleaned_block)
+            if not title or self._looks_like_low_value_signal_title(title):
+                continue
+
+            raw_text = " ".join(cleaned_block).strip()
+            signals.append(
+                StructuredResumeSignal(
+                    title=title,
+                    category="internship",
+                    skills=self._extract_signal_skills(title, raw_text),
+                    snippet_text=raw_text or title,
+                )
+            )
+
+        return self._dedupe_signals(signals)
+
+    def _find_internship_marker(self, lines: list[str]) -> int | None:
+        for idx, line in enumerate(lines):
+            normalized = self._normalize_heading(line)
+            if "СТАЖИРОВ" in normalized or "INTERNSHIP" in normalized:
+                return idx
+        return None
+
+    def _clean_internship_block(self, block: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for line in block:
+            if self._looks_like_formal_education_line(line):
+                break
+
+            line = self._prefer_internship_layout_fragment(line)
+            line = self._strip_inline_heading_remainder(
+                line,
+                {
+                    "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+                    "ОПЫТ РАБОТЫ",
+                    "ОБРАЗОВАНИЕ",
+                },
+            )
+            if not line:
+                continue
+
+            normalized = self._normalize_heading(line)
+            if normalized in {
+                "ОПЫТ РАБОТЫ",
+                "ОБРАЗОВАНИЕ",
+                "КУРСЫ",
+                "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                "КОНТАКТЫ",
+                "О СЕБЕ",
+            }:
+                break
+
+            lowered = line.lower()
+            if "ооо" in lowered or re.search(r"\d{2}\.\d{2}\.\d{4}\s*-\s*", line):
+                continue
+
+            cleaned.append(line)
+
+        return cleaned
+
+    def _prefer_internship_layout_fragment(self, line: str) -> str:
+        return self.legacy_recovery_service.prefer_noisy_internship_layout_fragment(line)
+
+    def _strip_inline_heading_remainder(self, line: str, headings: set[str]) -> str:
+        normalized = self._normalize_heading(line)
+        for heading in headings:
+            if normalized == heading:
+                return ""
+            if normalized.startswith(f"{heading} "):
+                return re.sub(
+                    rf"^{re.escape(heading)}\s*",
+                    "",
+                    line.strip(),
+                    flags=re.IGNORECASE,
+                ).strip()
+        return line
+
+    def _looks_like_formal_education_line(self, line: str) -> bool:
+        return self.legacy_recovery_service.looks_like_legacy_formal_education_line(line)
 
     def _find_project_or_internship_start(self, lines: list[str]) -> int | None:
         markers = [
@@ -441,7 +840,7 @@ class ProfileStructuringService:
         return blocks
 
     def _clean_signal_title(self, lines: list[str]) -> str:
-        recovered = self._recover_known_ai_signal_title(lines)
+        recovered = self._recover_private_noisy_ai_signal_title_legacy(lines)
         if recovered:
             return recovered
 
@@ -459,21 +858,42 @@ class ProfileStructuringService:
             title = title[:255].rsplit(" ", 1)[0].strip()
         return title
 
-    def _recover_known_ai_signal_title(self, lines: list[str]) -> str | None:
-        text = re.sub(r"\s+", " ", " ".join(lines)).strip()
-        lowered = text.lower()
+    def _recover_private_noisy_ai_signal_title_legacy(self, lines: list[str]) -> str | None:
+        return self.legacy_recovery_service.recover_noisy_ai_signal_title(lines)
 
-        if "создание ии-системы" in lowered:
-            if "мониторинг" in lowered and "пожил" in lowered:
-                return "ИИ-система мониторинга безопасности"
-            return "Создание ИИ-системы"
-        if "автоматизирован" in lowered and "ии-контроль качества" in lowered:
-            return "Автоматизированный ИИ-контроль качества"
-        if "prompt engineering" in lowered or "промпт" in lowered:
-            return "Prompt Engineering"
-        if "ии-анализ" in lowered and "отзыв" in lowered:
-            return "ИИ-анализ текстовых отзывов"
-        return None
+    def _build_normalized_contribution_signals(
+        self,
+        signals: list[StructuredResumeSignal],
+    ) -> list[StructuredResumeSignal]:
+        normalized: list[StructuredResumeSignal] = []
+        for signal in signals:
+            title = re.sub(r"\s+", " ", str(signal.title or "").strip())
+            if not title:
+                continue
+            normalized.append(
+                StructuredResumeSignal(
+                    title=title,
+                    category=self._normalize_contribution_category(signal.category),
+                    skills=self._dedupe_preserve_order(signal.skills),
+                    snippet_text=signal.snippet_text or title,
+                    fact_status=signal.fact_status,
+                    source_type=signal.source_type,
+                    source_layer="normalized_contribution_signal",
+                    ownership_confidence=signal.ownership_confidence,
+                    requires_confirmation=signal.requires_confirmation,
+                )
+            )
+        return self._dedupe_signals(normalized)
+
+    def _normalize_contribution_category(self, category: str) -> str:
+        normalized = str(category or "").strip().lower()
+        if normalized in {"internship", "portfolio_project", "project", "achievement"}:
+            return normalized
+        if normalized in {"ai_project", "automation", "prompt_engineering"}:
+            return "project"
+        if normalized in {"workflow_experience", "competency_signal"}:
+            return "competency_signal"
+        return "contribution"
 
     def _classify_signal_category(self, title: str, text: str) -> str:
         combined = f"{title} {text}".lower()
@@ -629,25 +1049,7 @@ class ProfileStructuringService:
         return self._normalize_heading(line) in STRUCTURED_V2_SECTION_HEADINGS
 
     def _looks_like_resume_layout_noise(self, line: str) -> bool:
-        normalized = self._normalize_heading(line)
-        if re.search(r"\d{2}\.\d{2}\.\d{4}\s*-\s*", line):
-            return True
-        if re.match(r"^\d{4}\b", line.strip()):
-            return True
-        return any(
-            marker in normalized
-            for marker in {
-                "АЛТАЙСКИЙ ГОСУДАРСТВЕННЫЙ",
-                "МЕДИЦИНСКИЙ УНИВЕРСИТЕТ",
-                "УНИВЕРСИТЕТ ИМЕНИ",
-                "ЭЛЕКТРОМОНТЕР",
-                "ОБСЛУЖИВАНИЮ ЭЛЕКТРООБОРУДОВАНИЯ",
-                "ИНЖЕНЕР,",
-                "АВТОМОБИЛЕ- И ТРАКТОРОСТРОЕНИЕ",
-                "РЯЗАНСКОЕ ВЫСШЕЕ",
-                "ВОЗДУШНО-ДЕСАНТНОЕ",
-            }
-        )
+        return self.legacy_recovery_service.looks_like_legacy_resume_layout_noise(line)
 
     def _extract_full_name(self, lines: list[str]) -> str | None:
         candidate_parts: list[str] = []
@@ -822,29 +1224,7 @@ class ProfileStructuringService:
         return None
 
     def _looks_like_target_role_noise(self, value: str) -> bool:
-        lowered = value.lower()
-
-        noise_markers = {
-            "мониторинг",
-            "безопасности",
-            "пансионат",
-            "пожилых",
-            "создание",
-            "системы",
-            "качества",
-            "изделий",
-            "изображениям",
-            "видео",
-            "отзывов",
-            "населения",
-            "объектах",
-            "инфраструктуры",
-            "прогнозирования",
-            "университет",
-            "ооо",
-        }
-
-        return any(marker in lowered for marker in noise_markers)
+        return self.legacy_recovery_service.looks_like_legacy_target_role_noise(value)
 
     def _dedupe_preserve_order(self, values: list[str]) -> list[str]:
         result: list[str] = []
@@ -891,7 +1271,23 @@ class ProfileStructuringService:
         if not section:
             return None
 
-        summary = "\n".join(section[:8]).strip()
+        skill_lines: list[str] = []
+        for line in section:
+            if NUMBERED_ITEM_RE.match(line):
+                break
+            lowered = line.lower()
+            if "стажиров" in lowered:
+                continue
+            cleaned = re.sub(
+                r"\s+направлению\s+data\s+science\s*:?\s*$",
+                "",
+                line.strip(),
+                flags=re.IGNORECASE,
+            ).strip()
+            if cleaned:
+                skill_lines.append(cleaned)
+
+        summary = "\n".join(skill_lines[:6]).strip()
         return summary or None
 
     def _extract_experiences(self, lines: list[str]) -> list[StructuredExperienceDraft]:
@@ -919,7 +1315,9 @@ class ProfileStructuringService:
             if date_line is None:
                 continue
 
-            info_lines = [line for line in block if line != date_line]
+            info_lines = self._clean_experience_info_lines(
+                [line for line in block if line != date_line]
+            )
             if not info_lines:
                 continue
 
@@ -941,6 +1339,188 @@ class ProfileStructuringService:
                 )
 
         return experiences
+
+    def _clean_experience_info_lines(self, info_lines: list[str]) -> list[str]:
+        has_numbered_layout_noise = any(NUMBERED_ITEM_RE.match(line) for line in info_lines)
+        cleaned: list[str] = []
+
+        for line in info_lines:
+            value = line.strip()
+            if not value:
+                continue
+
+            if has_numbered_layout_noise:
+                if NUMBERED_ITEM_RE.match(value):
+                    continue
+                if re.fullmatch(r"\(?\s*ООО\s+.+\)?", value, flags=re.IGNORECASE):
+                    continue
+                value = re.split(r"\s{2,}", value, maxsplit=1)[0].strip()
+
+            if value:
+                cleaned.append(value)
+
+        return cleaned
+
+    def _extract_education(self, lines: list[str]) -> list[StructuredEducationDraft]:
+        section = self._extract_section(
+            lines,
+            start_heading="ОБРАЗОВАНИЕ",
+            stop_headings={
+                "ПРОЕКТЫ",
+                "ПОРТФОЛИО",
+                "СТАЖИРОВКИ",
+                "КУРСЫ",
+                "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                "КОНТАКТЫ",
+                "О СЕБЕ",
+            },
+        )
+        if not section:
+            return []
+
+        current: list[str] = []
+        for line in section:
+            normalized = self._normalize_heading(line)
+            lowered = line.lower()
+            if "СТАЖИРОВ" in normalized:
+                continue
+            has_education_marker = any(
+                marker in lowered
+                for marker in (
+                    "университет",
+                    "институт",
+                    "колледж",
+                    "техникум",
+                    "академия",
+                    "специальность",
+                    "бакалавр",
+                    "магистр",
+                    "высшее",
+                    "среднее",
+                )
+            )
+            if self._looks_like_resume_layout_noise(line) and not has_education_marker:
+                continue
+            current.append(line)
+
+        if not current:
+            return []
+
+        known_items = self._extract_known_formal_education_lines(" ".join(current))
+        if known_items:
+            return [
+                StructuredEducationDraft(
+                    institution=item,
+                    details=item,
+                )
+                for item in known_items
+            ]
+
+        institution = None
+        specialty = None
+        degree = None
+        period = None
+
+        for line in current:
+            lowered = line.lower()
+
+            if re.search(r"\b(19|20)\d{2}\b", line):
+                period = line.strip()
+
+            if any(
+                marker in lowered
+                for marker in ("университет", "институт", "колледж", "техникум", "академия")
+            ):
+                institution = line.strip()
+
+            if any(
+                marker in lowered
+                for marker in ("бакалавр", "магистр", "специалист", "среднее", "высшее")
+            ):
+                degree = line.strip()
+
+            if any(
+                marker in lowered
+                for marker in (
+                    "специальность",
+                    "программное обеспечение",
+                    "вычислительной техники",
+                )
+            ):
+                specialty = re.sub(
+                    r"^специальность\s*:?\s*",
+                    "",
+                    line.strip(),
+                    flags=re.IGNORECASE,
+                )
+
+        if institution or specialty or degree:
+            details = "; ".join(current[:4])
+            if self._looks_like_mixed_education_layout_noise(details):
+                return []
+            return [
+                StructuredEducationDraft(
+                    institution=institution or "Учебное заведение не указано",
+                    degree=degree,
+                    specialty=specialty,
+                    period=period,
+                    details="; ".join(current[:4]),
+                )
+            ]
+
+        return []
+
+    def _extract_courses(self, lines: list[str]) -> list[StructuredResumeSignal]:
+        section = self._extract_section(
+            lines,
+            start_heading="КУРСЫ",
+            stop_headings={
+                "ПРОЕКТЫ",
+                "ПОРТФОЛИО",
+                "СТАЖИРОВКИ",
+                "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                "КОНТАКТЫ",
+                "О СЕБЕ",
+            },
+        )
+        education_section = self._extract_section(
+            lines,
+            start_heading="ОБРАЗОВАНИЕ",
+            stop_headings={
+                "ПРОЕКТЫ",
+                "ПОРТФОЛИО",
+                "СТАЖИРОВКИ",
+                "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+                "КОНТАКТЫ",
+                "О СЕБЕ",
+            },
+        )
+        known_course_titles = self._extract_known_course_lines(" ".join([*section, *education_section]))
+        if known_course_titles:
+            return self._dedupe_signals(
+                [
+                    StructuredResumeSignal(title=line, category="course", snippet_text=line)
+                    for line in known_course_titles
+                ]
+            )
+
+        signals = [
+            StructuredResumeSignal(title=line, category="course", snippet_text=line)
+            for line in [*known_course_titles, *section]
+            if not self._looks_like_resume_layout_noise(line)
+            and not self._looks_like_layout_heading(line)
+            and not self._looks_like_mixed_education_layout_noise(line)
+        ]
+        return self._dedupe_signals(signals)
+
+    def _extract_known_formal_education_lines(self, value: str) -> list[str]:
+        return self.legacy_recovery_service.recover_known_formal_education_lines(value)
+
+    def _extract_known_course_lines(self, value: str) -> list[str]:
+        return self.legacy_recovery_service.recover_known_course_lines(value)
+
+    def _looks_like_mixed_education_layout_noise(self, value: str) -> bool:
+        return self.legacy_recovery_service.looks_like_legacy_mixed_education_layout_noise(value)
 
     def _split_company_and_role(self, info_lines: list[str]) -> tuple[str, str]:
         combined = " ".join(info_lines).strip()
@@ -983,11 +1563,22 @@ class ProfileStructuringService:
         for line in lines:
             normalized = self._normalize_heading(line)
 
-            if normalized == start_heading:
+            if normalized == start_heading or normalized.startswith(f"{start_heading} "):
                 capture = True
+                remainder = re.sub(
+                    rf"^{re.escape(start_heading)}\s*",
+                    "",
+                    line.strip(),
+                    flags=re.IGNORECASE,
+                ).strip()
+                if remainder:
+                    section.append(remainder)
                 continue
 
-            if capture and normalized in stop_headings:
+            if capture and any(
+                normalized == heading or normalized.startswith(f"{heading} ")
+                for heading in stop_headings
+            ):
                 break
 
             if capture:
