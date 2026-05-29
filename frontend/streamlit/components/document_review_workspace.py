@@ -37,6 +37,141 @@ def _humanize_review_status(review_status: str | None) -> str:
     }.get(review_status, review_status)
 
 
+def _fact_status_badge(fact_status: str | None) -> str:
+    status = str(fact_status or "").strip().lower()
+    labels = {
+        "confirmed": "✓ Подтверждено пользователем",
+        "user_provided": "✓ Есть в резюме/профиле",
+        "needs_confirmation": "⚠ Требует подтверждения",
+        "partial": "⚠ Подтверждено частично",
+        "rejected": "✗ Отклонено",
+        "unverified": "⚠ Требует проверки",
+    }
+    return labels.get(status, "⚠ Требует проверки")
+
+
+def _humanize_evidence_strength(value: Any) -> str:
+    strength = str(value or "").strip().lower()
+    return {
+        "strong": "сильное подтверждение",
+        "medium": "частичное подтверждение",
+        "weak": "слабое подтверждение",
+    }.get(strength, "требует проверки")
+
+
+def _humanize_selection_reason(reason: Any) -> str:
+    text = str(reason or "").strip()
+    if not text or text == "—":
+        return "Связано с требованиями вакансии и выбранным проектным опытом."
+
+    lowered = text.lower()
+    replacements = {
+        "ai_relevance": "Связано с AI/automation опытом",
+        "evidence_bank_project": "Выбрано из подтверждённых проектных доказательств",
+        "keyword_overlap": "Совпадает с требованиями вакансии",
+        "skills overlap": "Навыки совпадают с требованиями вакансии",
+        "snippet text overlap": "Описание проекта совпадает с требованиями вакансии",
+        "related skill overlap": "Связанный навык поддерживает требование вакансии",
+    }
+    for key, label in replacements.items():
+        if key in lowered:
+            return label
+    return text
+
+
+def _text_blob(*values: Any) -> str:
+    parts: list[str] = []
+    for value in values:
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value)
+        elif isinstance(value, dict):
+            parts.extend(str(item) for item in value.values())
+        else:
+            parts.append(str(value or ""))
+    return " ".join(parts).casefold()
+
+
+def _project_fit_bullets(
+    *,
+    detail: dict[str, Any],
+    matched_keywords: list[Any],
+) -> list[str]:
+    blob = _text_blob(
+        detail.get("title"),
+        detail.get("reason"),
+        detail.get("snippet_text"),
+        detail.get("skills"),
+        detail.get("star_summary"),
+    )
+    bullets: list[str] = []
+
+    keyword_labels = [
+        str(keyword).strip()
+        for keyword in matched_keywords
+        if str(keyword).strip()
+    ]
+    for keyword in keyword_labels:
+        if keyword.casefold() in blob:
+            bullets.append(f"подтверждает требование вакансии: {keyword}")
+        if len(bullets) >= 2:
+            break
+
+    if any(token in blob for token in ("fastapi", "backend", "api", "sqlalchemy")):
+        bullets.append("показывает backend/API опыт")
+    if any(token in blob for token in ("workflow", "automation", "orchestration", "openai", "telegram")):
+        bullets.append("показывает AI workflow automation")
+    if any(token in blob for token in ("computer vision", "cv", "изображ", "video", "monitoring", "качества")):
+        bullets.append("показывает проектный опыт с AI/CV monitoring")
+    if any(token in blob for token in ("postgresql", "redis", "docker", "github", "repository")):
+        bullets.append("подтверждает инженерную реализацию через проектные артефакты")
+
+    if not bullets:
+        bullets.append(_humanize_selection_reason(detail.get("reason")))
+
+    deduped: list[str] = []
+    for bullet in bullets:
+        if bullet not in deduped:
+            deduped.append(bullet)
+    return deduped[:3]
+
+
+def _document_focus(summary: dict[str, Any], detail_rows: list[dict[str, Any]]) -> str:
+    blob = _text_blob(
+        summary.get("matched_keywords"),
+        summary.get("target_vacancy"),
+        [item.get("title") for item in detail_rows],
+        [item.get("skills") for item in detail_rows],
+    )
+    if any(token in blob for token in ("workflow", "automation", "orchestration", "openai")):
+        return "вакансия сфокусирована на AI workflow automation"
+    if any(token in blob for token in ("backend", "fastapi", "api")):
+        return "вакансия сфокусирована на backend/API опыте"
+    if "computer vision" in blob or "monitoring" in blob:
+        return "вакансия сфокусирована на AI/CV monitoring"
+    return "выбранные проекты ближе покрывают требования вакансии"
+
+
+def _unused_reason(item: dict[str, Any], *, focus: str) -> str:
+    blob = _text_blob(
+        item.get("title"),
+        item.get("snippet_text"),
+        item.get("skills") or item.get("skills_json"),
+        item.get("star_summary") or item.get("star_summary_json"),
+    )
+    fact_status = str(item.get("fact_status") or "").strip().lower()
+
+    if fact_status in {"needs_confirmation", "unverified", "partial"}:
+        return "факт ещё требует подтверждения перед использованием в сильном резюме"
+    if fact_status == "rejected":
+        return "факт отклонён и не должен попадать в документы"
+    if "computer vision" in blob or "cv" in blob or "изображ" in blob or "video" in blob:
+        if "workflow" in focus.casefold() or "backend" in focus.casefold():
+            return focus
+    if "analytics" in blob and ("workflow" in focus.casefold() or "backend" in focus.casefold()):
+        return focus
+    return "менее прямо поддерживает текущую вакансию, чем выбранные проекты"
+
+
 def _document_picker_label(doc: ReviewDocumentDescriptor) -> str:
     kind_label = {
         "resume": "Резюме",
@@ -183,16 +318,144 @@ def _render_readiness_panel(summary: dict[str, Any]) -> None:
             st.markdown(f"- {warning}")
 
 
+def _confidence_label(score: int) -> str:
+    if score >= 70:
+        return "Высокая уверенность"
+    if score >= 40:
+        return "Средняя уверенность"
+    return "Нужна осторожность"
+
+
+def _confidence_item_label(value: Any) -> str:
+    text = str(value or "").strip()
+    lowered = text.casefold()
+    if not text:
+        return ""
+
+    if "fastapi" in lowered or "backend" in lowered or "api" in lowered:
+        return "backend/API опыт подтверждён"
+    if any(token in lowered for token in ("workflow", "automation", "orchestration", "openai", "telegram")):
+        return "AI workflow automation подтверждён"
+    if any(token in lowered for token in ("computer vision", "cv", "monitoring", "изображ", "video")):
+        return "AI/CV monitoring опыт подтверждён"
+    if any(token in lowered for token in ("postgresql", "redis", "sqlalchemy", "database")):
+        return "опыт работы с backend data layer подтверждён"
+    if any(token in lowered for token in ("docker", "github", "repository", "git")):
+        return "инженерные project artifacts подтверждены"
+    return f"{text} подтверждён"
+
+
+def _risk_item_label(value: Any) -> str:
+    text = str(value or "").strip()
+    lowered = text.casefold()
+    if not text:
+        return ""
+
+    if any(token in lowered for token in ("kubernetes", "aws", "cloud", "docker", "deployment", "production")):
+        return "production-scale infrastructure не подтверждена"
+    if any(token in lowered for token in ("commercial", "enterprise", "prod", "production", "deployment")):
+        return "commercial AI deployment experience не подтверждён"
+    if any(token in lowered for token in ("leadership", "team lead", "management")):
+        return "leadership/team ownership не подтверждён"
+    if any(token in lowered for token in ("postgresql", "redis", "database")):
+        return "глубина database/infra опыта требует проверки"
+    return f"{text} не подтверждён"
+
+
+def _render_confidence_risk_panel(summary: dict[str, Any]) -> None:
+    matched_keywords = [
+        str(item).strip()
+        for item in (summary.get("matched_keywords") or [])
+        if str(item).strip()
+    ]
+    missing_keywords = [
+        str(item).strip()
+        for item in (summary.get("missing_keywords") or [])
+        if str(item).strip()
+    ]
+    selected_achievements = [
+        item
+        for item in (summary.get("selected_achievements") or [])
+        if isinstance(item, dict)
+    ]
+    claims = summary.get("claims_needing_confirmation") or []
+    readiness = summary.get("readiness") or {}
+    warnings = list(readiness.get("warnings") or [])
+    warnings.extend(summary.get("warnings") or [])
+
+    confirmed_titles = [
+        str(item.get("title") or item.get("name") or item.get("text") or "").strip()
+        for item in selected_achievements
+        if str(item.get("fact_status") or "").strip().lower()
+        in {"confirmed", "user_provided"}
+    ]
+    confirmed_titles = [title for title in confirmed_titles if title]
+
+    confidence_signals: list[str] = []
+    for value in [*matched_keywords, *confirmed_titles]:
+        label = _confidence_item_label(value)
+        if label and label not in confidence_signals:
+            confidence_signals.append(label)
+
+    risk_signals: list[str] = []
+    for value in missing_keywords:
+        label = _risk_item_label(value)
+        if label and label not in risk_signals:
+            risk_signals.append(label)
+    for claim in claims:
+        if isinstance(claim, dict):
+            claim_text = claim.get("text") or claim.get("claim_text") or claim.get("title")
+        else:
+            claim_text = claim
+        label = _risk_item_label(claim_text)
+        if label and label not in risk_signals:
+            risk_signals.append(label)
+    for warning in warnings:
+        label = _risk_item_label(warning)
+        if label and label not in risk_signals:
+            risk_signals.append(label)
+
+    readiness_score = readiness.get("score")
+    try:
+        score = int(float(readiness_score))
+    except (TypeError, ValueError):
+        score = min(100, len(confidence_signals) * 25)
+        if risk_signals:
+            score = max(0, score - min(40, len(risk_signals) * 10))
+
+    st.markdown("### Уверенность и риски")
+    st.caption(
+        "Где система уверена в формулировках, а где лучше не делать сильные claims без проверки."
+    )
+
+    col_confidence, col_risk = st.columns(2)
+    with col_confidence:
+        st.markdown(f"#### {_confidence_label(score)}")
+        if confidence_signals:
+            for item in confidence_signals[:6]:
+                st.markdown(f"✓ {item}")
+        else:
+            st.caption("Пока нет сильных подтверждённых сигналов.")
+
+    with col_risk:
+        st.markdown("#### Требует осторожности")
+        if risk_signals:
+            for item in risk_signals[:6]:
+                st.markdown(f"⚠ {item}")
+        else:
+            st.success("Существенных overclaim-рисков не найдено.")
+
+
 def _render_ai_changes_panel(diff: dict[str, Any]) -> None:
     sections = diff.get("sections") or []
     if not sections:
         st.caption("Структурных изменений не обнаружено.")
         return
 
-    st.markdown("#### Изменения ИИ")
-    st.caption("Структурный diff на основе `content_json[\"sections\"]`.")
+    st.markdown("#### Обзор изменений")
+    st.caption("Простой обзор: что добавлено, удалено или переписано между версиями.")
 
-    rendered_lines: list[str] = []
+    grouped_lines = {"added": [], "removed": [], "changed": []}
     for section in sections:
         section_name = str(section.get("section") or "").strip()
         added = section.get("added") or []
@@ -200,18 +463,27 @@ def _render_ai_changes_panel(diff: dict[str, Any]) -> None:
         changed = section.get("changed") or []
 
         for item in added:
-            rendered_lines.append(f"{_diff_item_prefix(section_name, 'added')} {item}")
+            grouped_lines["added"].append(f"{_diff_item_prefix(section_name, 'added')} {item}")
         for item in removed:
-            rendered_lines.append(f"{_diff_item_prefix(section_name, 'removed')} {item}")
+            grouped_lines["removed"].append(f"{_diff_item_prefix(section_name, 'removed')} {item}")
         for item in changed:
-            rendered_lines.append(f"{_diff_item_prefix(section_name, 'changed')} {item}")
+            grouped_lines["changed"].append(f"{_diff_item_prefix(section_name, 'changed')} {item}")
 
-    if not rendered_lines:
+    if not any(grouped_lines.values()):
         st.caption("Структурных изменений не обнаружено.")
         return
 
-    for line in rendered_lines:
-        st.markdown(f"- {line}")
+    for title, key in (
+        ("Добавлено", "added"),
+        ("Удалено", "removed"),
+        ("Переписано", "changed"),
+    ):
+        lines = grouped_lines[key]
+        if not lines:
+            continue
+        with st.expander(f"{title} ({len(lines)})", expanded=key == "added"):
+            for line in lines:
+                st.markdown(f"- {line}")
 
 
 def _render_claims_panel(summary: dict[str, Any]) -> None:
@@ -236,7 +508,7 @@ def _render_claims_panel(summary: dict[str, Any]) -> None:
             if claim.get("source"):
                 st.caption(f"источник: {claim.get('source')}")
             if claim.get("fact_status"):
-                st.caption(f"статус факта: {claim.get('fact_status')}")
+                st.caption(_fact_status_badge(str(claim.get("fact_status"))))
 
 
 def _render_selected_achievements_panel(summary: dict[str, Any]) -> None:
@@ -261,12 +533,12 @@ def _render_selected_achievements_panel(summary: dict[str, Any]) -> None:
         with st.container(border=True):
             st.markdown(f"**{title}**")
             if fact_status:
-                st.caption(f"статус факта: {fact_status}")
+                st.caption(_fact_status_badge(str(fact_status)))
             metric_text = item.get("metric_text") or item.get("impact") or item.get("result")
             if metric_text:
                 st.write(metric_text)
             if reason:
-                st.caption(f"почему выбрано: {reason}")
+                st.caption(f"Почему выбрано: {_humanize_selection_reason(reason)}")
 
 
 def _render_evidence_used_panel(
@@ -282,7 +554,7 @@ def _render_evidence_used_panel(
     ]
     if not selected_evidence_ids:
         st.markdown("#### Использованные доказательства")
-        st.caption("Backend не вернул выбранные ID доказательств.")
+        st.caption("Для этого документа пока не привязаны подтверждённые доказательства.")
         return
 
     selected_achievements = summary.get("selected_achievements") or []
@@ -301,7 +573,7 @@ def _render_evidence_used_panel(
             achievement.get("title")
             or achievement.get("text")
             or achievement.get("name")
-            or evidence_id
+            or "Подтверждённый опыт"
         )
         reason = str(achievement.get("reason") or "").strip()
         if not reason:
@@ -310,10 +582,9 @@ def _render_evidence_used_panel(
         fact_status = str(achievement.get("fact_status") or "").strip() or "—"
         rows.append(
             {
-                "Evidence ID": evidence_id,
-                "Title": title,
-                "Reason": reason,
-                "Fact status": fact_status,
+                "Опыт": title,
+                "Почему выбран": _humanize_selection_reason(reason),
+                "Статус": _fact_status_badge(fact_status),
             }
         )
 
@@ -333,32 +604,70 @@ def _render_evidence_used_panel(
             detail_row["used_in_documents_count"] = snippet.get("used_in_documents_count", 0)
             detail_row["used_in_interviews_count"] = snippet.get("used_in_interviews_count", 0)
             detail_row["snippet_text"] = snippet.get("snippet_text") or ""
+            detail_row["skills"] = snippet.get("skills") or snippet.get("skills_json") or []
             star_summary = snippet.get("star_summary") or snippet.get("star_summary_json") or {}
             if isinstance(star_summary, dict):
                 detail_row["star_summary"] = star_summary
         detail_rows.append(detail_row)
 
     st.markdown("#### Использованные доказательства")
-    st.caption("ID и причины выбора приходят из `content_json.meta`.")
+    st.caption("Опыт, который система реально использовала при подготовке документа.")
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
-    with st.expander("Детали доказательств", expanded=False):
+    st.markdown("#### Почему эти проекты попали в резюме")
+    matched_keywords = summary.get("matched_keywords") or []
+    for detail in detail_rows:
+        with st.container(border=True):
+            st.markdown(f"**{detail.get('title') or 'Подтверждённый опыт'}**")
+            for bullet in _project_fit_bullets(
+                detail=detail,
+                matched_keywords=matched_keywords,
+            ):
+                st.markdown(f"✓ {bullet}")
+
+    focus = _document_focus(summary, detail_rows)
+    try:
+        all_snippets = client.list_evidence_snippets(token=token)
+    except Exception:
+        all_snippets = []
+
+    selected_ids = set(selected_evidence_ids)
+    unused_rows = [
+        item
+        for item in all_snippets
+        if isinstance(item, dict)
+        and str(item.get("id") or "").strip()
+        and str(item.get("id") or "").strip() not in selected_ids
+    ]
+
+    st.markdown("#### Что не было использовано")
+    if not unused_rows:
+        st.caption("Неприменённых проектных доказательств для этого документа не найдено.")
+    else:
+        for item in unused_rows[:5]:
+            title = item.get("title") or "Подтверждающий опыт"
+            st.markdown(f"- **{title}**")
+            st.caption(f"Причина: {_unused_reason(item, focus=focus)}")
+
+    with st.expander("Почему система так решила", expanded=False):
         for detail in detail_rows:
             with st.container(border=True):
-                st.markdown(f"**{detail.get('title') or detail.get('evidence_id')}**")
-                st.caption(f"evidence_id: {detail.get('evidence_id')}")
-                st.caption(f"причина: {detail.get('reason')}")
+                st.markdown(f"**{detail.get('title') or 'Подтверждённый опыт'}**")
+                st.caption(
+                    "Почему это считается релевантным: "
+                    f"{_humanize_selection_reason(detail.get('reason'))}"
+                )
 
                 if detail.get("lookup_error"):
-                    st.warning(f"Не удалось загрузить детали сниппета: {detail.get('lookup_error')}")
+                    st.warning(f"Не удалось загрузить детали доказательства: {detail.get('lookup_error')}")
                     continue
 
                 st.caption(
                     " / ".join(
                         part
                         for part in [
-                            f"статус факта: {detail.get('fact_status')}",
-                            f"сила: {detail.get('evidence_strength')}",
+                            _fact_status_badge(str(detail.get("fact_status"))),
+                            _humanize_evidence_strength(detail.get("evidence_strength")),
                             f"использований: {detail.get('usage_count', 0)}",
                         ]
                         if part
@@ -539,7 +848,7 @@ def _render_action_bar(
     key_suffix = f"{selection_state_key or 'document'}_{document_id}"
 
     if not document_id:
-        st.warning("Не указан ID документа, панель действий недоступна.")
+        st.warning("Не удалось определить документ, панель действий недоступна.")
         return
 
     st.caption(
@@ -732,6 +1041,9 @@ def render_document_review_workspace(
     _render_readiness_panel(summary)
 
     st.divider()
+    _render_confidence_risk_panel(summary)
+
+    st.divider()
     st.markdown("### Панель изменений ИИ")
     _render_ai_changes_panel(diff)
 
@@ -835,7 +1147,7 @@ def render_document_review_workspace_tab(
     st.header("Проверка документов")
     st.caption(
         "Рабочая область для проверки одного документа: подтверждение, "
-        "fallback-навигация и создание версий."
+        "навигация между документами и создание версий."
     )
 
     if not token:
@@ -895,7 +1207,7 @@ def render_document_review_workspace_tab(
         documents.append(
             ReviewDocumentDescriptor(
                 document_id=document_id,
-                title=f"{title} · {document_id[:8]}",
+                title=title,
                 document_kind=str(source_document.get("document_kind") or document_kind),
                 vacancy_id=str(source_document.get("vacancy_id") or "") or None,
             )

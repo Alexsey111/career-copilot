@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -32,6 +33,50 @@ def _restore_resume_pipeline_state(client: CareerCopilotApiClient, token: str | 
             restored = True
 
     return restored
+
+
+def _humanize_achievement_evidence_note(
+    value: Any,
+    *,
+    fact_status: Any,
+) -> tuple[str, list[str]]:
+    note = str(value or "").strip()
+    if not note:
+        return "", []
+
+    evidence_ids: list[str] = []
+    ids_match = re.search(r"Evidence ids:\s*(?P<ids>.+)$", note, flags=re.IGNORECASE)
+    if ids_match:
+        evidence_ids = [
+            item.strip()
+            for item in ids_match.group("ids").split(",")
+            if item.strip()
+        ]
+        note = note[: ids_match.start()].strip()
+
+    status = str(fact_status or "").strip().lower()
+    github_prefix = (
+        "Synthesized from GitHub repository architecture evidence; "
+        "requires user confirmation."
+    )
+    if github_prefix in note:
+        replacement = (
+            "Сформировано на основе анализа GitHub-репозитория."
+            if status == "confirmed"
+            else (
+                "Сформировано на основе анализа GitHub-репозитория. "
+                "Проверьте формулировку и подтвердите, что это ваш реальный опыт."
+            )
+        )
+        note = note.replace(github_prefix, replacement)
+
+    note = note.replace("Skills:", "Навыки:")
+    note = note.replace(
+        "Auto-extracted from resume raw text; requires user confirmation",
+        "Автоматически извлечено из резюме. Проверьте и подтвердите факт.",
+    )
+    note = re.sub(r"\s+", " ", note).strip()
+    return note, evidence_ids
 
 
 def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -386,14 +431,15 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
     if st.session_state.resume_import and source_file.get("file_kind") != "resume":
         st.success("Профиль уже создан через guided intake. Импорт файла резюме не требуется.")
         resume_import = st.session_state.resume_import
-        st.json(
-            {
-                "profile_id": resume_import.get("profile_id"),
-                "source_file_id": resume_import.get("source_file_id"),
-                "extraction_id": resume_import.get("extraction_id"),
-                "source": resume_import.get("detected_format"),
-            }
-        )
+        st.caption(f"Источник: {resume_import.get('detected_format') or '—'}")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "profile_id": resume_import.get("profile_id"),
+                    "source_file_id": resume_import.get("source_file_id"),
+                    "extraction_id": resume_import.get("extraction_id"),
+                }
+            )
         return
 
     source_file_id = source_file.get("id")
@@ -402,21 +448,23 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
         st.json(source_file)
         return
 
-    st.caption(f"source_file_id: {source_file_id}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"source_file_id: {source_file_id}")
 
     if st.session_state.get("reuse_existing_resume") and st.session_state.resume_import:
         st.success("Импорт активного резюме уже готов. Повторный импорт не нужен.")
         resume_import = st.session_state.resume_import
-        st.json(
-            {
-                "profile_id": resume_import.get("profile_id"),
-                "source_file_id": resume_import.get("source_file_id"),
-                "extraction_id": resume_import.get("extraction_id"),
-                "status": resume_import.get("status"),
-                "detected_format": resume_import.get("detected_format"),
-                "text_length": resume_import.get("text_length"),
-            }
-        )
+        st.caption(f"Статус: {resume_import.get('status') or 'готово'}")
+        st.caption(f"Формат: {resume_import.get('detected_format') or '—'}")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "profile_id": resume_import.get("profile_id"),
+                    "source_file_id": resume_import.get("source_file_id"),
+                    "extraction_id": resume_import.get("extraction_id"),
+                    "text_length": resume_import.get("text_length"),
+                }
+            )
         return
 
     if st.session_state.get("reuse_existing_resume") and not st.session_state.resume_import:
@@ -464,16 +512,18 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
         resume_import = st.session_state.resume_import
 
         st.markdown("### Результат импорта")
-        st.json(
-            {
-                "profile_id": resume_import.get("profile_id"),
-                "source_file_id": resume_import.get("source_file_id"),
-                "extraction_id": resume_import.get("extraction_id"),
-                "status": resume_import.get("status"),
-                "detected_format": resume_import.get("detected_format"),
-                "text_length": resume_import.get("text_length"),
-            }
-        )
+        st.caption(f"Статус: {resume_import.get('status') or 'готово'}")
+        st.caption(f"Формат: {resume_import.get('detected_format') or '—'}")
+        if resume_import.get("text_length") is not None:
+            st.caption(f"Объем текста: {resume_import.get('text_length')} символов")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "profile_id": resume_import.get("profile_id"),
+                    "source_file_id": resume_import.get("source_file_id"),
+                    "extraction_id": resume_import.get("extraction_id"),
+                }
+            )
 
         text_preview = resume_import.get("text_preview")
         if text_preview:
@@ -495,20 +545,22 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
         st.json(resume_import)
         return
 
-    st.caption(f"extraction_id: {extraction_id}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"extraction_id: {extraction_id}")
 
     if st.session_state.get("reuse_existing_resume") and st.session_state.structured_profile:
         st.success("Структурированный профиль уже готов. Повторное извлечение не нужно.")
         profile = st.session_state.structured_profile
-        st.json(
-            {
-                "profile_id": profile.get("profile_id"),
-                "extraction_id": profile.get("extraction_id"),
-                "full_name": profile.get("full_name"),
-                "headline": profile.get("headline"),
-                "experience_count": profile.get("experience_count", 0),
-            }
-        )
+        st.caption(f"ФИО: {profile.get('full_name') or '—'}")
+        st.caption(f"Позиционирование: {profile.get('headline') or '—'}")
+        st.caption(f"Опытов работы: {profile.get('experience_count', 0)}")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "profile_id": profile.get("profile_id"),
+                    "extraction_id": profile.get("extraction_id"),
+                }
+            )
         return
 
     if st.button("Извлечь структурированный профиль", type="primary", use_container_width=True):
@@ -580,8 +632,9 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
                 "Количество опытов работы",
                 profile.get("experience_count", 0),
             )
-            st.caption(f"profile_id: {profile.get('profile_id')}")
-            st.caption(f"extraction_id: {profile.get('extraction_id')}")
+            with st.expander("Технические детали", expanded=False):
+                st.caption(f"profile_id: {profile.get('profile_id')}")
+                st.caption(f"extraction_id: {profile.get('extraction_id')}")
 
         target_roles = profile.get("target_roles") or []
         if target_roles:
@@ -618,7 +671,8 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
         st.json(resume_import)
         return
 
-    st.caption(f"extraction_id: {extraction_id}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"extraction_id: {extraction_id}")
 
     achievements_already_ready = (
         st.session_state.get("reuse_existing_resume")
@@ -709,8 +763,9 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
             achievements_result.get("achievement_count", 0),
         )
 
-        st.caption(f"profile_id: {achievements_result.get('profile_id')}")
-        st.caption(f"extraction_id: {achievements_result.get('extraction_id')}")
+        with st.expander("Технические детали", expanded=False):
+            st.caption(f"profile_id: {achievements_result.get('profile_id')}")
+            st.caption(f"extraction_id: {achievements_result.get('extraction_id')}")
 
         achievements = achievements_result.get("achievements") or []
         if achievements:
@@ -747,7 +802,11 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
                     achievement_id = achievement.get("id")
                     title = achievement.get("title") or ""
                     fact_status = achievement.get("fact_status") or "needs_confirmation"
-                    evidence_note = achievement.get("evidence_note") or ""
+                    raw_evidence_note = achievement.get("evidence_note") or ""
+                    evidence_note, evidence_ids = _humanize_achievement_evidence_note(
+                        raw_evidence_note,
+                        fact_status=fact_status,
+                    )
 
                     with st.container(border=True):
                         st.markdown(f"#### Достижение {index}")
@@ -794,6 +853,16 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
                             height=80,
                             key=f"achievement_evidence_{achievement_id or index}",
                         )
+
+                        if evidence_ids or raw_evidence_note != evidence_note:
+                            with st.expander("Технические детали", expanded=False):
+                                if evidence_ids:
+                                    st.caption("Связанные evidence ids:")
+                                    for evidence_id in evidence_ids:
+                                        st.caption(evidence_id)
+                                if raw_evidence_note and raw_evidence_note != evidence_note:
+                                    st.caption("Исходная техническая заметка:")
+                                    st.code(str(raw_evidence_note))
 
                         if edited_fact_status == "confirmed":
                             st.success("Это достижение будет считаться подтверждённым.")

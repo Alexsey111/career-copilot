@@ -26,9 +26,85 @@ def _skill_labels(value: Any) -> str:
     return ", ".join(normalized) if normalized else "—"
 
 
-def _format_short_uuid(value: Any) -> str:
+def _fact_status_badge(fact_status: Any) -> str:
+    status = str(fact_status or "").strip().lower()
+    labels = {
+        "confirmed": "✓ Подтверждено пользователем",
+        "user_provided": "✓ Есть в резюме/профиле",
+        "needs_confirmation": "⚠ Требует подтверждения",
+        "partial": "⚠ Подтверждено частично",
+        "rejected": "✗ Отклонено",
+        "unverified": "⚠ Требует проверки",
+    }
+    return labels.get(status, "⚠ Требует проверки")
+
+
+def _source_label(source_type: Any) -> str:
+    source = str(source_type or "").strip().lower()
+    return {
+        "resume": "Резюме",
+        "resume_structured": "Структурированное резюме",
+        "github_repository_analysis": "GitHub-проекты",
+        "github": "GitHub-проекты",
+        "manual": "Ручное подтверждение",
+        "application": "Отклики",
+        "interview": "Подготовка к интервью",
+    }.get(source, str(source_type or "—"))
+
+
+def _strength_label(value: Any) -> str:
+    strength = str(value or "").strip().lower()
+    return {
+        "strong": "Сильное",
+        "medium": "Среднее",
+        "weak": "Слабое",
+    }.get(strength, str(value or "—"))
+
+
+def _recommendation_type_label(value: Any) -> str:
+    kind = str(value or "").strip().lower()
+    return {
+        "weak_evidence": "Усилить формулировку",
+        "missing_metric": "Добавить метрики",
+        "incomplete_star": "Заполнить STAR",
+        "unused_evidence": "Можно использовать",
+        "overused_evidence": "Используется часто",
+        "unverified_evidence": "Нужно подтвердить",
+    }.get(kind, str(value or "—"))
+
+
+def _recommendation_severity_label(value: Any) -> str:
+    severity = str(value or "").strip().lower()
+    return {
+        "info": "Информация",
+        "warning": "Стоит проверить",
+        "critical": "Важно",
+        "blocker": "Блокирует",
+    }.get(severity, str(value or "—"))
+
+
+def _recommendation_message_label(value: Any) -> str:
     text = str(value or "").strip()
-    return text[:8] if text else "—"
+    return {
+        "Evidence strength is weak. Review the wording, metrics, or supporting context before reuse.": (
+            "Формулировке не хватает конкретики. Добавьте контекст, результат или метрики."
+        ),
+        "No measurable metrics were detected. Add concrete numbers or outcome signals if they exist.": (
+            "Не найдены измеримые результаты. Добавьте цифры или эффект, если они есть."
+        ),
+        "STAR coverage is incomplete. Fill in the missing Situation, Task, Action, or Result fields.": (
+            "Не хватает части STAR-структуры: ситуация, задача, действие или результат."
+        ),
+        "This evidence has not been used yet. Consider it for upcoming resume or interview drafts.": (
+            "Этот опыт ещё не использовался в документах или подготовке к интервью."
+        ),
+        "This evidence is reused often. Consider rotating in alternative evidence to avoid repetition.": (
+            "Этот опыт используется часто. Для разнообразия стоит добавить альтернативный пример."
+        ),
+        "This fact is not confirmed yet. Keep it out of strong evidence paths until reviewed.": (
+            "Факт ещё не подтверждён. Проверьте его перед использованием как сильного аргумента."
+        ),
+    }.get(text, text or "—")
 
 
 def _render_metrics(snippets: list[dict[str, Any]]) -> None:
@@ -138,7 +214,7 @@ def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
                 {
                     "type": "weak_evidence",
                     "evidence_id": item.get("id"),
-                    "title": item.get("title") or "Evidence snippet",
+                    "title": item.get("title") or "Подтверждающий опыт",
                     "message": "Evidence strength is weak. Review the wording, metrics, or supporting context before reuse.",
                     "severity": "warning",
                 }
@@ -150,7 +226,7 @@ def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
                 {
                     "type": "missing_metric",
                     "evidence_id": item.get("id"),
-                    "title": item.get("title") or "Evidence snippet",
+                    "title": item.get("title") or "Подтверждающий опыт",
                     "message": "No measurable metrics were detected. Add concrete numbers or outcome signals if they exist.",
                     "severity": "warning",
                 }
@@ -162,7 +238,7 @@ def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
                 {
                     "type": "incomplete_star",
                     "evidence_id": item.get("id"),
-                    "title": item.get("title") or "Evidence snippet",
+                    "title": item.get("title") or "Подтверждающий опыт",
                     "message": "STAR coverage is incomplete. Fill in the missing Situation, Task, Action, or Result fields.",
                     "severity": "warning",
                 }
@@ -174,7 +250,7 @@ def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
                 {
                     "type": "unused_evidence",
                     "evidence_id": item.get("id"),
-                    "title": item.get("title") or "Evidence snippet",
+                    "title": item.get("title") or "Подтверждающий опыт",
                     "message": "This evidence has not been used yet. Consider it for upcoming resume or interview drafts.",
                     "severity": "info",
                 }
@@ -186,7 +262,7 @@ def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
                 {
                     "type": "overused_evidence",
                     "evidence_id": item.get("id"),
-                    "title": item.get("title") or "Evidence snippet",
+                    "title": item.get("title") or "Подтверждающий опыт",
                     "message": "This evidence is reused often. Consider rotating in alternative evidence to avoid repetition.",
                     "severity": "warning",
                 }
@@ -198,7 +274,7 @@ def _local_insights(snippets: list[dict[str, Any]]) -> dict[str, Any]:
                 {
                     "type": "unverified_evidence",
                     "evidence_id": item.get("id"),
-                    "title": item.get("title") or "Evidence snippet",
+                    "title": item.get("title") or "Подтверждающий опыт",
                     "message": "This fact is not confirmed yet. Keep it out of strong evidence paths until reviewed.",
                     "severity": "warning",
                 }
@@ -221,7 +297,7 @@ def _render_insights_section(
     col_unverified, col_recommendations, col_spacer = st.columns([1, 1, 1])
 
     with col_total:
-        st.metric("Всего сниппетов", len(snippets))
+        st.metric("Всего фактов", len(snippets))
     with col_weak:
         st.metric("Слабые доказательства", data.get("weak_evidence_count", 0))
     with col_metrics:
@@ -249,11 +325,10 @@ def _render_insights_section(
                 continue
             rows.append(
                 {
-                    "Type": item.get("type") or "—",
-                    "Severity": item.get("severity") or "—",
-                    "Title": item.get("title") or "—",
-                    "Message": item.get("message") or "—",
-                    "Evidence": _format_short_uuid(item.get("evidence_id")),
+                    "Что сделать": _recommendation_type_label(item.get("type")),
+                    "Приоритет": _recommendation_severity_label(item.get("severity")),
+                    "Опыт": item.get("title") or "—",
+                    "Почему": _recommendation_message_label(item.get("message")),
                 }
             )
 
@@ -271,12 +346,12 @@ def _build_rows(snippets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "title": item.get("title") or "—",
-                "strength": item.get("evidence_strength") or "—",
-                "fact_status": item.get("fact_status") or "—",
-                "skills": _skill_labels(item.get("skills") or item.get("skills_json")),
-                "usage": _format_count(item.get("usage_count")),
-                "documents": _format_count(item.get("used_in_documents_count")),
-                "interviews": _format_count(item.get("used_in_interviews_count")),
+                "сила": _strength_label(item.get("evidence_strength")),
+                "статус": _fact_status_badge(item.get("fact_status")),
+                "навыки": _skill_labels(item.get("skills") or item.get("skills_json")),
+                "использований": _format_count(item.get("usage_count")),
+                "в документах": _format_count(item.get("used_in_documents_count")),
+                "в интервью": _format_count(item.get("used_in_interviews_count")),
             }
         )
     return rows
@@ -294,11 +369,11 @@ def _render_detail_panel(
 
     col_source, col_strength, col_fact, col_usage = st.columns(4)
     with col_source:
-        st.metric("Источник", snippet.get("source_type") or "—")
+        st.metric("Источник", _source_label(snippet.get("source_type")))
     with col_strength:
-        st.metric("Сила", snippet.get("evidence_strength") or "—")
+        st.metric("Сила", _strength_label(snippet.get("evidence_strength")))
     with col_fact:
-        st.metric("Статус факта", snippet.get("fact_status") or "—")
+        st.metric("Статус факта", _fact_status_badge(snippet.get("fact_status")))
     with col_usage:
         st.metric("Использований", _format_count(snippet.get("usage_count")))
 
@@ -364,7 +439,7 @@ def _render_detail_panel(
         st.toast("Доказательство отклонено", icon="🛑")
         st.rerun()
 
-    st.markdown("#### Текст сниппета")
+    st.markdown("#### Текст подтверждения")
     st.text_area(
         "Сниппет",
         value=str(snippet.get("snippet_text") or ""),
@@ -376,7 +451,26 @@ def _render_detail_panel(
     star_summary = snippet.get("star_summary") or snippet.get("star_summary_json") or {}
     st.markdown("#### STAR-сводка")
     if isinstance(star_summary, dict) and any(str(value or "").strip() for value in star_summary.values()):
-        st.json(star_summary)
+        labels = {
+            "situation": "Ситуация",
+            "task": "Задача",
+            "action": "Действие",
+            "result": "Результат",
+        }
+        for key, label in labels.items():
+            value = str(star_summary.get(key) or "").strip()
+            if value:
+                st.markdown(f"**{label}:** {value}")
+
+        extra_items = [
+            (key, value)
+            for key, value in star_summary.items()
+            if key not in labels and value not in (None, "", [])
+        ]
+        if extra_items:
+            with st.expander("Технические детали", expanded=False):
+                for key, value in extra_items:
+                    st.caption(f"{key}: {value}")
     else:
         st.caption("STAR-сводка недоступна.")
 
@@ -391,12 +485,11 @@ def _render_detail_panel(
             rows = []
             for usage in usages[:20]:
                 rows.append(
-                    {
-                        "usage_type": usage.get("usage_type") or "—",
-                        "target_type": usage.get("target_type") or "—",
-                        "target_id": usage.get("target_id") or "—",
-                        "note": usage.get("note") or "—",
-                        "created_at": usage.get("created_at") or "—",
+            {
+                        "Где использовано": usage.get("usage_type") or "—",
+                        "Тип": usage.get("target_type") or "—",
+                        "Заметка": usage.get("note") or "—",
+                        "Дата": usage.get("created_at") or "—",
                     }
                 )
             st.dataframe(rows, use_container_width=True, hide_index=True)
@@ -409,7 +502,7 @@ def render_evidence_workspace_tab(
 ) -> None:
     st.header("Источники доказательств")
     st.caption(
-        "Каталог доказательств только для чтения: документы, cover letters, интервью "
+        "Каталог подтверждающего опыта только для чтения: документы, письма, интервью "
         "и будущие рекомендации."
     )
 
@@ -433,7 +526,7 @@ def render_evidence_workspace_tab(
         return
 
     if not isinstance(snippets, list):
-        st.error("Backend вернул неожиданный список сниппетов")
+        st.error("Backend вернул неожиданный список доказательств")
         st.json(snippets)
         return
 
@@ -445,15 +538,19 @@ def render_evidence_workspace_tab(
     try:
         insights = client.get_evidence_insights(token=token)
     except httpx.HTTPStatusError as exc:
-        st.warning(f"Insights endpoint вернул HTTP {exc.response.status_code}. Показываю локальные сигналы fallback.")
+        st.warning("Автоматические подсказки по качеству временно недоступны. Показываю локальную оценку.")
+        with st.expander("Технические детали", expanded=False):
+            st.caption(f"HTTP {exc.response.status_code}")
         insights = None
     except httpx.RequestError as exc:
-        st.warning("Не удалось подключиться к insights endpoint. Показываю локальные сигналы fallback.")
-        st.code(str(exc))
+        st.warning("Автоматические подсказки по качеству временно недоступны. Показываю локальную оценку.")
+        with st.expander("Технические детали", expanded=False):
+            st.code(str(exc))
         insights = None
     except ValueError as exc:
-        st.warning("Insights endpoint вернул неожиданный ответ. Показываю локальные сигналы fallback.")
-        st.code(str(exc))
+        st.warning("Автоматические подсказки по качеству временно недоступны. Показываю локальную оценку.")
+        with st.expander("Технические детали", expanded=False):
+            st.code(str(exc))
         insights = None
 
     _render_insights_section(insights, snippet_rows)
@@ -464,23 +561,22 @@ def render_evidence_workspace_tab(
         st.info("Сниппеты доказательств пока недоступны.")
         return
 
-    st.markdown("### Каталог доказательств")
+    st.markdown("### Каталог подтверждающего опыта")
     st.dataframe(_build_rows(snippet_rows), use_container_width=True, hide_index=True)
 
     snippet_ids = [str(item.get("id") or "").strip() for item in snippet_rows if item.get("id")]
     if not snippet_ids:
-        st.warning("Не найдено валидных ID сниппетов доказательств.")
+        st.warning("Не найдено доступных доказательств для просмотра.")
         return
 
     snippets_by_id = {str(item.get("id")): item for item in snippet_rows if item.get("id")}
     selected_snippet_id = st.selectbox(
-        "Выберите сниппет доказательства",
+        "Выберите подтверждающий опыт",
         options=snippet_ids,
         format_func=lambda value: (
-            f"{snippets_by_id[value].get('title') or 'Evidence'} "
-            f"· {snippets_by_id[value].get('evidence_strength') or '—'} "
-            f"· {snippets_by_id[value].get('fact_status') or '—'} "
-            f"· {value[:8]}"
+            f"{snippets_by_id[value].get('title') or 'Доказательство'} "
+            f"· {_strength_label(snippets_by_id[value].get('evidence_strength'))} "
+            f"· {_fact_status_badge(snippets_by_id[value].get('fact_status'))}"
         ),
     )
 
@@ -503,7 +599,7 @@ def render_evidence_workspace_tab(
         return
 
     if not isinstance(snippet, dict):
-        st.error("Backend вернул неожиданный payload сниппета")
+        st.error("Backend вернул неожиданный формат доказательства")
         st.json(snippet)
         return
 

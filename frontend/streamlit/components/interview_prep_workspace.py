@@ -29,6 +29,17 @@ def _format_score(value: Any) -> str:
         return str(value)
 
 
+def _humanize_prep_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    labels = {
+        "draft": "черновик",
+        "ready": "готова",
+        "blocked": "нужны подтверждения",
+        "in_progress": "в работе",
+    }
+    return labels.get(status, status or "—")
+
+
 def _normalize_key(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "_")
 
@@ -42,6 +53,47 @@ def _evidence_status_icon(fact_status: str | None) -> str:
     if status == "rejected":
         return "🛑"
     return "❌"
+
+
+def _fact_status_badge(fact_status: str | None) -> str:
+    status = str(fact_status or "").strip().lower()
+    labels = {
+        "confirmed": "✓ Подтверждено пользователем",
+        "user_provided": "✓ Есть в резюме/профиле",
+        "needs_confirmation": "⚠ Требует подтверждения",
+        "partial": "⚠ Подтверждено частично",
+        "rejected": "✗ Отклонено",
+        "unverified": "⚠ Требует проверки",
+    }
+    return labels.get(status, "⚠ Требует проверки")
+
+
+def _humanize_reason(reason: Any) -> str:
+    text = str(reason or "").strip()
+    if not text or text == "—":
+        return "Этот пример связан с компетенцией из вакансии."
+
+    lowered = text.lower()
+    replacements = {
+        "keyword overlap": "Совпадает с требованиями вакансии",
+        "skills overlap": "Навыки совпадают с требованиями вакансии",
+        "snippet text overlap": "Описание проекта совпадает с требованиями вакансии",
+        "related skill overlap": "Связанный навык поддерживает требование вакансии",
+        "recommended": "Рекомендовано для ответа на этот вопрос",
+    }
+    for key, label in replacements.items():
+        if key in lowered:
+            return label
+    return text
+
+
+def _humanize_strength(value: Any) -> str:
+    strength = str(value or "").strip().lower()
+    return {
+        "strong": "сильное подтверждение",
+        "medium": "частичное подтверждение",
+        "weak": "слабое подтверждение",
+    }.get(strength, "требует проверки")
 
 
 def _collect_evidence_by_competency(
@@ -114,7 +166,7 @@ def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
             st.markdown(f"- {blocker}")
         st.caption(
             "Это не ошибка. Система нашла возможные доказательства, "
-            "но они ещё не подтверждены пользователем. Подтвердите релевантные evidence/achievements "
+            "но они ещё не подтверждены пользователем. Подтвердите релевантный опыт "
             "или используйте вопросы как черновик подготовки."
         )
 
@@ -175,14 +227,13 @@ def _render_competency_coverage(
                 "Статус": _evidence_status_icon(fact_status if evidence_items else None),
                 "Компетенция": label,
                 "Покрытие": status_text,
-                "Evidence": len(evidence_items),
-                "Лучший fact_status": fact_status or "—",
+                "Найдено примеров": len(evidence_items),
                 "Комментарий": (
                     weak_by_competency.get(key, {}).get("message")
                     if key in weak_by_competency
-                    else "Есть supporting evidence"
+                    else "Есть подтверждающие примеры"
                     if evidence_items
-                    else "Evidence не найдено"
+                    else "Примеры не найдены"
                 ),
             }
         )
@@ -190,8 +241,8 @@ def _render_competency_coverage(
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
     st.caption(
-        "✅ подтверждённое evidence · ⚠️ найдено, но требует подтверждения · "
-        "❌ evidence не найдено"
+        "✅ подтверждено · ⚠️ найдено, но требует подтверждения · "
+        "❌ подтверждающих примеров нет"
     )
 
 
@@ -245,19 +296,19 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
     if not isinstance(answer, dict) or not answer:
         return
 
-    st.markdown("##### Suggested answer")
-    st.caption("Черновик ответа. Проверьте и адаптируйте под свой реальный опыт.")
+    with st.expander("Черновик ответа", expanded=False):
+        st.caption("Черновик ответа. Проверьте и адаптируйте под свой реальный опыт.")
 
-    fields = [
-        ("Situation", answer.get("situation")),
-        ("Task", answer.get("task")),
-        ("Action", answer.get("action")),
-        ("Result", answer.get("result")),
-    ]
-    for label, value in fields:
-        value_text = str(value or "").strip()
-        if value_text:
-            st.markdown(f"**{label}:** {value_text}")
+        fields = [
+            ("Situation", answer.get("situation")),
+            ("Task", answer.get("task")),
+            ("Action", answer.get("action")),
+            ("Result", answer.get("result")),
+        ]
+        for label, value in fields:
+            value_text = str(value or "").strip()
+            if value_text:
+                st.markdown(f"**{label}:** {value_text}")
 
     tech_stack = [
         str(item).strip()
@@ -265,8 +316,8 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         if str(item).strip()
     ]
     if tech_stack:
-        st.markdown("**Tech stack:**")
-        st.markdown(", ".join(tech_stack))
+        with st.expander("Технологии", expanded=False):
+            st.markdown(", ".join(tech_stack))
 
     tradeoffs = [
         str(item).strip()
@@ -274,9 +325,9 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         if str(item).strip()
     ]
     if tradeoffs:
-        st.markdown("**Tradeoffs:**")
-        for item in tradeoffs:
-            st.markdown(f"- {item}")
+        with st.expander("Компромиссы и ограничения", expanded=False):
+            for item in tradeoffs:
+                st.markdown(f"- {item}")
 
     talking_points = [
         str(item).strip()
@@ -284,9 +335,9 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         if str(item).strip()
     ]
     if talking_points:
-        st.markdown("**Talking points:**")
-        for item in talking_points:
-            st.markdown(f"- {item}")
+        with st.expander("Что подчеркнуть на интервью", expanded=False):
+            for item in talking_points:
+                st.markdown(f"- {item}")
 
 
 def _render_question_group(questions: list[dict[str, Any]]) -> None:
@@ -315,17 +366,18 @@ def _render_question_group(questions: list[dict[str, Any]]) -> None:
                     _render_suggested_answer(question.get("suggested_answer"))
 
                     evidence = question.get("recommended_evidence") or []
-                    if evidence:
-                        st.markdown("Рекомендуемые STAR-доказательства")
-                        for item in evidence:
-                            st.markdown(
-                                f"- {item.get('title')}: {_format_score(item.get('score'))}"
-                            )
-                            reason = item.get("reason")
-                            if reason:
-                                st.caption(reason)
-                    else:
-                        st.caption("Пока не привязано подтверждённое доказательство.")
+                    with st.expander("Почему система предлагает этот пример", expanded=False):
+                        if evidence:
+                            for item in evidence:
+                                fact_status = _fact_status_badge(item.get("fact_status"))
+                                st.markdown(
+                                    f"- {fact_status} · {item.get('title')}"
+                                )
+                                reason = item.get("reason")
+                                if reason:
+                                    st.caption(_humanize_reason(reason))
+                        else:
+                            st.caption("Пока не привязано подтверждённое доказательство.")
 
 
 def _render_question_supporting_evidence(
@@ -358,39 +410,37 @@ def _render_question_supporting_evidence(
 
     for item in recommended:
         evidence_id = str(item.get("achievement_id") or "").strip()
-        title = str(item.get("title") or "Evidence").strip()
+        title = str(item.get("title") or "Подтверждающий опыт").strip()
         reason = str(item.get("reason") or "").strip() or "—"
         score = _format_score(item.get("score"))
 
         with st.container(border=True):
             st.markdown(f"**{title}**")
-            st.caption(f"evidence_id: {evidence_id or '—'}")
-            st.caption(f"причина: {reason}")
-            st.caption(f"оценка: {score}")
+            st.caption(f"Почему это поможет в ответе: {_humanize_reason(reason)}")
 
             if not evidence_id:
-                st.caption("ID доказательства для поиска сниппета недоступен.")
+                st.caption("Детали этого доказательства пока недоступны.")
                 continue
 
             try:
                 snippet = client.get_evidence_snippet(evidence_id, token=token)
             except httpx.HTTPStatusError as exc:
-                st.caption(f"Поиск сниппета не удался: HTTP {exc.response.status_code}")
+                st.caption(f"Не удалось загрузить детали доказательства: HTTP {exc.response.status_code}")
                 continue
             except httpx.RequestError as exc:
-                st.caption(f"Поиск сниппета не удался: {exc}")
+                st.caption(f"Не удалось загрузить детали доказательства: {exc}")
                 continue
             except ValueError as exc:
-                st.caption(f"Поиск сниппета не удался: {exc}")
+                st.caption(f"Не удалось загрузить детали доказательства: {exc}")
                 continue
 
             if not isinstance(snippet, dict):
-                st.caption("Поиск сниппета вернул неожиданный payload.")
+                st.caption("Backend вернул неожиданные детали доказательства.")
                 continue
 
             fact_status = snippet.get("fact_status") or "—"
             strength = snippet.get("evidence_strength") or "—"
-            st.caption(f"статус факта: {fact_status} · сила: {strength}")
+            st.caption(f"{_fact_status_badge(str(fact_status))} · {_humanize_strength(strength)}")
 
             star_summary = snippet.get("star_summary") or snippet.get("star_summary_json") or {}
             if isinstance(star_summary, dict) and star_summary:
@@ -417,12 +467,10 @@ def _render_evidence_links(evidence_links: list[dict[str, Any]]) -> None:
     for item in evidence_links:
         rows.append(
             {
-                "Question": str(item.get("question_category") or "—"),
                 "Вопрос": str(item.get("question_category") or "—"),
                 "Компетенция": item.get("competency_key") or "—",
                 "Достижение": item.get("achievement_title") or "—",
-                "Оценка": _format_score(item.get("score")),
-                "Причина": item.get("reason") or "—",
+                "Почему подходит": _humanize_reason(item.get("reason")),
             }
         )
 
@@ -470,8 +518,10 @@ def _render_create_action(
         st.warning("У текущего отклика нет id.")
         return
 
-    st.caption(f"application_id: {application_id}")
-    st.caption(f"vacancy_id: {application.get('vacancy_id')}")
+    st.caption("Сессия будет связана с текущим откликом.")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"application_id: {application_id}")
+        st.caption(f"vacancy_id: {application.get('vacancy_id')}")
 
     button_key = f"{selection_state_key}_create_interview_prep_session"
 
@@ -500,7 +550,7 @@ def _render_create_action(
             return
 
         if not isinstance(session, dict):
-            st.error("Backend вернул неожиданный payload сессии")
+            st.error("Backend вернул неожиданный формат сессии")
             st.json(session)
             return
 
@@ -580,7 +630,7 @@ def render_interview_prep_workspace_tab(
         )
 
     if not normalized_sessions:
-        st.warning("Не найдено валидных ID сессий подготовки.")
+        st.warning("Не найдено доступных сессий подготовки.")
         return
 
     total_count = len(normalized_sessions)
@@ -610,12 +660,16 @@ def render_interview_prep_workspace_tab(
             f"{average_readiness} / 100" if average_readiness is not None else "—",
         )
 
+    session_display_names = {
+        item.session_id: f"Сессия подготовки {idx}"
+        for idx, item in enumerate(normalized_sessions, start=1)
+    }
+
     rows = [
         {
-            "Сессия": item.session_id[:8],
-            "Отклик": item.application_id[:8] if item.application_id else "—",
-            "Вакансия": item.vacancy_id[:8] if item.vacancy_id else "—",
-            "Статус": item.prep_status,
+            "Сессия": session_display_names[item.session_id],
+            "Отклик": "текущий" if item.application_id else "—",
+            "Статус": _humanize_prep_status(item.prep_status),
             "Готовность": _format_score(item.readiness_score),
         }
         for item in normalized_sessions
@@ -625,8 +679,9 @@ def render_interview_prep_workspace_tab(
     options = [item.session_id for item in normalized_sessions]
     labels = {
         item.session_id: (
-            f"{item.prep_status} · {item.session_id[:8]} · "
-            f"отклик {item.application_id[:8] if item.application_id else '—'}"
+            f"{session_display_names[item.session_id]} · "
+            f"{_humanize_prep_status(item.prep_status)} · "
+            f"{_format_score(item.readiness_score)}"
         )
         for item in normalized_sessions
     }
@@ -659,18 +714,21 @@ def render_interview_prep_workspace_tab(
         return
 
     if not isinstance(selected_session, dict):
-        st.error("Backend вернул неожиданный payload сессии")
+        st.error("Backend вернул неожиданный формат сессии")
         st.json(selected_session)
         return
 
-    st.markdown("### Детали сессии")
-    st.caption(
-        f"id: {selected_session.get('id')} · "
-        f"application_id: {selected_session.get('application_id')} · "
-        f"vacancy_id: {selected_session.get('vacancy_id')} · "
-        f"prep_status: {selected_session.get('prep_status')} · "
-        f"readiness_score: {selected_session.get('readiness_score')}"
-    )
+    st.markdown("### Сессия подготовки")
+    st.caption(f"Статус: {_humanize_prep_status(selected_session.get('prep_status'))}")
+    st.caption(f"Готовность: {_format_score(selected_session.get('readiness_score'))}")
+    st.caption("Связана с текущим откликом")
+
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"id: {selected_session.get('id')}")
+        st.caption(f"application_id: {selected_session.get('application_id')}")
+        st.caption(f"vacancy_id: {selected_session.get('vacancy_id')}")
+        st.caption(f"prep_status: {selected_session.get('prep_status')}")
+        st.caption(f"readiness_score: {selected_session.get('readiness_score')}")
 
     _render_readiness_panel(selected_session.get("readiness"))
     st.divider()

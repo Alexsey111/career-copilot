@@ -13,6 +13,31 @@ from components import (
 )
 
 
+def _humanize_application_status(value: object) -> str:
+    status = str(value or "").strip().lower()
+    labels = {
+        "draft": "черновик",
+        "ready": "готов к ручной отправке",
+        "applied": "отправлен",
+        "review_required": "требует проверки",
+        "rejected": "отклонён",
+        "archived": "архив",
+    }
+    return labels.get(status, status or "—")
+
+
+def _humanize_review_status(value: object) -> str:
+    status = str(value or "").strip().lower()
+    labels = {
+        "draft": "черновик",
+        "review_required": "требует проверки",
+        "reviewed": "проверен",
+        "approved": "утверждён",
+        "archived": "архив",
+    }
+    return labels.get(status, status or "—")
+
+
 def _scroll_to_step9_top() -> None:
     st_components.html(
         """
@@ -69,7 +94,9 @@ def _render_resume_provenance_preview(
     try:
         summary = client.get_document_review_summary(document_id, token=token)
     except Exception as exc:
-        st.caption(f"Document provenance preview пока недоступен: {exc}")
+        st.caption("Информация об использованных доказательствах пока недоступна.")
+        with st.expander("Технические детали", expanded=False):
+            st.code(str(exc))
         return
 
     if not isinstance(summary, dict):
@@ -103,11 +130,12 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
         st.json(vacancy)
         return
 
-    st.caption(f"vacancy_id: {vacancy_id}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"vacancy_id: {vacancy_id}")
 
     match_score = vacancy_analysis.get("match_score")
     if match_score is not None:
-        st.metric("Match score перед генерацией", match_score)
+        st.metric("Совпадение перед генерацией", match_score)
 
     st.warning(
         "Резюме будет создано как draft. Перед использованием его нужно проверить и подтвердить человеком."
@@ -148,15 +176,19 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
         resume = st.session_state.generated_resume
 
         st.markdown("### Сгенерированное резюме")
-        st.json(
-            {
-                "document_id": resume.get("document_id"),
-                "vacancy_id": resume.get("vacancy_id"),
-                "review_status": resume.get("review_status"),
-                "version_label": resume.get("version_label"),
-                "created_at": resume.get("created_at"),
-            }
-        )
+        st.caption(f"Статус: {_humanize_review_status(resume.get('review_status'))}")
+        if resume.get("version_label"):
+            st.caption(f"Версия: {resume.get('version_label')}")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "document_id": resume.get("document_id"),
+                    "vacancy_id": resume.get("vacancy_id"),
+                    "review_status": resume.get("review_status"),
+                    "version_label": resume.get("version_label"),
+                    "created_at": resume.get("created_at"),
+                }
+            )
 
         document_id = resume.get("document_id")
         if document_id:
@@ -178,7 +210,7 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
 
         review_status = resume.get("review_status")
         if review_status == "draft":
-            st.info("Статус документа: draft. Следующий шаг — проверка и подтверждение.")
+            st.info("Статус документа: черновик. Следующий шаг — проверка и подтверждение.")
 
 
 def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -205,11 +237,12 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
         st.json(vacancy)
         return
 
-    st.caption(f"vacancy_id: {vacancy_id}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"vacancy_id: {vacancy_id}")
 
     match_score = vacancy_analysis.get("match_score")
     if match_score is not None:
-        st.metric("Match score перед генерацией письма", match_score)
+        st.metric("Совпадение перед генерацией письма", match_score)
 
     st.warning(
         "Письмо будет создано как draft. Перед отправкой его нужно проверить и подтвердить человеком."
@@ -253,15 +286,19 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
         letter = st.session_state.generated_cover_letter
 
         st.markdown("### Сгенерированное сопроводительное письмо")
-        st.json(
-            {
-                "document_id": letter.get("document_id"),
-                "vacancy_id": letter.get("vacancy_id"),
-                "review_status": letter.get("review_status"),
-                "version_label": letter.get("version_label"),
-                "created_at": letter.get("created_at"),
-            }
-        )
+        st.caption(f"Статус: {_humanize_review_status(letter.get('review_status'))}")
+        if letter.get("version_label"):
+            st.caption(f"Версия: {letter.get('version_label')}")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "document_id": letter.get("document_id"),
+                    "vacancy_id": letter.get("vacancy_id"),
+                    "review_status": letter.get("review_status"),
+                    "version_label": letter.get("version_label"),
+                    "created_at": letter.get("created_at"),
+                }
+            )
 
         preview = letter.get("rendered_text_preview")
         if preview:
@@ -293,7 +330,7 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
 
         review_status = letter.get("review_status")
         if review_status == "draft":
-            st.info("Статус документа: draft. Следующий шаг — проверка и подтверждение.")
+            st.info("Статус документа: черновик. Следующий шаг — проверка и подтверждение.")
 
 
 def render_document_approval_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -344,7 +381,7 @@ def render_document_approval_step(client: CareerCopilotApiClient, token: str | N
 
 
 def render_application_creation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("10. Создание записи отклика")
+    st.subheader("10. Сохранить отклик в трекере")
 
     vacancy = st.session_state.vacancy
     if not vacancy:
@@ -398,9 +435,10 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
             "Отклик будет создан с пометкой review_required."
         )
 
-    st.caption(f"vacancy_id: {vacancy_id}")
-    st.caption(f"resume_document_id: {resume_document_id}")
-    st.caption(f"cover_letter_document_id: {cover_letter_document_id}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"vacancy_id: {vacancy_id}")
+        st.caption(f"resume_document_id: {resume_document_id}")
+        st.caption(f"cover_letter_document_id: {cover_letter_document_id}")
 
     st.warning(
         "Будет создана только внутренняя запись отклика в статусе draft. "
@@ -413,7 +451,7 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
         height=90,
     )
 
-    if st.button("Создать запись отклика", type="primary", use_container_width=True):
+    if st.button("Сохранить отклик в трекере", type="primary", use_container_width=True):
         try:
             result = client.post_json("/applications",
                 {
@@ -446,7 +484,7 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
             return
 
         st.session_state.application = result
-        st.success("Запись отклика создана")
+        st.success("Отклик сохранён в трекере")
 
         if result.get("review_required"):
             st.warning("Не финализировано / требуется review.")
@@ -464,23 +502,28 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
     if st.session_state.application:
         application = st.session_state.application
 
-        st.markdown("### Созданная запись отклика")
-        st.json(
-            {
-                "application_id": application.get("id"),
-                "vacancy_id": application.get("vacancy_id"),
-                "resume_document_id": application.get("resume_document_id"),
-                "cover_letter_document_id": application.get("cover_letter_document_id"),
-                "status": application.get("status"),
-                "source": application.get("source"),
-                "applied_at": application.get("applied_at"),
-                "review_required": application.get("review_required"),
-                "review_blockers": application.get("review_blockers"),
-                "review_warnings": application.get("review_warnings"),
-                "notes": application.get("notes"),
-                "created_at": application.get("created_at"),
-            }
-        )
+        st.markdown("### Отклик в трекере")
+        st.caption(f"Статус: {_humanize_application_status(application.get('status'))}")
+        if application.get("notes"):
+            st.caption(f"Заметка: {application.get('notes')}")
+        if application.get("review_required"):
+            st.warning("Отклик требует проверки перед отправкой.")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "application_id": application.get("id"),
+                    "vacancy_id": application.get("vacancy_id"),
+                    "resume_document_id": application.get("resume_document_id"),
+                    "cover_letter_document_id": application.get("cover_letter_document_id"),
+                    "status": application.get("status"),
+                    "source": application.get("source"),
+                    "applied_at": application.get("applied_at"),
+                    "review_required": application.get("review_required"),
+                    "review_blockers": application.get("review_blockers"),
+                    "review_warnings": application.get("review_warnings"),
+                    "created_at": application.get("created_at"),
+                }
+            )
 
         if application.get("status") == "draft":
             st.info(
@@ -490,16 +533,16 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
 
 
 def render_application_status_update_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("11. Отметка ручной отправки отклика")
+    st.subheader("11. Я отправил отклик вручную")
 
     application = st.session_state.application
     if not application:
-        st.info("Сначала создайте запись отклика на шаге 10.")
+        st.info("Сначала сохраните отклик в трекере на шаге 10.")
         return
 
     application_id = application.get("id")
     if not application_id:
-        st.error("В записи отклика не найден application_id.")
+        st.error("В отклике не найден application_id.")
         st.json(application)
         return
 
@@ -515,8 +558,10 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
         pass
 
     current_status = application.get("status")
-    st.caption(f"application_id: {application_id}")
-    st.caption(f"current_status: {current_status}")
+    st.caption(f"Текущий статус: {_humanize_application_status(current_status)}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"application_id: {application_id}")
+        st.caption(f"current_status: {current_status}")
 
     try:
         workflow = client.get_json(f"/applications/{application_id}/workflow", token=token)
@@ -591,14 +636,18 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
 
     if current_status == "applied":
         st.success("Отклик уже отмечен как отправленный.")
-        st.json(
-            {
-                "application_id": application.get("id"),
-                "status": application.get("status"),
-                "applied_at": application.get("applied_at"),
-                "notes": application.get("notes"),
-            }
-        )
+        if application.get("applied_at"):
+            st.caption(f"Дата отправки: {application.get('applied_at')}")
+        if application.get("notes"):
+            st.caption(f"Заметка: {application.get('notes')}")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "application_id": application.get("id"),
+                    "status": application.get("status"),
+                    "applied_at": application.get("applied_at"),
+                }
+            )
         return
 
     if not workflow.get("can_submit"):
@@ -624,7 +673,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
     )
 
     if st.button(
-        "Отметить как отправленный вручную",
+        "Я отправил отклик вручную",
         type="primary",
         use_container_width=True,
     ):
@@ -668,44 +717,53 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
         updated_application = st.session_state.application
 
         st.markdown("### Текущий статус отклика")
-        st.json(
-            {
-                "application_id": updated_application.get("id"),
-                "vacancy_id": updated_application.get("vacancy_id"),
-                "status": updated_application.get("status"),
-                "applied_at": updated_application.get("applied_at"),
-                "notes": updated_application.get("notes"),
-                "updated_at": updated_application.get("updated_at"),
-            }
-        )
+        st.caption(f"Статус: {_humanize_application_status(updated_application.get('status'))}")
+        if updated_application.get("applied_at"):
+            st.caption(f"Дата отправки: {updated_application.get('applied_at')}")
+        if updated_application.get("notes"):
+            st.caption(f"Заметка: {updated_application.get('notes')}")
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "application_id": updated_application.get("id"),
+                    "vacancy_id": updated_application.get("vacancy_id"),
+                    "status": updated_application.get("status"),
+                    "applied_at": updated_application.get("applied_at"),
+                    "updated_at": updated_application.get("updated_at"),
+                }
+            )
 
 
 def render_application_tracking_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("12. Трекинг отклика")
+    st.subheader("12. Статус отклика")
 
     application = st.session_state.application
     if not application:
-        st.info("Сначала создайте запись отклика на шаге 10.")
+        st.info("Сначала сохраните отклик в трекере на шаге 10.")
         return
 
     application_id = application.get("id")
     if not application_id:
-        st.error("В записи отклика не найден application_id.")
+        st.error("В отклике не найден application_id.")
         st.json(application)
         return
 
-    st.caption(f"application_id: {application_id}")
-    st.json(
-        {
-            "status": application.get("status"),
-            "review_required": application.get("review_required"),
-            "review_blockers": application.get("review_blockers"),
-            "review_warnings": application.get("review_warnings"),
-            "resume_document_id": application.get("resume_document_id"),
-            "cover_letter_document_id": application.get("cover_letter_document_id"),
-            "updated_at": application.get("updated_at"),
-        }
-    )
+    st.caption(f"Статус: {_humanize_application_status(application.get('status'))}")
+    if application.get("review_required"):
+        st.warning("Отклик требует проверки.")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"application_id: {application_id}")
+        st.json(
+            {
+                "status": application.get("status"),
+                "review_required": application.get("review_required"),
+                "review_blockers": application.get("review_blockers"),
+                "review_warnings": application.get("review_warnings"),
+                "resume_document_id": application.get("resume_document_id"),
+                "cover_letter_document_id": application.get("cover_letter_document_id"),
+                "updated_at": application.get("updated_at"),
+            }
+        )
 
     try:
         timeline = client.get_json(f"/applications/{application_id}/timeline", token=token)
@@ -731,7 +789,7 @@ def render_interview_preparation_step(client: CareerCopilotApiClient, token: str
 
     application = st.session_state.application
     if not application:
-        st.info("Сначала создайте запись отклика на шаге 10.")
+        st.info("Сначала сохраните отклик в трекере на шаге 10.")
         return
 
     if application.get("status") != "applied":
@@ -741,8 +799,10 @@ def render_interview_preparation_step(client: CareerCopilotApiClient, token: str
         )
         return
 
-    st.caption(f"application_id: {application.get('id')}")
-    st.caption(f"vacancy_id: {application.get('vacancy_id')}")
+    st.caption("Подготовка будет связана с текущим откликом.")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"application_id: {application.get('id')}")
+        st.caption(f"vacancy_id: {application.get('vacancy_id')}")
 
     render_interview_prep_workspace_tab(
         client,

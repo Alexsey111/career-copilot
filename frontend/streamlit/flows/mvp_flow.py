@@ -26,12 +26,72 @@ from flows.vacancy_flow import (
 )
 
 
+def _status_label(done: bool, warning: bool, label: str) -> str:
+    if done:
+        return f"✓ {label}"
+    if warning:
+        return f"⚠ {label}"
+    return f"□ {label}"
+
+
+def _render_workflow_status_strip() -> None:
+    application = st.session_state.get("application") or {}
+    app_status = str(application.get("status") or "").strip().lower()
+    achievements = st.session_state.get("achievements") or []
+    confirmed_count = sum(
+        1
+        for item in achievements
+        if isinstance(item, dict)
+        and str(item.get("fact_status") or "").strip().lower() == "confirmed"
+    )
+    needs_confirmation_count = sum(
+        1
+        for item in achievements
+        if isinstance(item, dict)
+        and str(item.get("fact_status") or "").strip().lower()
+        in {"needs_confirmation", "partial", "unverified"}
+    )
+
+    statuses = [
+        _status_label(bool(st.session_state.get("resume_import")), False, "Резюме загружено"),
+        _status_label(bool(st.session_state.get("github_import_notice")), False, "GitHub импортирован"),
+        _status_label(confirmed_count > 0, needs_confirmation_count > 0, "Факты подтверждены"),
+        _status_label(bool(st.session_state.get("vacancy_analysis")), False, "Вакансия проанализирована"),
+        _status_label(bool(st.session_state.get("generated_resume")), False, "Резюме сгенерировано"),
+        _status_label(
+            bool(st.session_state.get("approved_cover_letter")),
+            bool(st.session_state.get("generated_cover_letter")),
+            "Письмо подготовлено",
+        ),
+        _status_label(app_status == "applied", app_status in {"draft", "ready"}, "Отклик отправлен"),
+        _status_label(
+            bool(st.session_state.get("interview_prep_workspace_flow_selection")),
+            False,
+            "Подготовка к интервью",
+        ),
+    ]
+
+    st.markdown("### Статус сценария")
+    cols = st.columns(4)
+    for index, status in enumerate(statuses):
+        with cols[index % 4]:
+            if status.startswith("✓"):
+                st.success(status)
+            elif status.startswith("⚠"):
+                st.warning(status)
+            else:
+                st.info(status)
+
+
 def render_mvp_flow(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("MVP-сценарий")
 
     if not token:
         st.warning("Войдите или зарегистрируйтесь, чтобы пройти MVP-сценарий.")
         return
+
+    _render_workflow_status_strip()
+    st.divider()
 
     render_resume_upload_step(client, token=token)
 

@@ -178,8 +178,10 @@ def render_career_strategy_workspace_tab(
         if exc.response.status_code == 404:
             st.info("Карьерные инсайты доступны после появления профиля, вакансии, доказательств и отклика.")
         else:
-            st.error(f"Backend returned HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
+            st.error("Карьерные инсайты временно недоступны.")
+            with st.expander("Технические детали", expanded=False):
+                st.caption(f"HTTP {exc.response.status_code}")
+                st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
         st.error("Не удалось подключиться к backend")
@@ -191,8 +193,9 @@ def render_career_strategy_workspace_tab(
         return
 
     if not isinstance(summary, dict):
-        st.error("Backend вернул неожиданный payload карьерных инсайтов")
-        st.json(summary)
+        st.error("Backend вернул неожиданный формат карьерных инсайтов")
+        with st.expander("Технические детали", expanded=False):
+            st.json(summary)
         return
 
     col_gaps, col_evidence, col_apps = st.columns(3)
@@ -216,4 +219,18 @@ def render_career_strategy_workspace_tab(
     sample = summary.get("vacancy_intelligence_sample") or []
     if sample:
         with st.expander("Пример анализа вакансии", expanded=False):
-            st.json(sample)
+            rows = []
+            for item in sample:
+                if not isinstance(item, dict):
+                    continue
+                rows.append(
+                    {
+                        "Вакансия": item.get("title") or item.get("vacancy_title") or "—",
+                        "Совпадение": item.get("overall_fit_score") or item.get("match_score") or "—",
+                        "Рекомендация": item.get("readiness_recommendation") or "—",
+                    }
+                )
+            if rows:
+                st.dataframe(rows, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Пример недоступен в табличном виде.")

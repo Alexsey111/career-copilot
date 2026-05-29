@@ -224,7 +224,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         options=application_ids,
         format_func=lambda value: (
             f"{status_labels.get(applications_by_id[value].get('status'), applications_by_id[value].get('status'))} "
-            f"· {value[:8]} "
+            f"· {format_vacancy_title(applications_by_id[value].get('vacancy_title'))} "
             f"· {applications_by_id[value].get('created_at') or ''}"
         ),
     )
@@ -253,21 +253,27 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         return
 
     st.markdown("### Детали отклика")
-    st.json(
-        {
-            "application_id": selected_application.get("id"),
-            "vacancy_id": selected_application.get("vacancy_id"),
-            "resume_document_id": selected_application.get("resume_document_id"),
-            "cover_letter_document_id": selected_application.get("cover_letter_document_id"),
-            "status": selected_application.get("status"),
-            "source": selected_application.get("source"),
-            "applied_at": selected_application.get("applied_at"),
-            "outcome": selected_application.get("outcome"),
-            "notes": selected_application.get("notes"),
-            "created_at": selected_application.get("created_at"),
-            "updated_at": selected_application.get("updated_at"),
-        }
-    )
+    st.caption(f"Статус: {format_application_status(selected_application.get('status'))}")
+    st.caption(f"Вакансия: {format_vacancy_title(selected_application.get('vacancy_title'))}")
+    st.caption(f"Компания: {format_vacancy_company(selected_application.get('vacancy_company'))}")
+    if selected_application.get("applied_at"):
+        st.caption(f"Дата отправки: {format_optional_datetime(selected_application.get('applied_at'))}")
+    if selected_application.get("notes"):
+        st.caption(f"Заметки: {selected_application.get('notes')}")
+    with st.expander("Технические детали", expanded=False):
+        st.json(
+            {
+                "application_id": selected_application.get("id"),
+                "vacancy_id": selected_application.get("vacancy_id"),
+                "resume_document_id": selected_application.get("resume_document_id"),
+                "cover_letter_document_id": selected_application.get("cover_letter_document_id"),
+                "status": selected_application.get("status"),
+                "source": selected_application.get("source"),
+                "outcome": selected_application.get("outcome"),
+                "created_at": selected_application.get("created_at"),
+                "updated_at": selected_application.get("updated_at"),
+            }
+        )
 
     vacancy_id_for_fit = str(selected_application.get("vacancy_id") or "").strip()
     if vacancy_id_for_fit:
@@ -336,29 +342,27 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
     def _render_activity_meta(meta_json: dict[str, object] | None) -> None:
         if not meta_json:
-            st.caption("мета: —")
             return
 
-        important_keys = [
-            "vacancy_id",
-            "resume_document_id",
-            "cover_letter_document_id",
-            "previous_status",
-            "new_status",
-            "source",
-            "external_link",
-            "applied_at",
-        ]
-        important_parts = []
-        for key in important_keys:
-            value = meta_json.get(key)
-            if value not in (None, "", []):
-                important_parts.append(f"{key}={value}")
+        visible_parts = []
+        if meta_json.get("previous_status") or meta_json.get("new_status"):
+            visible_parts.append(
+                "статус: "
+                f"{format_application_status(meta_json.get('previous_status'))} → "
+                f"{format_application_status(meta_json.get('new_status'))}"
+            )
+        if meta_json.get("source"):
+            visible_parts.append(f"источник: {meta_json.get('source')}")
+        if meta_json.get("external_link"):
+            visible_parts.append("есть внешняя ссылка")
+        if meta_json.get("applied_at"):
+            visible_parts.append(f"отправлено: {format_optional_datetime(meta_json.get('applied_at'))}")
 
-        if important_parts:
-            st.caption("мета: " + ", ".join(important_parts))
-        else:
-            st.caption("мета: " + ", ".join(f"{key}={value}" for key, value in meta_json.items()))
+        if visible_parts:
+            st.caption(" · ".join(visible_parts))
+
+        with st.expander("Технические детали", expanded=False):
+            st.json(meta_json)
 
     if activity_log:
         for item in activity_log:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import streamlit as st
 
@@ -40,13 +42,77 @@ def _vacancy_source_label(source: str | None) -> str:
     return str(source or "—")
 
 
+def _humanize_fact_status(value: object) -> str:
+    status = str(value or "").strip().lower()
+    return {
+        "confirmed": "Подтверждено пользователем",
+        "user_provided": "Есть в резюме/профиле",
+        "needs_confirmation": "Требует подтверждения",
+        "partial": "Подтверждено частично",
+        "rejected": "Отклонено",
+        "unverified": "Требует проверки",
+    }.get(status, "Требует проверки")
+
+
+def _humanize_strength(value: object) -> str:
+    strength = str(value or "").strip().lower()
+    return {
+        "strong": "сильное подтверждение",
+        "medium": "частичное подтверждение",
+        "weak": "слабое подтверждение",
+    }.get(strength, "требует проверки")
+
+
+def _humanize_requirement_reason(reason: object) -> str:
+    text = str(reason or "").strip()
+    if not text or text == "—":
+        return "Система сопоставила требование вакансии с подтверждённым опытом."
+
+    confirmed = re.match(r"Confirmed evidence found:\s*(.+?)\s*\(([^,]+),\s*([^)]+)\)\.", text)
+    partial = re.match(r"Partial evidence found:\s*(.+?)\s*\(([^,]+),\s*([^)]+)\)\.", text)
+    if confirmed or partial:
+        match = confirmed or partial
+        title = match.group(1)
+        strength = _humanize_strength(match.group(2))
+        status = _humanize_fact_status(match.group(3))
+        prefix = "Почему система считает это подтверждённым"
+        if partial:
+            prefix = "Почему система считает это частично подтверждённым"
+        return f"{prefix}: {title} — {strength}, {status}."
+
+    if text == "No matching confirmed evidence found.":
+        return "Подтверждённого опыта по этому требованию пока не найдено."
+
+    return text
+
+
+def _render_fit_summary(coverage: dict) -> None:
+    strong = coverage.get("strong") or []
+    medium = coverage.get("medium") or []
+    missing = coverage.get("missing") or []
+
+    st.markdown("#### Почему система считает вас релевантным")
+    if not strong and not medium and not missing:
+        st.caption("Сопоставление с доказательствами пока недоступно.")
+        return
+
+    for item in strong[:4]:
+        st.markdown(f"✓ Есть подтверждённый опыт: {item.get('requirement') or 'требование вакансии'}")
+    for item in medium[:3]:
+        st.markdown(f"⚠ Требует дополнительного подтверждения: {item.get('requirement') or 'требование вакансии'}")
+    for item in missing[:3]:
+        st.markdown(f"✕ Нет подтверждённого опыта: {item.get('requirement') or 'требование вакансии'}")
+
+
 def _render_vacancy_import_status(notice: dict) -> None:
     st.success("✅ Вакансия успешно импортирована")
     st.markdown(f"**Источник:** {_vacancy_source_label(notice.get('source'))}")
-    st.markdown(f"**ID:** {notice.get('vacancy_id') or '—'}")
     st.markdown(f"**Название:** {notice.get('title') or '—'}")
     st.markdown(f"**Компания:** {notice.get('company') or '—'}")
     st.markdown(f"**Длина текста:** {notice.get('description_length') or 0}")
+
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"vacancy_id: {notice.get('vacancy_id') or '—'}")
 
 
 def _render_hh_vacancy_import(client: CareerCopilotApiClient, token: str | None) -> None:
@@ -350,18 +416,22 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
         vacancy = st.session_state.vacancy
 
         st.markdown("### Импортированная вакансия")
-        st.json(
-            {
-                "vacancy_id": vacancy.get("vacancy_id"),
-                "id": vacancy.get("id"),
-                "source": vacancy.get("source"),
-                "source_url": vacancy.get("source_url"),
-                "title": vacancy.get("title"),
-                "company": vacancy.get("company"),
-                "location": vacancy.get("location"),
-                "description_length": vacancy.get("description_length"),
-            }
-        )
+        st.markdown(f"**Название:** {vacancy.get('title') or '—'}")
+        st.markdown(f"**Компания:** {vacancy.get('company') or '—'}")
+        if vacancy.get("location"):
+            st.markdown(f"**Локация:** {vacancy.get('location')}")
+        st.caption(f"Источник: {_vacancy_source_label(vacancy.get('source'))}")
+
+        with st.expander("Технические детали", expanded=False):
+            st.json(
+                {
+                    "vacancy_id": vacancy.get("vacancy_id"),
+                    "id": vacancy.get("id"),
+                    "source": vacancy.get("source"),
+                    "source_url": vacancy.get("source_url"),
+                    "description_length": vacancy.get("description_length"),
+                }
+            )
 
 
 def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -378,7 +448,8 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
         st.json(vacancy)
         return
 
-    st.caption(f"vacancy_id: {vacancy_id}")
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"vacancy_id: {vacancy_id}")
 
     if st.button("Проанализировать вакансию", type="primary", use_container_width=True):
         try:
@@ -418,7 +489,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
         col_left, col_right, col_center = st.columns(3)
 
         with col_left:
-            st.metric("Match score", analysis.get("match_score"))
+            st.metric("Совпадение", analysis.get("match_score"))
 
         with col_center:
             st.metric("Must-have", len(analysis.get("must_have") or []))
@@ -426,8 +497,9 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
         with col_right:
             st.metric("Nice-to-have", len(analysis.get("nice_to_have") or []))
 
-        st.caption(f"analysis_id: {analysis.get('analysis_id')}")
-        st.caption(f"analysis_version: {analysis.get('analysis_version')}")
+        with st.expander("Технические детали", expanded=False):
+            st.caption(f"analysis_id: {analysis.get('analysis_id')}")
+            st.caption(f"analysis_version: {analysis.get('analysis_version')}")
 
         must_have = analysis.get("must_have") or []
         nice_to_have = analysis.get("nice_to_have") or []
@@ -462,9 +534,9 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
                     scope = item.get("scope")
                     weight = item.get("weight")
                     evidence = item.get("evidence")
-                    st.success(f"{keyword} / {scope} / weight={weight}")
+                    st.success(f"{keyword}")
                     if evidence:
-                        st.caption(f"evidence: {evidence}")
+                        st.caption(f"Подтверждение: {evidence}")
             else:
                 st.caption("Совпадений не найдено")
 
@@ -476,9 +548,9 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
                     scope = item.get("scope")
                     weight = item.get("weight")
                     reason = item.get("reason")
-                    st.warning(f"{keyword} / {scope} / weight={weight}")
+                    st.warning(f"{keyword}")
                     if reason:
-                        st.caption(f"reason: {reason}")
+                        st.caption(f"Почему важно: {reason}")
             else:
                 st.caption("Критичных gaps не найдено")
 
@@ -523,7 +595,7 @@ def _render_vacancy_intelligence_block(
         return
 
     if not isinstance(fit, dict):
-        st.warning("Анализ вакансии вернул неожиданный payload.")
+        st.warning("Анализ вакансии вернул неожиданный формат.")
         st.json(fit)
         return
 
@@ -551,9 +623,12 @@ def _render_vacancy_intelligence_block(
 
     st.caption(f"Серьёзность пробелов: {gap_severity}")
     if fit.get("analysis_version"):
-        st.caption(f"Версия анализа: {fit.get('analysis_version')}")
+        with st.expander("Технические детали", expanded=False):
+            st.caption(f"analysis_version: {fit.get('analysis_version')}")
 
     coverage = fit.get("evidence_coverage") or {}
+    _render_fit_summary(coverage)
+
     required = coverage.get("required") or []
     if required:
         st.markdown("#### Эта вакансия требует")
@@ -568,10 +643,7 @@ def _render_vacancy_intelligence_block(
 
         for item in items:
             requirement = str(item.get("requirement") or "Requirement")
-            reason = str(item.get("reason") or "—")
-            scope = str(item.get("scope") or "—")
-            severity = str(item.get("severity") or "—")
-            evidence_ids = [str(value) for value in (item.get("evidence_ids") or []) if str(value).strip()]
+            reason = _humanize_requirement_reason(item.get("reason"))
             supporting_evidence = item.get("supporting_evidence") or []
 
             with st.container(border=True):
@@ -581,25 +653,18 @@ def _render_vacancy_intelligence_block(
                     st.warning(requirement)
                 else:
                     st.info(requirement)
-                st.caption(f"scope: {scope} · severity: {severity}")
-                st.caption(f"причина: {reason}")
-                st.caption(
-                    "evidence_ids: " + (", ".join(evidence_ids) if evidence_ids else "—")
-                )
+                st.caption(reason)
 
                 if supporting_evidence:
-                    with st.expander("Поддерживающие доказательства", expanded=False):
+                    with st.expander("Почему система так решила", expanded=False):
                         for evidence in supporting_evidence:
-                            title = str(evidence.get("title") or "Evidence").strip()
-                            evidence_id = str(evidence.get("evidence_id") or "").strip() or "—"
-                            score = evidence.get("score")
+                            title = str(evidence.get("title") or "Подтверждённый опыт").strip()
                             fact_status = str(evidence.get("fact_status") or "—")
                             evidence_strength = str(evidence.get("evidence_strength") or "—")
                             st.markdown(f"**{title}**")
-                            st.caption(f"evidence_id: {evidence_id}")
                             st.caption(
-                                f"оценка: {round(float(score)) if score is not None else '—'} · "
-                                f"статус факта: {fact_status} · сила: {evidence_strength}"
+                                f"{_humanize_fact_status(fact_status)} · "
+                                f"{_humanize_strength(evidence_strength)}"
                             )
                             star_preview = evidence.get("star_preview") or {}
                             if isinstance(star_preview, dict) and star_preview:

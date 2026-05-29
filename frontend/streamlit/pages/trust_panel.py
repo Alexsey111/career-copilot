@@ -26,6 +26,32 @@ from ui.labels import (
     RISK_LEVEL_LABELS,
 )
 
+
+def _source_label(source_type: Any) -> str:
+    source = str(source_type or "").strip().lower()
+    return {
+        "resume": "Резюме",
+        "resume_structured": "Структурированное резюме",
+        "github_repository_analysis": "GitHub-проекты",
+        "github": "GitHub-проекты",
+        "manual": "Ручное подтверждение",
+        "application": "Отклики",
+        "interview": "Подготовка к интервью",
+    }.get(source, str(source_type or "—"))
+
+
+def _fact_status_label(fact_status: Any) -> str:
+    status = str(fact_status or "").strip().lower()
+    return {
+        "confirmed": "Подтверждено",
+        "user_provided": "Есть в профиле",
+        "needs_confirmation": "Требует подтверждения",
+        "partial": "Подтверждено частично",
+        "rejected": "Отклонено",
+        "unverified": "Требует проверки",
+    }.get(status, str(fact_status or "—"))
+
+
 def _normalize_action_group(action: dict[str, Any]) -> str:
     code = str(action.get("code") or "").strip().lower()
     target_type = str(action.get("target_type") or "").strip().lower()
@@ -90,7 +116,8 @@ def _render_action_card(action: dict[str, Any]) -> None:
 
         target_id = str(action.get("target_id") or "").strip()
         if target_id:
-            st.caption(f"{_translate_trust_text('Target id')}: {target_id}")
+            with st.expander("Технические детали", expanded=False):
+                st.caption(f"{_translate_trust_text('Target id')}: {target_id}")
 
 
 def _render_grouped_actions(actions: list[dict[str, Any]]) -> None:
@@ -227,8 +254,7 @@ def render_trust_panel(
                 {
                     "id": document_id,
                     "label": (
-                        f"{_humanize_document_kind_for_trust_panel(source_document.get('document_kind'))} "
-                        f"· {document_id[:8]}"
+                        f"{_humanize_document_kind_for_trust_panel(source_document.get('document_kind'))}"
                     ),
                 }
             )
@@ -306,7 +332,7 @@ def render_trust_panel(
             return
 
         candidates = []
-        for item in sessions:
+        for index, item in enumerate(sessions, start=1):
             if not isinstance(item, dict):
                 continue
             session_id = str(item.get("id") or "").strip()
@@ -316,10 +342,7 @@ def render_trust_panel(
             candidates.append(
                 {
                     "id": session_id,
-                    "label": (
-                        f"{status_label} · "
-                        f"{session_id[:8]} · заявка {str(item.get('application_id') or '')[:8]}"
-                    ),
+                    "label": f"Сессия подготовки {index} · {status_label}",
                 }
             )
 
@@ -356,21 +379,25 @@ def render_trust_panel(
                 token=token,
             )
     except httpx.HTTPStatusError as exc:
-        st.error(f"Backend returned HTTP {exc.response.status_code}")
-        st.code(exc.response.text)
+        st.error("Панель доверия временно недоступна.")
+        with st.expander("Технические детали", expanded=False):
+            st.caption(f"HTTP {exc.response.status_code}")
+            st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
         st.error("Не удалось подключиться к backend")
         st.code(str(exc))
         return
     except ValueError as exc:
-        st.error("Backend returned an unexpected response")
-        st.code(str(exc))
+        st.error("Backend вернул неожиданный ответ.")
+        with st.expander("Технические детали", expanded=False):
+            st.code(str(exc))
         return
 
     if not isinstance(summary, dict):
-        st.error("Backend returned an unexpected review summary payload")
-        st.json(summary)
+        st.error("Backend вернул неожиданный формат summary.")
+        with st.expander("Технические детали", expanded=False):
+            st.json(summary)
         return
 
     provenance = summary.get("provenance_summary") or {}
@@ -387,9 +414,11 @@ def render_trust_panel(
 
     st.markdown(f"### {entity_label}")
     st.caption(
-        f"{ENTITY_TYPE_LABELS.get(entity_type, entity_type)} · {entity_id} · "
+        f"{ENTITY_TYPE_LABELS.get(entity_type, entity_type)} · "
         f"требуется ручная проверка={summary.get('requires_human_review', True)}"
     )
+    with st.expander("Технические детали", expanded=False):
+        st.caption(f"entity_id: {entity_id}")
 
     col_risk, col_ready, col_review, col_confidence = st.columns(4)
     with col_risk:
@@ -485,10 +514,9 @@ def render_trust_panel(
                 continue
             evidence_rows.append(
                 {
-                    "ID": item.get("id") or "—",
                     "Заголовок": item.get("title") or "—",
-                    "Источник": item.get("source_type") or "—",
-                    "Статус факта": item.get("fact_status") or "—",
+                    "Источник": _source_label(item.get("source_type")),
+                    "Статус факта": _fact_status_label(item.get("fact_status")),
                     "Причина": item.get("reason") or "—",
                 }
             )
