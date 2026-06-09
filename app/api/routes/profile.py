@@ -258,6 +258,7 @@ async def import_resume(
             session,
             source_file_id=payload.source_file_id,
             user_id=current_user.id,
+            force_reparse=payload.force_reparse,
         )
         await session.commit()
     except Exception:

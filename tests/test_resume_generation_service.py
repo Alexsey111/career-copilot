@@ -399,7 +399,8 @@ def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
     assert "ЦЕЛЕВАЯ ПОЗИЦИЯ" in rendered
     assert "КРАТКОЕ РЕЗЮМЕ" in rendered
     assert "КЛЮЧЕВЫЕ НАВЫКИ" in rendered
-    assert "РЕЛЕВАНТНЫЕ ПРОЕКТЫ" in rendered
+    assert "КЛЮЧЕВЫЕ ДОСТИЖЕНИЯ" in rendered
+    assert "Создание ИИ-системы для мониторинга безопасности" in rendered
 
     assert "SUMMARY" not in rendered
     assert "SKILLS" not in rendered
@@ -436,17 +437,28 @@ def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
     joined = "\n".join(bullets)
 
     assert "Профессиональный фокус" in joined
-    assert "Python Automation & AI Workflow Engineer" in joined
+    assert "Python Automation & AI Workflow Engineer" not in joined
     assert "devloher" not in joined
     assert "Подтверждённые пересечения" in joined
     assert "Дополнительные навыки" in joined
-    assert "Проектный опыт" in joined
+    assert "Подтверждённый профессиональный опыт" in joined
 
     assert "Candidate profile aligned" not in joined
     assert "Profile-confirmed" not in joined
     assert "Broader skill base" not in joined
     assert "Relevant project experience" not in joined
     assert "Recent role" not in joined
+
+
+def test_normalize_profile_focus_does_not_invent_ai_role_label() -> None:
+    service = ResumeGenerationService()
+
+    focus = service._normalize_profile_focus("Python, automation, prompt engineering, LLM")
+
+    assert focus != "Python Automation & AI Workflow Engineer"
+    assert focus != "AI Automation Engineer / Prompt Engineer"
+    assert "Python" in focus
+    assert "LLM" in focus
 
 
 def test_resume_skill_cleanup_trims_noisy_pdf_layout_fragments() -> None:
@@ -466,6 +478,46 @@ def test_resume_skill_cleanup_trims_noisy_pdf_layout_fragments() -> None:
         "API",
         "SQL",
     ]
+
+
+def test_resume_skill_cleanup_splits_known_multiword_skills() -> None:
+    service = ResumeGenerationService()
+
+    skills = service._split_skill_text(
+        "Гражданское право Договорное право Legal Research Документооборот Арбитраж"
+    )
+
+    assert skills == [
+        "Гражданское право",
+        "Договорное право",
+        "Legal Research",
+        "Документооборот",
+        "Арбитраж",
+    ]
+
+
+def test_resume_skills_prefer_raw_text_section_over_profile_summary() -> None:
+    service = ResumeGenerationService()
+
+    skills = service._extract_skills_from_profile_or_raw_text(
+        profile_summary="Python, LLM, Docker",
+        raw_text="""
+Иван Иванов
+Юрист
+
+НАВЫКИ: Гражданское право Договорное право Арбитраж Документооборот
+""",
+    )
+
+    assert skills == [
+        "Гражданское право",
+        "Договорное право",
+        "Документооборот",
+        "Арбитраж",
+    ]
+    assert "Python" not in skills
+    assert "LLM" not in skills
+    assert "Docker" not in skills
 
 
 def test_resume_filters_low_confidence_experience_from_noisy_layout() -> None:
@@ -762,6 +814,24 @@ def test_resume_competency_mapping_does_not_map_generic_ai_to_prompt_orchestrati
     assert mapping[0]["evidence"] == (
         "Практический опыт с искусственным интеллектом требует отдельного подтверждения"
     )
+
+
+def test_relevant_to_vacancy_does_not_infer_ai_tooling_from_plain_ai_noise() -> None:
+    service = ResumeGenerationService()
+
+    relevant = service._build_relevant_to_vacancy(
+        matched_keywords=[],
+        selected_skills=[],
+        evidence_snippets=[
+            {
+                "title": "Technology stack from resume",
+                "skills": ["AI", "Терапия", "Клиническая диагностика"],
+                "snippet_text": "AI, Терапия, Клиническая диагностика",
+            }
+        ],
+    )
+
+    assert "AI/LLM tooling" not in relevant
 
 
 def test_resume_project_sections_ground_computer_vision_and_analytics() -> None:
@@ -1373,7 +1443,6 @@ Python, Git, Искусственный интеллект, LLM
         "ИИ-анализ отзывов населения",
     ]
     assert all(item["category"] == "internship" for item in internships)
-    assert any("Data Science" in " ".join(item["skills"]) or "AI" in " ".join(item["skills"]) for item in internships)
 
 
 def test_profile_structuring_current_resume_has_three_project_like_internship_items() -> None:
@@ -1716,23 +1785,76 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
     )
 
     summary = tailoring["vacancy_aligned_summary"]
-    assert summary.startswith("Python-разработчик и AI automation engineer")
+    assert summary.startswith("Профессиональный профиль под")
+    assert "Python-разработчик и AI automation engineer" not in summary
     assert "Кандидат на позицию" not in summary
     assert "Workflow automation" in tailoring["relevant_to_vacancy"]
-    assert "Python-based AI systems" in tailoring["relevant_to_vacancy"]
+    assert "Python" in tailoring["relevant_to_vacancy"]
+    assert "Python-based AI systems" not in tailoring["relevant_to_vacancy"]
     assert any(
         item["competency"] == "Prompt engineering"
-        and item["evidence"]
-        == "Проектирование prompt/workflow orchestration для AI-assisted resume tailoring"
+        and "prompt" in (item.get("evidence") or "").lower()
         for item in tailoring["competency_mapping"]
     )
     assert any(
         item["competency"] == "Workflow automation"
-        and item["evidence"]
-        == "Разработка AI workflow pipeline для анализа вакансий и генерации документов"
+        and "workflow" in (item.get("evidence") or "").lower()
         for item in tailoring["competency_mapping"]
     )
     assert all(
         item.get("evidence") != "Technology stack from resume"
         for item in tailoring["competency_mapping"]
     )
+
+
+def test_resume_competency_evidence_does_not_use_private_ai_resume_narrative() -> None:
+    service = ResumeGenerationService()
+
+    prompt_evidence = service._render_competency_evidence(
+        competency="Prompt engineering",
+        evidence={"title": "Prompt workflow", "snippet_text": "prompt workflow", "skills": ["prompt engineering"]},
+    )
+    workflow_evidence = service._render_competency_evidence(
+        competency="Workflow automation",
+        evidence={"title": "Automation workflow", "snippet_text": "workflow automation", "skills": ["automation"]},
+    )
+
+    joined = f"{prompt_evidence} {workflow_evidence}".lower()
+
+    assert "ai-assisted resume tailoring" not in joined
+    assert "анализа вакансий" not in joined
+    assert "генерации документов" not in joined
+    assert "подтверждённом контексте" in joined
+
+
+def test_resume_summary_fallback_is_domain_neutral_for_non_it_roles() -> None:
+    service = ResumeGenerationService()
+
+    summary = service._build_vacancy_aligned_summary(
+        vacancy_title="вакансия терапевт",
+        relevant_to_vacancy=[],
+        selected_achievements=[],
+    )
+
+    lowered = summary.lower()
+    assert "профессиональный профиль" in lowered
+    assert "инженерный профиль" not in lowered
+    assert "прикладные инженерные задачи" not in lowered
+
+
+def test_vacancy_summary_does_not_force_ai_backend_identity_for_non_it_role() -> None:
+    service = ResumeGenerationService()
+
+    summary = service._build_vacancy_aligned_summary(
+        vacancy_title="вакансия терапевт",
+        relevant_to_vacancy=["AI/LLM tooling"],
+        selected_achievements=[],
+    )
+
+    lowered = summary.lower()
+
+    assert "профессиональный профиль" in lowered
+    assert "python-разработчик" not in lowered
+    assert "ai automation engineer" not in lowered
+    assert "backend-сервис" not in lowered
+    assert "ai-assisted workflows" not in lowered

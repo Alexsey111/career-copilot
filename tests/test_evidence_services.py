@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.domain.evidence import extract_skill_tags
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.evidence_strength_service import EvidenceStrengthService
@@ -200,3 +201,9 @@ def test_selection_penalizes_incomplete_star_structure() -> None:
 
     assert [item["evidence_id"] for item in ranked] == ["complete", "incomplete"]
     assert ranked[0]["score"] > ranked[1]["score"]
+
+
+def test_extract_skill_tags_does_not_match_plain_russian_ii_as_ai() -> None:
+    tags = extract_skill_tags("Мы изучали ии в школе", "Обычный русский текст без упоминания технологий.")
+
+    assert "ai" not in tags

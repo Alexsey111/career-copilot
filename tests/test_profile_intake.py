@@ -2,9 +2,20 @@ from __future__ import annotations
 
 import pytest
 
+from app.schemas.profile_import import ResumeImportRequest
+
 
 API_PREFIX = "/api/v1"
 pytestmark = pytest.mark.asyncio
+
+
+async def test_resume_import_request_supports_force_reparse() -> None:
+    payload = ResumeImportRequest(
+        source_file_id="00000000-0000-0000-0000-000000000001",
+        force_reparse=True,
+    )
+
+    assert payload.force_reparse is True
 
 
 async def test_manual_profile_intake_builds_profile_and_evidence_bank(client) -> None:

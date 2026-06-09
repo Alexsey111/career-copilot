@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from app.api.dependencies import get_current_active_user
-from app.domain.evidence import EvidenceSourceType, build_evidence_fingerprint
+from app.domain.evidence import EvidenceSourceType, build_evidence_fingerprint, extract_skill_tags
 from app.models import User
 from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.services.evidence_extraction_service import EvidenceExtractionService
@@ -439,3 +439,9 @@ async def test_get_evidence_insights_api_returns_counts_and_recommendations(
             is_active=True,
             is_verified=True,
         )
+
+
+async def test_extract_skill_tags_does_not_extract_ai_from_russian_medical_words() -> None:
+    tags = extract_skill_tags("Клиническая диагностика пациентов")
+
+    assert "ai" not in tags

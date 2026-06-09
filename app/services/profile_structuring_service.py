@@ -23,7 +23,7 @@ from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryServ
 
 
 DATE_RANGE_RE = re.compile(
-    r"(?P<start>\d{2}\.\d{2}\.\d{4})\s*-\s*(?P<end>по настоящее время|\d{2}\.\d{2}\.\d{4})",
+    r"(?P<start>\d{2}\.\d{2}\.\d{4}|\d{4})\s*[-–—]\s*(?P<end>по настоящее время|\d{2}\.\d{2}\.\d{4}|\d{4})",
     re.IGNORECASE,
 )
 NUMBERED_ITEM_RE = re.compile(r"^\d{1,2}\s*[.)\-–—:]\s+")
@@ -35,6 +35,7 @@ STRUCTURED_V2_SECTION_HEADINGS = {
     "НАВЫКИ",
     "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
     "ОПЫТ РАБОТЫ",
+    "ОПЫТ",
     "ОБРАЗОВАНИЕ",
     "ПРОЕКТЫ",
     "ПОРТФОЛИО",
@@ -206,20 +207,56 @@ class ProfileStructuringService:
         await session.refresh(profile)
         return profile, draft
 
+    def _looks_like_generated_application_document(self, text: str) -> bool:
+        normalized = str(text or "").upper()
+        return any(
+            marker in normalized
+            for marker in (
+                "ЦЕЛЕВАЯ ПОЗИЦИЯ",
+                "КРАТКОЕ РЕЗЮМЕ",
+                "РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ",
+                "КАРТА КОМПЕТЕНЦИЙ",
+                "ПИСЬМО:",
+                "ЗДРАВСТВУЙТЕ!",
+            )
+        )
+
     def _build_draft(
         self,
         text: str,
         *,
         source_file_kind: str | None = None,
     ) -> StructuredProfileDraft:
-        lines = self._clean_lines(text)
         draft = StructuredProfileDraft()
 
+        if self._looks_like_generated_application_document(text):
+            draft.warnings.append(
+                "uploaded document looks like a generated application package, not a source resume"
+            )
+            return draft
+
+        lines = self._split_inline_resume_headings(self._clean_lines(text))
+        compact_name, compact_headline = self._extract_name_and_headline_from_compact_first_line(lines)
+
         draft.full_name = self._extract_full_name(lines)
+        if not draft.full_name and compact_name:
+            draft.full_name = compact_name
+        elif compact_name and (
+            not draft.full_name
+            or (compact_headline and compact_headline.lower() in draft.full_name.lower())
+        ):
+            draft.full_name = compact_name
+
         draft.location = self._extract_location(lines)
         draft.contacts = self._extract_contacts(lines)
         draft.summary = self._extract_skills_summary(lines)
         draft.target_roles = self._extract_target_roles(lines)
+        if not draft.target_roles:
+            inferred_role = self._infer_headline_role_from_top_lines(lines, draft.full_name)
+            if inferred_role:
+                draft.target_roles = [inferred_role]
+        if not draft.target_roles and compact_headline:
+            draft.target_roles = [compact_headline]
         draft.headline = ", ".join(draft.target_roles[:3]) if draft.target_roles else None
         draft.experiences = self._extract_experiences(lines)
         draft.education = self._extract_education(lines)
@@ -229,6 +266,10 @@ class ProfileStructuringService:
             draft,
             source_file_kind=source_file_kind,
         )
+
+        if compact_name and compact_headline and draft.full_name:
+            if compact_headline.lower() in draft.full_name.lower():
+                draft.full_name = compact_name
 
         if not draft.full_name:
             draft.warnings.append("full_name was not extracted confidently")
@@ -922,33 +963,43 @@ class ProfileStructuringService:
 
     def _extract_technology_signals(self, text: str) -> list[str]:
         patterns: list[tuple[str, tuple[str, ...]]] = [
-            ("AI", (r"\bai\b", r"\bии\b", r"искусственн\w+\s+интеллект")),
-            ("LLM", (r"\bllm\b", r"языков\w+\s+модел")),
-            ("ChatGPT", (r"\bchatgpt\b", r"чат[\s-]?gpt")),
-            ("prompt engineering", (r"prompt engineering", r"промпт")),
+            ("AI", (r"\bai\b", r"искусственн\w+\s+интеллект")),
+            ("LLM", ("llm", "языковых модел")),
+            ("ChatGPT", ("chatgpt", "чат-?gpt")),
+            ("prompt engineering", ("prompt engineering", "промпт")),
             (
                 "computer vision",
                 (
-                    r"computer vision",
-                    r"компьютерн\w+\s+зрени",
-                    r"изображени",
-                    r"\bвидео\b",
+                    "computer vision",
+                    "компьютерное зрени",
+                    "изображени",
+                    "видео",
                 ),
             ),
-            ("automation", (r"автоматизац", r"автоматизирован", r"\bautomation\b")),
-            ("workflow", (r"\bworkflow\b", r"процесс", r"пайплайн", r"\bpipeline\b")),
-            ("Python", (r"\bpython\b",)),
-            ("Git", (r"\bgit\b",)),
-            ("API", (r"\bapi\b",)),
-            ("SQL", (r"\bsql\b",)),
-            ("TensorFlow", (r"\btensorflow\b",)),
-            ("neural networks", (r"нейросет", r"neural network")),
+            ("automation", ("автоматизац", "автоматизирован", "automation")),
+            ("workflow", ("workflow", "процесс", "пайплайн", "pipeline")),
+            ("Python", ("python",)),
+            ("Git", ("git",)),
+            ("API", ("api",)),
+            ("SQL", ("sql",)),
+            ("TensorFlow", ("tensorflow",)),
+            ("neural networks", ("нейросет", "neural network")),
+            ("Терапия", ("терап",)),
+            ("Медицинская документация", ("медицинская документаци", "медицинская документ")),
+            ("Клиническая диагностика", ("клиническая диагност",)),
+            ("Электронные медицинские системы", ("электронные медицинск",)),
         ]
         lowered = text.lower()
         found: list[str] = []
         for label, label_patterns in patterns:
             if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in label_patterns):
                 found.append(label)
+
+        inline_skills = self._split_known_inline_skills(text)
+        for skill in inline_skills:
+            if skill not in found:
+                found.append(skill)
+
         return self._dedupe_preserve_order(found)
 
     def _extract_competency_signals(
@@ -1086,7 +1137,26 @@ class ProfileStructuringService:
                     break
                 continue
 
+            if self._looks_like_education_identity_line(line):
+                continue
+
             words = [part for part in re.split(r"\s+", line.strip()) if part]
+
+            if len(candidate_parts) >= 2 and self._normalize_target_role_candidate(line) is not None:
+                break
+
+            if len(words) == 3:
+                first_two = " ".join(words[:2])
+                possible_role = words[2]
+
+                if "-" in possible_role or possible_role.lower() in {
+                    "developer",
+                    "manager",
+                    "юрист",
+                    "терапевт",
+                    "врач",
+                }:
+                    return first_two
 
             if 2 <= len(words) <= 3:
                 return " ".join(words)
@@ -1099,7 +1169,10 @@ class ProfileStructuringService:
                 break
 
         if 2 <= len(candidate_parts) <= 3:
-            return " ".join(candidate_parts)
+            joined = " ".join(candidate_parts)
+            if self._looks_like_education_identity_line(joined):
+                return None
+            return joined
 
         return None
 
@@ -1193,6 +1266,27 @@ class ProfileStructuringService:
                 roles.append(role)
 
         return self._dedupe_preserve_order(roles)[:5]
+
+    def _infer_headline_role_from_top_lines(
+        self,
+        lines: list[str],
+        full_name: str | None,
+    ) -> str | None:
+        if not full_name:
+            return None
+
+        for idx, line in enumerate(lines[:6]):
+            if line.strip() == full_name:
+                for candidate in lines[idx + 1 : idx + 4]:
+                    normalized = self._normalize_heading(candidate)
+                    if normalized in STRUCTURED_V2_SECTION_HEADINGS:
+                        return None
+                    if self._is_contact_or_location_line(candidate):
+                        continue
+                    cleaned = re.sub(r"\s+", " ", candidate.strip())
+                    if 3 <= len(cleaned) <= 80:
+                        return cleaned
+        return None
 
     def _normalize_target_role_candidate(self, value: str) -> str | None:
         cleaned = re.sub(r"^\d+[.)]\s*", "", value.strip())
@@ -1294,8 +1388,14 @@ class ProfileStructuringService:
         section = self._extract_section(
             lines,
             start_heading="ОПЫТ РАБОТЫ",
-            stop_headings={"ОБРАЗОВАНИЕ", "О СЕБЕ", "КУРСЫ", "СТАЖИРОВКИ"},
+            stop_headings={"ОБРАЗОВАНИЕ", "О СЕБЕ", "КУРСЫ", "СТАЖИРОВКИ", "НАВЫКИ", "ДОСТИЖЕНИЯ"},
         )
+        if not section:
+            section = self._extract_section(
+                lines,
+                start_heading="ОПЫТ",
+                stop_headings={"ОБРАЗОВАНИЕ", "О СЕБЕ", "КУРСЫ", "СТАЖИРОВКИ", "НАВЫКИ", "ДОСТИЖЕНИЯ"},
+            )
         if not section:
             return []
 
@@ -1315,16 +1415,41 @@ class ProfileStructuringService:
             if date_line is None:
                 continue
 
-            info_lines = self._clean_experience_info_lines(
-                [line for line in block if line != date_line]
-            )
+            date_match = DATE_RANGE_RE.search(date_line)
+            date_prefix = ""
+            if date_match:
+                date_prefix = date_line[: date_match.start()].strip(" -–—•")
+
+            info_source_lines = [line for line in block if line != date_line]
+            if date_prefix:
+                info_source_lines.append(date_prefix)
+
+            info_lines = self._clean_experience_info_lines(info_source_lines)
             if not info_lines:
                 continue
 
             company, role = self._split_company_and_role(info_lines)
             start_date, end_date = self._parse_date_range(date_line)
 
-            description_raw = " ".join(info_lines).strip() or None
+            responsibility_lines = self._extract_resume_subsection(
+                lines,
+                start_heading="ОБЯЗАННОСТИ",
+                stop_headings={
+                    "ДОСТИЖЕНИЯ",
+                    "НАВЫКИ",
+                    "ОБРАЗОВАНИЕ",
+                    "О СЕБЕ",
+                    "КУРСЫ",
+                    "СТАЖИРОВКИ",
+                    "ПРОЕКТЫ",
+                },
+            )
+
+            description_parts = [
+                *responsibility_lines,
+            ]
+
+            description_raw = "\n".join(description_parts).strip() or " ".join(info_lines).strip() or None
 
             if company and role:
                 experiences.append(
@@ -1529,6 +1654,15 @@ class ProfileStructuringService:
             company, role = combined.split(",", 1)
             return company.strip(), role.strip()
 
+        if len(info_lines) == 1:
+            words = combined.split()
+            for split_index in range(len(words) - 1, 0, -1):
+                company_candidate = " ".join(words[:split_index]).strip()
+                role_candidate = " ".join(words[split_index:]).strip()
+                normalized_role = self._normalize_target_role_candidate(role_candidate)
+                if company_candidate and normalized_role:
+                    return company_candidate, normalized_role
+
         company = info_lines[0].strip()
         role = " ".join(info_lines[1:]).strip()
 
@@ -1542,10 +1676,17 @@ class ProfileStructuringService:
         start_raw = match.group("start")
         end_raw = match.group("end")
 
-        start_date = datetime.strptime(start_raw, "%d.%m.%Y").date()
+        if len(start_raw) == 4 and start_raw.isdigit():
+            start_date = date(int(start_raw), 1, 1)
+        else:
+            start_date = datetime.strptime(start_raw, "%d.%m.%Y").date()
 
         if end_raw.lower() == "по настоящее время":
             return start_date, None
+
+        if len(end_raw) == 4 and end_raw.isdigit():
+            end_date = date(int(end_raw), 12, 31)
+            return start_date, end_date
 
         end_date = datetime.strptime(end_raw, "%d.%m.%Y").date()
         return start_date, end_date
@@ -1566,7 +1707,7 @@ class ProfileStructuringService:
             if normalized == start_heading or normalized.startswith(f"{start_heading} "):
                 capture = True
                 remainder = re.sub(
-                    rf"^{re.escape(start_heading)}\s*",
+                    rf"^{re.escape(start_heading)}\s*[:：-]?\s*",
                     "",
                     line.strip(),
                     flags=re.IGNORECASE,
@@ -1586,6 +1727,33 @@ class ProfileStructuringService:
 
         return section
 
+    def _extract_resume_subsection(
+        self,
+        lines: list[str],
+        *,
+        start_heading: str,
+        stop_headings: set[str],
+    ) -> list[str]:
+        section: list[str] = []
+        capture = False
+
+        for line in lines:
+            normalized = self._normalize_heading(line)
+
+            if normalized == start_heading:
+                capture = True
+                continue
+
+            if capture and normalized in stop_headings:
+                break
+
+            if capture:
+                cleaned = line.strip(" -–—•")
+                if cleaned:
+                    section.append(cleaned)
+
+        return section
+
     def _lines_after_heading(
         self,
         lines: list[str],
@@ -1602,3 +1770,124 @@ class ProfileStructuringService:
         cleaned = re.sub(r"[:：]+$", "", value.strip())
         cleaned = re.sub(r"\s+", " ", cleaned)
         return cleaned.upper()
+
+    def _split_inline_resume_headings(self, lines: list[str]) -> list[str]:
+        result: list[str] = []
+
+        heading_patterns = [
+            "Опыт",
+            "Опыт работы",
+            "Обязанности",
+            "Достижения",
+            "Навыки",
+            "Профессиональные навыки",
+            "Образование",
+            "Курсы",
+            "Проекты",
+            "Портфолио",
+            "Стажировки",
+        ]
+
+        for line in lines:
+            current = line.strip()
+            if not current:
+                continue
+
+            for heading in heading_patterns:
+                current = re.sub(
+                    rf"\s+({re.escape(heading)}\s*[:：])",
+                    r"\n\1",
+                    current,
+                    flags=re.IGNORECASE,
+                )
+
+            result.extend(part.strip() for part in current.splitlines() if part.strip())
+
+        return result
+
+    def _extract_name_and_headline_from_compact_first_line(
+        self,
+        lines: list[str],
+    ) -> tuple[str | None, str | None]:
+        if not lines:
+            return None, None
+
+        first = re.sub(r"\s+", " ", lines[0]).strip()
+        first = re.split(r"\bОпыт\s*[:：]", first, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        words = first.split()
+
+        if len(words) < 3 or len(words) > 6:
+            return None, None
+
+        first_two = " ".join(words[:2])
+        rest = " ".join(words[2:])
+
+        if not re.fullmatch(r"[A-ZА-ЯЁ][a-zа-яё-]+ [A-ZА-ЯЁ][a-zа-яё-]+", first_two):
+            return None, None
+
+        if len(rest) < 3 or len(rest) > 80:
+            return None, None
+
+        return first_two, rest
+
+    def _looks_like_education_identity_line(self, value: str) -> bool:
+        lowered = value.lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "ранхигс",
+                "университет",
+                "институт",
+                "академия",
+                "колледж",
+                "техникум",
+                "менеджмент",
+                "юриспруденция",
+                "лечебное дело",
+                "прикладная информатика",
+            )
+        )
+
+    def _split_known_inline_skills(self, value: str) -> list[str]:
+        known_skills = [
+            "Stakeholder Management",
+            "Project Management",
+            "FastAPI",
+            "PostgreSQL",
+            "SQLAlchemy",
+            "Pytest",
+            "Python",
+            "Docker",
+            "Redis",
+            "Git",
+            "Agile",
+            "Scrum",
+            "Kanban",
+            "Jira",
+            "Confluence",
+        ]
+
+        text = re.sub(r"\s+", " ", value).strip()
+        found: list[str] = []
+
+        for skill in sorted(known_skills, key=len, reverse=True):
+            if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", text, flags=re.IGNORECASE):
+                found.append(skill)
+
+        return self._dedupe_preserve_order(found)
+
+    def _extract_inline_skills_from_lines(self, lines: list[str]) -> list[str]:
+        result: list[str] = []
+
+        for line in lines:
+            candidate = line.strip()
+            if not candidate:
+                continue
+
+            inline_skills = self._split_known_inline_skills(candidate)
+            if len(inline_skills) >= 2:
+                result.extend(inline_skills)
+            else:
+                result.append(candidate)
+
+        return self._dedupe_preserve_order(result)

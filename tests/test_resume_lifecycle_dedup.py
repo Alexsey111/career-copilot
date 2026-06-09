@@ -119,3 +119,34 @@ async def test_duplicate_resume_import_reuses_existing_extraction(client, db_ses
     )
     assert latest is not None
     assert str(latest.id) == first_import.json()["extraction_id"]
+
+
+async def test_force_reparse_creates_new_resume_extraction(client, db_session) -> None:
+    upload = await client.post(
+        f"{API_PREFIX}/files/upload",
+        data={"file_kind": "resume"},
+        files={"file": ("resume.pdf", b"%PDF force reparse", "application/pdf")},
+    )
+    assert upload.status_code == 200, upload.text
+    source_file_id = upload.json()["id"]
+
+    first_import = await client.post(
+        f"{API_PREFIX}/profile/import-resume",
+        json={"source_file_id": source_file_id},
+    )
+    assert first_import.status_code == 200, first_import.text
+
+    second_import = await client.post(
+        f"{API_PREFIX}/profile/import-resume",
+        json={"source_file_id": source_file_id, "force_reparse": True},
+    )
+    assert second_import.status_code == 200, second_import.text
+    assert second_import.json()["extraction_id"] != first_import.json()["extraction_id"]
+
+    extraction_repo = FileExtractionRepository()
+    latest = await extraction_repo.get_latest_for_source_file(
+        db_session,
+        source_file_id=source_file_id,
+    )
+    assert latest is not None
+    assert str(latest.id) == second_import.json()["extraction_id"]

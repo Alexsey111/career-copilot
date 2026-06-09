@@ -182,11 +182,19 @@ class AchievementExtractionService:
 
         signals: list[NormalizedContributionSignal] = []
         for block in blocks:
-            title = self._clean_contribution_title(block)
-            if not title or self._looks_like_noise_title(title):
+            title = self._strip_inline_layout_heading_tail(
+                self._clean_contribution_title(block)
+            )
+            source_text = self._strip_inline_layout_heading_tail(
+                re.sub(r"\s+", " ", " ".join(block)).strip()
+            )
+            if (
+                not title
+                or self._looks_like_noise_title(title)
+                or self._looks_like_responsibility_like_contribution(title, source_text)
+            ):
                 continue
 
-            source_text = re.sub(r"\s+", " ", " ".join(block)).strip()
             signals.append(
                 NormalizedContributionSignal(
                     title=title,
@@ -227,23 +235,30 @@ class AchievementExtractionService:
         ]
 
     def _find_contribution_section_start(self, lines: list[str]) -> int | None:
-        markers = [
+        preferred_markers = [
+            "КЛЮЧЕВЫЕ ДОСТИЖЕНИЯ",
             "ДОСТИЖЕНИЯ",
-            "ПРОЕКТЫ",
-            "ПОРТФОЛИО",
-            "СТАЖИРОВКИ",
-            "ОПЫТ",
+            "РЕЗУЛЬТАТЫ",
             "ACHIEVEMENTS",
+            "KEY ACHIEVEMENTS",
+            "ПРОЕКТЫ",
+            "РЕЛЕВАНТНЫЕ ПРОЕКТЫ",
             "PROJECTS",
+            "ПОРТФОЛИО",
             "PORTFOLIO",
+            "СТАЖИРОВКИ",
             "INTERNSHIPS",
+        ]
+        fallback_markers = [
+            "ОПЫТ",
             "EXPERIENCE",
         ]
 
-        for idx, line in enumerate(lines):
-            normalized = self._normalize(line)
-            if any(marker in normalized for marker in markers):
-                return idx
+        for markers in (preferred_markers, fallback_markers):
+            for idx, line in enumerate(lines):
+                normalized = self._normalize(line)
+                if any(marker in normalized for marker in markers):
+                    return idx
 
         return None
 
@@ -257,7 +272,11 @@ class AchievementExtractionService:
             if self._looks_like_hard_achievement_stop(line):
                 break
             if re.match(r"^\s*[-•]\s+", line):
-                bullet_blocks.append([re.sub(r"^\s*[-•]\s+", "", line).strip()])
+                cleaned = self._strip_inline_layout_heading_tail(
+                    re.sub(r"^\s*[-•]\s+", "", line).strip()
+                )
+                if cleaned:
+                    bullet_blocks.append([cleaned])
         if bullet_blocks:
             return bullet_blocks
 
@@ -272,7 +291,41 @@ class AchievementExtractionService:
             return [section_lines[:6]]
         return []
 
+    def _strip_inline_layout_heading_tail(self, value: str) -> str:
+        cleaned = str(value or "").strip()
+
+        inline_headings = (
+            "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
+            "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+            "ОПЫТ РАБОТЫ",
+            "ОБРАЗОВАНИЕ",
+            "НАВЫКИ",
+            "КОНТАКТЫ",
+            "КУРСЫ",
+        )
+
+        for heading in inline_headings:
+            cleaned = re.sub(
+                rf"\s+{re.escape(heading)}\s*[:：].*$",
+                "",
+                cleaned,
+                flags=re.IGNORECASE,
+            ).strip()
+
+        cleaned = re.sub(
+            r"\s+(профессиональные\s+навыки|желаемая\s+должность|опыт\s+работы|образование|навыки|контакты|курсы)\s*[:：]?\s*$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        return cleaned
+
     def _clean_contribution_title(self, lines: list[str]) -> str:
+        recovered = self._recover_private_noisy_ai_achievement_title_legacy(lines)
+        if recovered:
+            return recovered
+
         useful_lines: list[str] = []
 
         for line in lines:
@@ -334,6 +387,44 @@ class AchievementExtractionService:
             return "operational_contribution"
         return "contribution"
 
+    def _looks_like_responsibility_like_contribution(self, title: str, source_text: str) -> bool:
+        text = re.sub(r"\s+", " ", f"{title} {source_text}").strip().lower()
+
+        if not text:
+            return False
+
+        if self._line_has_contribution_signal(text):
+            return False
+
+        if re.search(r"\d", text) or "%" in text:
+            return False
+
+        responsibility_markers = (
+            "обязанност",
+            "responsibilit",
+            "должност",
+            "функц",
+            "ведение",
+            "обслуживан",
+            "сопровожд",
+            "координац",
+            "управлен",
+            "поддержк",
+            "проведени",
+            "проводил",
+            "взаимодейств",
+            "работа с",
+            "осуществл",
+            "выполнял",
+            "консульт",
+            "осмотр",
+            "проверк",
+            "подготовк",
+            "документирован",
+            "обработк",
+        )
+        return any(marker in text for marker in responsibility_markers)
+
     def _extract_contribution_skills(self, title: str, source_text: str) -> list[str]:
         tags = extract_skill_tags(title, source_text)
         return self._dedupe_preserve_order(
@@ -345,6 +436,8 @@ class AchievementExtractionService:
         markers = (
             "разработ",
             "создал",
+            "провел",
+            "провёл",
             "реализ",
             "сократ",
             "увелич",
@@ -445,6 +538,7 @@ class AchievementExtractionService:
             "ОБРАЗОВАНИЕ",
             "НАВЫКИ",
             "КОНТАКТЫ",
+            "ОБЯЗАННОСТИ",
         }
 
     def _looks_like_resume_layout_noise(self, line: str) -> bool:

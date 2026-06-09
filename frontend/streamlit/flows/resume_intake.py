@@ -473,12 +473,25 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
             "и не будет повторно парсить файл, если extraction уже есть."
         )
 
+    force_reparse = st.checkbox(
+        "Пересчитать импорт заново",
+        value=False,
+        help=(
+            "Используйте после изменения парсера или если backend "
+            "переиспользует старый extraction."
+        ),
+    )
+
     if st.button("Импортировать резюме", type="primary", use_container_width=True):
         try:
-            result = client.post_json("/profile/import-resume",
+            result = client.post_json(
+                "/profile/import-resume",
                 {
                     "source_file_id": source_file_id,
-                }, token=token)
+                    "force_reparse": force_reparse,
+                },
+                token=token,
+            )
         except httpx.HTTPStatusError as exc:
             st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
             st.code(exc.response.text)
@@ -672,7 +685,32 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
         return
 
     with st.expander("Технические детали", expanded=False):
-        st.caption(f"extraction_id: {extraction_id}")
+        st.json(
+            {
+                "resume_import_extraction_id": resume_import.get("extraction_id"),
+                "structured_profile_extraction_id": structured_profile.get("extraction_id"),
+            }
+        )
+
+    resume_import_extraction_id = resume_import.get("extraction_id")
+    structured_profile_extraction_id = structured_profile.get("extraction_id")
+
+    if (
+        resume_import_extraction_id
+        and structured_profile_extraction_id
+        and resume_import_extraction_id != structured_profile_extraction_id
+    ):
+        st.error(
+            "Состояние резюме рассинхронизировано: импорт и структурированный профиль "
+            "относятся к разным extraction_id. Повторите шаг 3."
+        )
+        st.json(
+            {
+                "resume_import_extraction_id": resume_import_extraction_id,
+                "structured_profile_extraction_id": structured_profile_extraction_id,
+            }
+        )
+        return
 
     achievements_already_ready = (
         st.session_state.get("reuse_existing_resume")

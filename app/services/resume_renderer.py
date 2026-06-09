@@ -70,7 +70,14 @@ def render_resume(content_json: dict) -> str:
         for item in experience_items:
             lines.append(f"{item['role']} — {item['company']} ({item['period']})")
             if item.get("description_raw"):
-                lines.append(f"- {item['description_raw']}")
+                description_lines = [
+                    line.strip(" -–—•")
+                    for line in str(item["description_raw"]).splitlines()
+                    if line.strip()
+                ]
+
+                for line in description_lines:
+                    lines.append(f"- {line}")
 
     education_items = sections.get("education") or []
     if education_items:
@@ -138,9 +145,12 @@ def render_resume(content_json: dict) -> str:
 
     project_sections = sections.get("project_sections") or []
     selected_achievements = sections["selected_achievements"]
-    if project_sections or selected_achievements:
+    if project_sections:
         lines.append("")
         lines.append("РЕЛЕВАНТНЫЕ ПРОЕКТЫ")
+    elif selected_achievements:
+        lines.append("")
+        lines.append("КЛЮЧЕВЫЕ ДОСТИЖЕНИЯ")
 
     if project_sections:
         for project in project_sections:

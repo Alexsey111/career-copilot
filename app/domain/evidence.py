@@ -139,7 +139,7 @@ class EvidenceUsage:
 
 
 SKILL_KEYWORD_MAP: dict[str, tuple[str, ...]] = {
-    "ai": (r"\bai\b", r"\bии\b", r"искусственн\w+\s+интеллект", r"нейросет"),
+    "ai": (r"\bai\b", r"искусственн\w+\s+интеллект", r"нейросет"),
     "llm": (r"\bllm\b", r"large language model", r"языков\w+\s+модел"),
     "chatgpt": (r"\bchatgpt\b", r"\bчат[\s-]?gpt\b", r"\bчат[\s-]?бот"),
     "prompt_engineering": (r"\bprompt engineering\b", r"промпт", r"prompt"),

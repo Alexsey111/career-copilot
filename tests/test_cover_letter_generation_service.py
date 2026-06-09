@@ -261,7 +261,7 @@ def test_cover_letter_relevance_paragraph_avoids_buzzword_list_and_fabricated_ro
     assert "AI-assisted процессов" in paragraph
     assert "backend-системы" not in paragraph
     assert "подтверждённый проектный контекст" in paragraph
-    assert "качестве конкретного вклада" in paragraph
+    assert "Из подтверждённого опыта особенно релевантно" in paragraph
 
 
 def test_cover_letter_blocks_unconfirmed_evidence_from_strong_project_phrase() -> None:
@@ -422,14 +422,17 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
 
     assert "Здравствуйте" in rendered
     assert "Меня зовут Перминов Алексей" in rendered
-    assert "Роль Backend Developer" in rendered
-    assert "В требованиях вижу совпадение" in rendered
+    assert "Хочу откликнуться на позицию Backend Developer в Test Company." in rendered
+    assert "Сейчас мой основной профессиональный фокус" in rendered
+    assert "Вижу совпадение с задачами роли в части Python" in rendered
+    assert "Из подтверждённого опыта особенно релевантно" in rendered
     assert "Буду рад обсудить" in rendered
 
     assert "Dear hiring team" not in rendered
     assert "Thank you for your consideration" not in rendered
     assert "confirmed overlap" not in rendered
     assert "needs_confirmation" not in rendered
+    assert "на пересечении профессионального опыта" not in rendered
 
 
 def test_cover_letter_generation_uses_only_confirmed_achievement_titles() -> None:
@@ -491,3 +494,14 @@ def test_cover_letter_selected_achievements_are_confirmed_and_do_not_create_clai
     )
 
     assert claims == []
+
+
+def test_cover_letter_generic_role_framing_is_domain_neutral() -> None:
+    service = CoverLetterGenerationService()
+
+    framing = service._cover_letter_focus_from_headline(headline=None)
+
+    lowered = framing.lower()
+    assert "профессионального опыта" in lowered
+    assert "инженерного опыта" not in lowered
+    assert "автоматизации" not in lowered

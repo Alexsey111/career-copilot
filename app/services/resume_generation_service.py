@@ -66,6 +66,14 @@ LOW_SIGNAL_SKILLS = {
     "powershell",
 }
 
+KNOWN_MULTIWORD_SKILLS = [
+    "Гражданское право",
+    "Договорное право",
+    "Legal Research",
+    "Документооборот",
+    "Арбитраж",
+]
+
 DISPLAY_NORMALIZATION_MAP = {
     "devloher": "developer",
     "chatgpt": "ChatGPT",
@@ -424,7 +432,12 @@ class ResumeGenerationService:
         )
 
         selected_achievements = self._add_project_narratives(selected_achievements)
-        project_sections = self._build_project_sections(selected_achievements)
+
+        project_sections: list[dict[str, Any]] = []
+        if not experience_items:
+            project_sections = self._build_project_sections(
+                selected_achievements
+            )
         education_items = self._build_education_items(
             profile,
             latest_extraction.extracted_text if latest_extraction else "",
@@ -554,23 +567,36 @@ class ResumeGenerationService:
         profile_summary: str | None,
         raw_text: str,
     ) -> list[str]:
-        summary_skills = self._split_skill_text(profile_summary or "")
-        if summary_skills:
-            return summary_skills
+        raw_text_skills = self._extract_skills_from_raw_text(raw_text)
+        if raw_text_skills:
+            return raw_text_skills
 
-        return self._extract_skills_from_raw_text(raw_text)
+        return self._split_skill_text(profile_summary or "")
 
     def _split_skill_text(self, text: str) -> list[str]:
         if not text:
             return []
 
-        parts = re.split(r"[,\n;]+", text)
+        remaining = str(text)
+        extracted: list[str] = []
+
+        for skill in KNOWN_MULTIWORD_SKILLS:
+            if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", remaining, re.IGNORECASE):
+                extracted.append(skill)
+                remaining = re.sub(
+                    rf"(?<!\w){re.escape(skill)}(?!\w)",
+                    "\n",
+                    remaining,
+                    flags=re.IGNORECASE,
+                )
+
+        parts = re.split(r"[,\n;]+", remaining)
         cleaned_parts = [
             cleaned
             for part in parts
             if (cleaned := self._clean_skill_candidate(part))
         ]
-        return self._dedupe_preserve_order(cleaned_parts)
+        return self._dedupe_preserve_order([*extracted, *cleaned_parts])
 
     def _clean_skill_candidate(self, value: str) -> str | None:
         cleaned = re.sub(r"\s+", " ", value.strip(" .;-–—•"))
@@ -627,19 +653,34 @@ class ResumeGenerationService:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         capture = False
         section_lines: list[str] = []
+        stop_headings = {
+            "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+            "ОПЫТ РАБОТЫ",
+            "ОБРАЗОВАНИЕ",
+            "ПРОЕКТЫ",
+            "СТАЖИРОВКИ",
+            "КОНТАКТЫ",
+            "О СЕБЕ",
+            "КУРСЫ",
+            "ДОСТИЖЕНИЯ",
+        }
 
         for line in lines:
-            normalized = line.upper()
-
-            if normalized == "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ":
+            heading_match = re.match(
+                r"^(ПРОФЕССИОНАЛЬНЫЕ\s+НАВЫКИ|НАВЫКИ)\s*[:：-]?\s*(.*)$",
+                line,
+                flags=re.IGNORECASE,
+            )
+            if heading_match:
                 capture = True
+                remainder = heading_match.group(2).strip()
+                if remainder:
+                    section_lines.append(remainder)
                 continue
 
-            if capture and normalized in {
-                "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
-                "ОПЫТ РАБОТЫ",
-                "ОБРАЗОВАНИЕ",
-            }:
+            normalized = re.sub(r"[:：-]+$", "", line).strip().upper()
+
+            if capture and normalized in stop_headings:
                 break
 
             if capture:
@@ -649,12 +690,7 @@ class ResumeGenerationService:
             return []
 
         joined = " ".join(section_lines)
-        parts = [
-            cleaned
-            for part in joined.split(",")
-            if (cleaned := self._clean_skill_candidate(part))
-        ]
-        return self._dedupe_preserve_order(parts)
+        return self._split_skill_text(joined)
 
     def _select_resume_skills(
         self,
@@ -1576,7 +1612,7 @@ class ResumeGenerationService:
 
         if selected_achievements:
             bullets.append(
-                "Проектный опыт для проверки и возможного использования в отклике: "
+                "Подтверждённый профессиональный опыт для возможного использования в отклике: "
                 f"{ensure_selected_achievement(selected_achievements[0]).title}."
             )
 
@@ -1593,17 +1629,6 @@ class ResumeGenerationService:
             if term and term.strip().lower() not in LOW_SIGNAL_SKILLS
         }
         corpus = " ".join(sorted(normalized_terms))
-
-        if (
-            "python" in corpus
-            and "automation" in corpus
-            and any(marker in corpus for marker in ("ai", "llm", "prompt", "workflow"))
-        ):
-            return "Python Automation & AI Workflow Engineer"
-        if "automation" in corpus and any(marker in corpus for marker in ("ai", "llm", "prompt")):
-            return "AI Automation Engineer / Prompt Engineer"
-        if "prompt engineering" in corpus and ("ai" in corpus or "llm" in corpus):
-            return "AI Automation Engineer / Prompt Engineer"
 
         return ", ".join(self._dedupe_preserve_order(terms)) or value.strip()
 
@@ -1661,22 +1686,23 @@ class ResumeGenerationService:
         ).lower()
 
         if any(marker in corpus for marker in ("workflow", "automation", "llm", "prompt", "openai")):
+            focus_terms = relevant_to_vacancy[:3]
+            focus = ", ".join(focus_terms) if focus_terms else "автоматизация и workflow"
             return (
-                "Python-разработчик и AI automation engineer с практическим опытом "
-                "создания AI workflow systems, orchestration pipelines и backend-сервисов "
-                "для AI-assisted workflows."
+                f"Профессиональный профиль под {role}: практический опыт в зоне {focus}, "
+                "с акцентом на проверяемые факты и релевантный вклад."
             )
         if any(marker in corpus for marker in ("fastapi", "backend", "api")):
             return (
-                f"Backend-разработчик под {role} с опытом проектирования API, "
-                "document pipeline и evidence-driven workflow для прикладных продуктов."
+                f"Backend-разработчик под {role}: практический опыт в backend/API задачах, "
+                "с акцентом на проверяемые факты и релевантный вклад."
             )
 
         focus_terms = relevant_to_vacancy[:3]
-        focus = ", ".join(focus_terms) if focus_terms else "прикладные инженерные задачи"
+        focus = ", ".join(focus_terms) if focus_terms else "релевантные профессиональные задачи"
         return (
-            f"Инженерный профиль под {role}: практический опыт в зоне {focus}, "
-            "с акцентом на проверяемые факты и проектный вклад."
+            f"Профессиональный профиль под {role}: практический опыт в зоне {focus}, "
+            "с акцентом на проверяемые факты и профессиональный вклад."
         )
 
     def _filter_document_usable_evidence(
@@ -1729,7 +1755,8 @@ class ResumeGenerationService:
             ("Prompt engineering", ("prompt", "prompt engineering", "промпт")),
             ("AI tooling", ("llm", "chatgpt", "ai interaction", "ai tooling")),
             ("Workflow automation", ("automation", "workflow", "no-code", "nocode")),
-            ("Python-based AI systems", ("python", "ai", "llm")),
+            ("Python", ("python",)),
+            ("AI/LLM tooling", ("llm", "openai", "chatgpt", "искусственный интеллект")),
         ]
         for label, markers in semantic_rules:
             if any(marker in evidence_text for marker in markers):
@@ -1935,29 +1962,29 @@ class ResumeGenerationService:
 
         if "prompt" in competency_lower:
             return (
-                "Проектирование prompt/workflow orchestration для AI-assisted resume tailoring"
+                "Практическое применение prompt/workflow подходов в подтверждённом контексте"
             )
         if "workflow automation" in competency_lower or "automation" in competency_lower:
             return (
-                "Разработка AI workflow pipeline для анализа вакансий и генерации документов"
+                "Практическое применение workflow automation в подтверждённом контексте"
             )
         if any(marker in competency_lower for marker in ("ai tooling", "llm", "chatgpt", "openai")):
             return "Интеграция LLM/OpenAI tooling в прикладной workflow"
         if any(marker in competency_lower for marker in ("python", "fastapi", "backend")):
-            return "Разработка backend/AI workflow компонентов на Python"
+            return "Практический опыт разработки или автоматизации на Python"
 
         if "prompt" in corpus:
             return (
-                "Проектирование prompt/workflow orchestration для AI-assisted resume tailoring"
+                "Практическое применение prompt/workflow подходов в подтверждённом контексте"
             )
         if "workflow automation" in corpus or "automation" in corpus or "workflow" in corpus:
             return (
-                "Разработка AI workflow pipeline для анализа вакансий и генерации документов"
+                "Практическое применение workflow automation в подтверждённом контексте"
             )
         if any(marker in corpus for marker in ("ai tooling", "llm", "chatgpt", "openai")):
             return "Интеграция LLM/OpenAI tooling в прикладной workflow"
         if any(marker in corpus for marker in ("python", "fastapi", "backend")):
-            return "Разработка backend/AI workflow компонентов на Python"
+            return "Практический опыт разработки или автоматизации на Python"
         if any(marker in corpus for marker in ("analytics", "analysis", "data")):
             return "Обработка данных и извлечение сигналов для принятия решений"
 
@@ -1987,7 +2014,7 @@ class ResumeGenerationService:
             "automation": "Workflow automation",
             "automation tooling": "Workflow automation",
             "no-code": "Workflow automation",
-            "python": "Python-based AI systems",
+            "python": "Python",
         }
         return known.get(normalized.lower(), normalized)
 

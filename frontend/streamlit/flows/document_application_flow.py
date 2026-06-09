@@ -132,6 +132,39 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
 
     with st.expander("Технические детали", expanded=False):
         st.caption(f"vacancy_id: {vacancy_id}")
+        resume_import = st.session_state.get("resume_import") or {}
+        structured_profile = st.session_state.get("structured_profile") or {}
+        st.json(
+            {
+                "resume_extraction_id": resume_import.get("extraction_id"),
+                "structured_profile_extraction_id": structured_profile.get("extraction_id"),
+                "structured_profile_full_name": structured_profile.get("full_name"),
+                "structured_profile_experience_count": structured_profile.get("experience_count"),
+                "current_generated_resume_document_id": (
+                    st.session_state.generated_resume or {}
+                ).get("document_id"),
+            }
+        )
+
+    resume_import_extraction_id = resume_import.get("extraction_id")
+    structured_profile_extraction_id = structured_profile.get("extraction_id")
+
+    if (
+        resume_import_extraction_id
+        and structured_profile_extraction_id
+        and resume_import_extraction_id != structured_profile_extraction_id
+    ):
+        st.error(
+            "Состояние резюме рассинхронизировано: импорт и структурированный профиль "
+            "относятся к разным extraction_id. Повторите шаг 3."
+        )
+        st.json(
+            {
+                "resume_import_extraction_id": resume_import_extraction_id,
+                "structured_profile_extraction_id": structured_profile_extraction_id,
+            }
+        )
+        return
 
     match_score = vacancy_analysis.get("match_score")
     if match_score is not None:
@@ -277,6 +310,7 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
             return
 
         st.session_state.generated_cover_letter = result
+        st.json(result)
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None

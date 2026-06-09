@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 class ResumeImportRequest(BaseModel):
     source_file_id: UUID
+    force_reparse: bool = False
 
 
 class ResumeImportResponse(BaseModel):

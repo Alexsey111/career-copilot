@@ -662,14 +662,17 @@ class CoverLetterGenerationService:
         company: str | None,
         headline: str | None,
     ) -> str:
-        company_phrase = f"в {company}" if company else "в вашей команде"
+        company_phrase = f" в {company}" if company else ""
         name_sentence = f"Меня зовут {full_name}. " if full_name else ""
+
+        headline_phrase = ""
+        if headline:
+            headline_phrase = f" Сейчас мой основной профессиональный фокус — {headline}."
 
         return (
             "Здравствуйте!\n\n"
-            f"{name_sentence}Роль {vacancy_title} {company_phrase} мне релевантна: "
-            f"она находится на пересечении {self._cover_letter_focus_from_headline(headline)} "
-            "и прикладной инженерной разработки."
+            f"{name_sentence}Хочу откликнуться на позицию {vacancy_title}{company_phrase}."
+            f"{headline_phrase}"
         )
 
     def _build_relevance_paragraph(
@@ -696,17 +699,17 @@ class CoverLetterGenerationService:
 
         if requirement_focus and project_value:
             parts.append(
-                f"В требованиях вижу совпадение с моим опытом в зоне {requirement_focus}. "
-                f"В качестве конкретного вклада могу принести {project_value}."
+                f"Вижу совпадение с задачами роли в части {requirement_focus}. "
+                f"Из подтверждённого опыта особенно релевантно: {project_value}."
             )
         elif requirement_focus:
             parts.append(
-                f"В требованиях вижу совпадение с моим опытом в зоне {requirement_focus}. "
+                f"Вижу совпадение с задачами роли в части {requirement_focus}. "
                 "Готов обсудить, какие задачи команды лучше всего ложатся на этот опыт."
             )
         elif project_value:
             parts.append(
-                f"В качестве конкретного вклада могу принести {project_value}."
+                f"Из подтверждённого опыта особенно релевантно: {project_value}."
             )
 
         gap_paragraph = self._build_gap_mitigation_paragraph(
@@ -728,7 +731,7 @@ class CoverLetterGenerationService:
 
     def _cover_letter_focus_from_headline(self, headline: str | None) -> str:
         if not headline:
-            return "backend-разработки, автоматизации и продуктовых задач"
+            return "профессионального опыта, ответственности и задач роли"
 
         normalized = headline.lower()
         if "python" in normalized and any(
@@ -739,7 +742,7 @@ class CoverLetterGenerationService:
             return "prompt engineering, AI tooling и автоматизации процессов"
         if "data" in normalized or "analytics" in normalized:
             return "аналитики данных, автоматизации и прикладной разработки"
-        return "инженерного опыта, автоматизации и продуктовых задач"
+        return "профессионального опыта, ответственности и задач роли"
 
     def _cover_letter_requirement_focus(
         self,
@@ -831,7 +834,7 @@ class CoverLetterGenerationService:
         }
         if requires_confirmation or low_ownership or not confirmed:
             cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
-            return f"подтверждаемый проектный контекст: {cleaned_title}" if cleaned_title else ""
+            return f"требует подтверждения: {cleaned_title}" if cleaned_title else ""
 
         if any(marker in corpus for marker in ("computer vision", "image", "изображ", "video", "видео")):
             return "подтверждённый контекст обработки визуальных данных"
@@ -853,7 +856,7 @@ class CoverLetterGenerationService:
             "technology stack from resume",
             "technologies from resume",
         }:
-            return f"проектный опыт: {cleaned_title}"
+            return cleaned_title
         return ""
 
     def _select_cover_letter_evidence(
@@ -1061,10 +1064,10 @@ class CoverLetterGenerationService:
         vacancy_title: str,
         company: str | None,
     ) -> str:
-        company_phrase = f"в {company}" if company else "в вашей компании"
+        company_phrase = f" в {company}" if company else ""
         return (
-            f"Буду рад обсудить, как мой опыт может быть полезен для позиции "
-            f"{vacancy_title} {company_phrase}. Спасибо за внимание к моей кандидатуре."
+            f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
+            f"{vacancy_title}{company_phrase}. Спасибо за внимание к моей кандидатуре."
         )
 
     def _build_gap_mitigation_paragraph(

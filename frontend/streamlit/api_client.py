@@ -2,13 +2,70 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import streamlit as st
 
 
 DEFAULT_API_BASE_URL = "http://localhost:8000/api/v1"
+
+
+def _headers_cache_key(headers: dict[str, str]) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted(headers.items()))
+
+
+def _log_api_timing(method: str, url: str, started: float) -> None:
+    elapsed = time.perf_counter() - started
+    if elapsed >= 1:
+        st.warning(f"Slow API: {method} {url} — {elapsed:.2f}s")
+
+
+@st.cache_data(show_spinner=False, ttl=10)
+def _cached_get_json(
+    url: str,
+    headers_key: tuple[tuple[str, str], ...],
+    timeout_seconds: float,
+) -> Any:
+    response = httpx.get(
+        url,
+        headers=dict(headers_key),
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@st.cache_data(show_spinner=False, ttl=10)
+def _cached_get_text(
+    url: str,
+    headers_key: tuple[tuple[str, str], ...],
+    timeout_seconds: float,
+) -> str:
+    response = httpx.get(
+        url,
+        headers=dict(headers_key),
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    return response.text
+
+
+@st.cache_data(show_spinner=False, ttl=10)
+def _cached_get_bytes(
+    url: str,
+    headers_key: tuple[tuple[str, str], ...],
+    timeout_seconds: float,
+) -> bytes:
+    response = httpx.get(
+        url,
+        headers=dict(headers_key),
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    return response.content
 
 
 @dataclass(frozen=True)
@@ -43,9 +100,7 @@ class CareerCopilotApiClient:
         url = f"{self.api_root_url}/health"
 
         try:
-            response = httpx.get(url, timeout=self.timeout_seconds)
-            response.raise_for_status()
-            payload = response.json()
+            payload = _cached_get_json(url, (), self.timeout_seconds)
         except httpx.HTTPStatusError as exc:
             return BackendCheckResult(
                 ok=False,
@@ -67,7 +122,7 @@ class CareerCopilotApiClient:
         except ValueError as exc:
             return BackendCheckResult(
                 ok=False,
-                status_code=response.status_code if "response" in locals() else None,
+                status_code=None,
                 app_title=None,
                 api_version=None,
                 path_count=None,
@@ -76,7 +131,7 @@ class CareerCopilotApiClient:
 
         return BackendCheckResult(
             ok=True,
-            status_code=response.status_code,
+            status_code=200,
             app_title=str(payload.get("status") or "ok"),
             api_version=None,
             path_count=None,
@@ -96,6 +151,7 @@ class CareerCopilotApiClient:
         # Нормализуем ответ под единый ключ
         if "access_token" not in result and "token" in result:
             result["access_token"] = result["token"]
+        st.cache_data.clear()
         return result
 
     def register(self, email: str, password: str) -> dict[str, Any]:
@@ -109,6 +165,7 @@ class CareerCopilotApiClient:
         result = response.json()
         if not isinstance(result, dict):
             raise ValueError("Expected JSON object from register endpoint")
+        st.cache_data.clear()
         return result
 
     def import_vacancy_from_url(
@@ -205,13 +262,16 @@ class CareerCopilotApiClient:
         return headers
 
     def get_json(self, path: str, token: str | None = None) -> Any:
-        response = httpx.get(
-            self._build_url(path),
-            headers=self._build_headers(token),
-            timeout=self.timeout_seconds,
-        )
-        response.raise_for_status()
-        return response.json()
+        url = self._build_url(path)
+        started = time.perf_counter()
+        try:
+            return _cached_get_json(
+                url,
+                _headers_cache_key(self._build_headers(token)),
+                self.timeout_seconds,
+            )
+        finally:
+            _log_api_timing("GET", url, started)
 
     def get_document_version(self, document_id: str, token: str | None = None) -> dict[str, Any]:
         return self.get_json(f"/documents/{document_id}", token=token)
@@ -241,22 +301,18 @@ class CareerCopilotApiClient:
         )
 
     def get_text(self, path: str, token: str | None = None) -> str:
-        response = httpx.get(
+        return _cached_get_text(
             self._build_url(path),
-            headers=self._build_headers(token),
-            timeout=self.timeout_seconds,
+            _headers_cache_key(self._build_headers(token)),
+            self.timeout_seconds,
         )
-        response.raise_for_status()
-        return response.text
 
     def get_bytes(self, path: str, token: str | None = None) -> bytes:
-        response = httpx.get(
+        return _cached_get_bytes(
             self._build_url(path),
-            headers=self._build_headers(token),
-            timeout=self.timeout_seconds,
+            _headers_cache_key(self._build_headers(token)),
+            self.timeout_seconds,
         )
-        response.raise_for_status()
-        return response.content
 
     def post_json(
         self,
@@ -266,24 +322,34 @@ class CareerCopilotApiClient:
         *,
         timeout_seconds: float | None = None,
     ) -> Any:
-        response = httpx.post(
-            self._build_url(path),
-            json=payload,
-            headers=self._build_headers(token),
-            timeout=timeout_seconds or self.timeout_seconds,
-        )
-        response.raise_for_status()
-        return response.json()
+        url = self._build_url(path)
+        started = time.perf_counter()
+        try:
+            response = httpx.post(
+                url,
+                json=payload,
+                headers=self._build_headers(token),
+                timeout=timeout_seconds or self.timeout_seconds,
+            )
+            response.raise_for_status()
+            return response.json()
+        finally:
+            _log_api_timing("POST", url, started)
 
     def patch_json(self, path: str, payload: dict[str, Any], token: str | None = None) -> Any:
-        response = httpx.patch(
-            self._build_url(path),
-            json=payload,
-            headers=self._build_headers(token),
-            timeout=self.timeout_seconds,
-        )
-        response.raise_for_status()
-        return response.json()
+        url = self._build_url(path)
+        started = time.perf_counter()
+        try:
+            response = httpx.patch(
+                url,
+                json=payload,
+                headers=self._build_headers(token),
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+            return response.json()
+        finally:
+            _log_api_timing("PATCH", url, started)
 
     def get_application_analytics_summary(self, token: str | None = None) -> dict[str, Any]:
         return self.get_json("/applications/analytics/summary", token=token)
@@ -414,6 +480,7 @@ class CareerCopilotApiClient:
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
+        st.cache_data.clear()
         payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("Expected JSON object from file upload endpoint")

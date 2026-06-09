@@ -47,6 +47,77 @@ Acme, AI Engineer
     assert "full_name was not extracted confidently" not in draft.warnings
 
 
+def test_build_draft_extracts_simple_generic_backend_resume() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Иван Петров
+Backend Developer
+
+Опыт:
+ООО CloudSoft
+Backend Developer
+2022–2026
+
+Обязанности:
+- Разработка REST API на FastAPI
+- Интеграция PostgreSQL
+- Docker контейнеризация
+- Настройка CI/CD
+
+Достижения:
+- Сократил время ответа API на 35%
+- Перевёл монолитный сервис на микросервисную архитектуру
+- Настроил автоматическое тестирование
+
+Навыки:
+Python
+FastAPI
+PostgreSQL
+SQLAlchemy
+Docker
+Redis
+Pytest
+Git
+
+Образование:
+МГТУ им. Баумана
+Прикладная информатика
+"""
+    )
+
+    assert draft.full_name == "Иван Петров"
+    assert draft.target_roles == ["Backend Developer"]
+    assert draft.headline == "Backend Developer"
+    assert draft.experiences
+    assert draft.experiences[0].company == "ООО CloudSoft"
+    assert draft.experiences[0].role == "Backend Developer"
+    assert "full_name was not extracted confidently" not in draft.warnings
+    assert "target roles were not extracted" not in draft.warnings
+    assert "work experience section was not parsed" not in draft.warnings
+
+
+def test_build_draft_warns_on_generated_application_package() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+ЦЕЛЕВАЯ ПОЗИЦИЯ: Senior Prompt Engineer
+КРАТКОЕ РЕЗЮМЕ:
+Здравствуйте! Прошу рассмотреть мою кандидатуру...
+ПИСЬМО: Добрый день, я заинтересован в вакансии.
+"""
+    )
+
+    assert draft.full_name is None
+    assert draft.experiences == []
+    assert any(
+        "generated application package" in warning
+        for warning in draft.warnings
+    )
+
+
 def test_build_draft_extracts_full_name_from_split_lines() -> None:
     service = ProfileStructuringService()
 
@@ -132,9 +203,7 @@ Python с нуля
 
     assert "ИИ-система мониторинга безопасности" in evidence_by_title
     assert evidence_by_title["ИИ-система мониторинга безопасности"].category == "ai_project"
-    assert {"AI", "computer vision"}.issubset(
-        set(evidence_by_title["ИИ-система мониторинга безопасности"].skills)
-    )
+    assert "computer vision" in evidence_by_title["ИИ-система мониторинга безопасности"].skills
 
     assert "ИИ-контроль качества ПВХ изделий" in evidence_by_title
     assert evidence_by_title["ИИ-контроль качества ПВХ изделий"].category == "automation"
@@ -258,3 +327,224 @@ def test_profile_structuring_legacy_mixed_education_layout_noise_can_be_disabled
     assert service._looks_like_mixed_education_layout_noise(
         "прогнозирования развития городской среды"
     ) is False
+
+
+def test_build_draft_extracts_compact_single_line_resume_preview_format() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Иван Петров Backend Developer Опыт: ООО CloudSoft Backend Developer 2022–2026 Обязанности: - Разработка REST API на FastAPI - Интеграция PostgreSQL - Docker контейнеризация - Настройка CI/CD Достижения: - Сократил время ответа API на 35% - Перевёл монолитный сервис на микросервисную архитектуру - Настроил автоматическое тестирование Навыки: Python FastAPI PostgreSQL SQLAlchemy Docker Redis Pytest Git Образование: МГТУ им. Баумана Прикладная информатика
+"""
+    )
+
+    assert draft.full_name == "Иван Петров"
+    assert draft.target_roles == ["Backend Developer"]
+    assert draft.headline == "Backend Developer"
+    assert "full_name was not extracted confidently" not in draft.warnings
+    assert "target roles were not extracted" not in draft.warnings
+
+
+def test_build_draft_does_not_extract_education_as_full_name() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Анна Смирнова Project Manager Опыт: ООО Digital Solutions Project Manager 2021–2026 Обязанности: - Управление IT-проектами - Координация команды 12 человек Навыки: Agile Scrum Kanban Jira Confluence Stakeholder Management Образование: РАНХиГС Менеджмент
+"""
+    )
+
+    assert draft.full_name == "Анна Смирнова"
+    assert draft.full_name != "РАНХиГС Менеджмент"
+
+
+def test_profile_structuring_splits_inline_project_management_skills() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Анна Смирнова Project Manager Навыки: Agile Scrum Kanban Jira Confluence Stakeholder Management
+"""
+    )
+
+    assert "Agile" in draft.technologies
+    assert "Scrum" in draft.technologies
+    assert "Kanban" in draft.technologies
+    assert "Jira" in draft.technologies
+    assert "Confluence" in draft.technologies
+    assert "Stakeholder Management" in draft.technologies
+    assert "Agile Scrum Kanban Jira Confluence Stakeholder Management" not in draft.technologies
+
+
+def test_profile_structuring_extracts_medical_skills() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов Врач-терапевт
+
+Навыки: Терапия Медицинская документация Клиническая диагностика Электронные медицинские системы
+"""
+    )
+
+    assert "Терапия" in draft.technologies
+    assert "Медицинская документация" in draft.technologies
+    assert "Клиническая диагностика" in draft.technologies
+    assert "Электронные медицинские системы" in draft.technologies
+
+
+def test_extract_full_name_does_not_append_medical_role() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов Врач-терапевт
+
+Навыки: Терапия Клиническая диагностика
+"""
+    )
+
+    assert draft.full_name == "Сергей Кузнецов"
+    assert draft.headline == "Врач-терапевт"
+
+
+def test_profile_structuring_splits_three_token_name_with_hyphenated_role() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов Врач-терапевт Опыт:
+Городская клиническая больница No7 Врач-терапевт 2018–2026
+Навыки:
+Терапия Клиническая диагностика
+"""
+    )
+
+    assert draft.full_name == "Сергей Кузнецов"
+    assert draft.headline == "Врач-терапевт"
+
+
+def test_profile_structuring_extracts_experience_from_inline_company_role_year_range() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов
+Врач-терапевт
+
+Опыт:
+Городская клиническая больница No7 Врач-терапевт 2018–2026
+
+Навыки:
+Терапия
+"""
+    )
+
+    assert len(draft.experiences) == 1
+    assert draft.experiences[0].company == "Городская клиническая больница No7"
+    assert draft.experiences[0].role == "Врач-терапевт"
+
+
+def test_profile_structuring_extracts_description_raw_from_responsibilities() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов
+Врач-терапевт
+
+Опыт:
+Городская клиническая больница No7 Врач-терапевт 2018–2026
+ОБЯЗАННОСТИ:
+- Диагностика пациентов
+- Назначение лечения
+
+Навыки:
+Терапия
+"""
+    )
+
+    assert len(draft.experiences) == 1
+    assert draft.experiences[0].description_raw is not None
+    assert "Диагностика пациентов" in draft.experiences[0].description_raw
+    assert "Назначение лечения" in draft.experiences[0].description_raw
+
+
+def test_build_draft_splits_compact_name_role_before_inline_experience_heading() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов Врач-терапевт Опыт: Городская клиническая больница No7 Врач-терапевт 2018–2026 Навыки: Терапия Медицинская документация Клиническая диагностика Электронные медицинские системы
+"""
+    )
+
+    assert draft.full_name == "Сергей Кузнецов"
+    assert draft.headline == "Врач-терапевт"
+    assert draft.target_roles == ["Врач-терапевт"]
+
+
+def test_profile_structuring_does_not_inject_false_ai_in_medical_resume() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов Врач-терапевт Опыт: Городская клиническая больница No7 Врач-терапевт 2018–2026 Навыки: Терапия Медицинская документация Клиническая диагностика Электронные медицинские системы
+"""
+    )
+
+    assert "AI" not in draft.technologies
+    assert "Терапия" in draft.technologies
+    assert "Медицинская документация" in draft.technologies
+    assert "Клиническая диагностика" in draft.technologies
+    assert "Электронные медицинские системы" in draft.technologies
+
+
+def test_profile_structuring_does_not_extract_ai_from_medical_diagnostics() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов Врач-терапевт
+
+Навыки: Терапия Клиническая диагностика
+"""
+    )
+
+    assert "Клиническая диагностика" in draft.technologies
+    assert "AI" not in draft.technologies
+
+
+def test_structured_v2_does_not_reappend_compact_headline_to_full_name() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов Врач-терапевт Опыт:
+Городская клиническая больница No7 Врач-терапевт 2018–2026 Обязанности:
+- Диагностика пациентов
+Навыки:
+Терапия Медицинская документация Клиническая диагностика
+"""
+    )
+
+    assert draft.full_name == "Сергей Кузнецов"
+    assert draft.headline == "Врач-терапевт"
+
+
+def test_profile_structuring_does_not_extract_ai_from_plain_medical_text() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Кузнецов
+Врач-терапевт
+
+Навыки:
+Терапия
+Клиническая диагностика
+"""
+    )
+
+    assert "Клиническая диагностика" in draft.technologies
+    assert "AI" not in draft.technologies

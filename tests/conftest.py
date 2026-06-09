@@ -38,7 +38,7 @@ if sys.platform == "win32":
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+psycopg://career_user:career_pass@localhost:5432/career_copilot_test",
+    "postgresql+psycopg://career_user:career_pass@127.0.0.1:5433/career_copilot_test",
 )
 
 

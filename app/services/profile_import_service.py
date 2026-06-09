@@ -38,6 +38,7 @@ class ProfileImportService:
         *,
         source_file_id,
         user_id: UUID,
+        force_reparse: bool = False,
     ) -> tuple[CandidateProfile, FileExtraction, str]:
         source_file = await self.source_file_repository.get_by_id(
             session,
@@ -70,7 +71,7 @@ class ProfileImportService:
             session,
             source_file_id=source_file.id,
         )
-        if existing_extraction is not None:
+        if existing_extraction is not None and not force_reparse:
             await session.refresh(profile)
             return profile, existing_extraction, str(
                 (existing_extraction.extracted_metadata_json or {}).get("detected_format")
