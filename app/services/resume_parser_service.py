@@ -207,7 +207,9 @@ class ResumeParserService:
             else:
                 merged_lines.append(line)
 
-        return "\n".join(merged_lines).strip()
+        text = "\n".join(merged_lines).strip()
+        text = self._split_inline_resume_headings(text)
+        return text
 
     def _should_merge_lines(self, prev: str, current: str) -> bool:
         if not prev or not current:
@@ -215,6 +217,29 @@ class ResumeParserService:
 
         prev_lower = prev.lower()
         current_lower = current.lower()
+
+        heading_prefixes = (
+            "опыт:",
+            "опыт работы:",
+            "обязанности:",
+            "достижения:",
+            "навыки:",
+            "профессиональные навыки:",
+            "образование:",
+            "курсы:",
+            "проекты:",
+            "стажировки:",
+            "контакты:",
+        )
+
+        if current_lower.startswith(heading_prefixes):
+            return False
+
+        if any(marker in current_lower for marker in heading_prefixes):
+            return False
+
+        if any(marker in prev_lower for marker in heading_prefixes) and not prev.endswith(":"):
+            return False
 
         section_like = {
             "опыт работы",
@@ -269,6 +294,31 @@ class ResumeParserService:
             return True
 
         return False
+
+    def _split_inline_resume_headings(self, text: str) -> str:
+        headings = (
+            "Опыт",
+            "Опыт работы",
+            "Обязанности",
+            "Достижения",
+            "Навыки",
+            "Профессиональные навыки",
+            "Образование",
+            "Курсы",
+            "Проекты",
+            "Стажировки",
+            "Контакты",
+        )
+
+        for heading in sorted(headings, key=len, reverse=True):
+            text = re.sub(
+                rf"(?<!^)(?<!\n)\s+({re.escape(heading)}\s*[:：])",
+                r"\n\1",
+                text,
+                flags=re.IGNORECASE,
+            )
+
+        return text
 
     def _looks_like_date_or_period_line(self, value: str) -> bool:
         value = value.strip().lower()

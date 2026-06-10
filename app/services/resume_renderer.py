@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 
 def render_resume(content_json: dict) -> str:
     candidate = content_json["candidate"]
@@ -29,15 +31,21 @@ def render_resume(content_json: dict) -> str:
 
     lines.append("")
     lines.append("ЦЕЛЕВАЯ ПОЗИЦИЯ")
-    lines.append(vacancy["title"])
+    title = re.sub(
+        r"\s+вакансия\s*$",
+        "",
+        str(vacancy["title"] or ""),
+        flags=re.IGNORECASE,
+    ).strip()
+    lines.append(title)
 
     lines.append("")
     lines.append("КРАТКОЕ РЕЗЮМЕ")
     vacancy_aligned_summary = sections.get("vacancy_aligned_summary")
     if vacancy_aligned_summary:
         lines.append(vacancy_aligned_summary)
-    for bullet in sections["summary_bullets"]:
-        lines.append(f"- {bullet}")
+    # summary_bullets are kept in content_json for trace/review,
+    # but not rendered into final ATS-safe resume text.
 
     relevant_to_vacancy = sections.get("relevant_to_vacancy") or []
     if relevant_to_vacancy:

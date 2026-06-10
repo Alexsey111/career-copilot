@@ -754,6 +754,7 @@ def test_resume_competency_mapping_does_not_force_git_to_workflow_evidence() -> 
             }
         ],
         missing_keywords=[],
+        selected_achievements=[],
     )
 
     assert mapping == [
@@ -785,11 +786,37 @@ def test_resume_competency_mapping_uses_git_only_with_repository_evidence() -> N
             }
         ],
         missing_keywords=[],
+        selected_achievements=[],
     )
 
     assert mapping[0]["coverage"] == "supported"
     assert mapping[0]["evidence_id"] == "repo"
     assert mapping[0]["evidence"] == "Использование Git/repository workflow в проектной разработке"
+
+
+def test_resume_competency_mapping_skips_evidence_not_backed_by_selected_achievement() -> None:
+    service = ResumeGenerationService()
+
+    mapping = service._build_competency_mapping(
+        relevant_to_vacancy=["Git"],
+        evidence_snippets=[
+            {
+                "id": "repo",
+                "title": "Repository architecture",
+                "snippet_text": "GitHub repository with version control and structured commits.",
+                "skills": ["Git", "GitHub"],
+                "fact_status": "user_provided",
+            }
+        ],
+        missing_keywords=[],
+        selected_achievements=[
+            {
+                "title": "Some other achievement",
+            }
+        ],
+    )
+
+    assert mapping == []
 
 
 def test_resume_competency_mapping_does_not_map_generic_ai_to_prompt_orchestration() -> None:
@@ -807,6 +834,7 @@ def test_resume_competency_mapping_does_not_map_generic_ai_to_prompt_orchestrati
             }
         ],
         missing_keywords=[],
+        selected_achievements=[],
     )
 
     assert mapping[0]["coverage"] == "profile_keyword"
@@ -1782,10 +1810,12 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
                 "fact_status": "user_provided",
             },
         ],
+        experience_items=[],
     )
 
     summary = tailoring["vacancy_aligned_summary"]
-    assert summary.startswith("Профессиональный профиль под")
+    assert summary.startswith("AI Automation Specialist с опытом")
+    assert "Среди подтверждённых результатов" in summary
     assert "Python-разработчик и AI automation engineer" not in summary
     assert "Кандидат на позицию" not in summary
     assert "Workflow automation" in tailoring["relevant_to_vacancy"]
@@ -1832,12 +1862,14 @@ def test_resume_summary_fallback_is_domain_neutral_for_non_it_roles() -> None:
 
     summary = service._build_vacancy_aligned_summary(
         vacancy_title="вакансия терапевт",
-        relevant_to_vacancy=[],
+        selected_skills=[],
         selected_achievements=[],
+        experience_items=[],
     )
 
     lowered = summary.lower()
-    assert "профессиональный профиль" in lowered
+    assert lowered.startswith("вакансия терапевт с опытом")
+    assert "релевантных профессиональных задач" in lowered
     assert "инженерный профиль" not in lowered
     assert "прикладные инженерные задачи" not in lowered
 
@@ -1847,13 +1879,14 @@ def test_vacancy_summary_does_not_force_ai_backend_identity_for_non_it_role() ->
 
     summary = service._build_vacancy_aligned_summary(
         vacancy_title="вакансия терапевт",
-        relevant_to_vacancy=["AI/LLM tooling"],
+        selected_skills=[],
         selected_achievements=[],
+        experience_items=[],
     )
 
     lowered = summary.lower()
 
-    assert "профессиональный профиль" in lowered
+    assert lowered.startswith("вакансия терапевт с опытом")
     assert "python-разработчик" not in lowered
     assert "ai automation engineer" not in lowered
     assert "backend-сервис" not in lowered

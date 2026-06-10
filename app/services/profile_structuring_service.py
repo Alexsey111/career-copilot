@@ -419,6 +419,17 @@ class ProfileStructuringService:
             if signal.title.casefold() not in internship_title_keys
         ]
         technology_signals = self._extract_technology_signals(text)
+
+        skills_text = self._extract_skills_summary(lines) or ""
+        explicit_skill_signals = self._extract_inline_skills_from_lines(skills_text.splitlines())
+
+        technology_signals = self._dedupe_preserve_order(
+            [
+                *technology_signals,
+                *explicit_skill_signals,
+            ]
+        )
+
         competency_signals = self._extract_competency_signals(lines, technology_signals)
 
         draft.projects = [
@@ -1365,6 +1376,14 @@ class ProfileStructuringService:
         if not section:
             return None
 
+        def strip_inline_skill_tail(value: str) -> str:
+            return re.split(
+                r"\s+(?:образование|опыт работы|опыт|курсы|проекты|стажировки|контакты|достижения|о себе)\s*[:：]",
+                value,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0].strip()
+
         skill_lines: list[str] = []
         for line in section:
             normalized_heading = self._normalize_heading(line)
@@ -1392,6 +1411,7 @@ class ProfileStructuringService:
                 line.strip(),
                 flags=re.IGNORECASE,
             ).strip()
+            cleaned = strip_inline_skill_tail(cleaned)
             if cleaned:
                 if re.fullmatch(r"[•\s\d]+", cleaned):
                     continue
@@ -1399,7 +1419,9 @@ class ProfileStructuringService:
                     continue
                 skill_lines.append(cleaned)
 
-        summary = "\n".join(skill_lines[:6]).strip()
+        expanded_skill_lines = self._extract_inline_skills_from_lines(skill_lines)
+
+        summary = "\n".join(expanded_skill_lines[:12]).strip()
         return summary or None
 
     def _extract_experiences(self, lines: list[str]) -> list[StructuredExperienceDraft]:
@@ -1463,9 +1485,7 @@ class ProfileStructuringService:
                 },
             )
 
-            description_parts = [
-                *responsibility_lines,
-            ]
+            description_parts = self._split_inline_responsibility_items(responsibility_lines)
 
             description_raw = "\n".join(description_parts).strip() or " ".join(info_lines).strip() or None
 
@@ -1772,6 +1792,45 @@ class ProfileStructuringService:
 
         return section
 
+    def _split_inline_responsibility_items(self, lines: list[str]) -> list[str]:
+        starters = (
+            "Ведение",
+            "Работа с",
+            "Сверка",
+            "Подготовка",
+            "Работа в",
+            "Участие",
+            "Контроль",
+            "Проверка",
+            "Архивация",
+            "Выполнение",
+            "Взаимодействие",
+            "Координация",
+            "Оформление",
+        )
+
+        starter_pattern = "|".join(re.escape(starter) for starter in starters)
+
+        result: list[str] = []
+        for line in lines:
+            cleaned = re.sub(r"\s+", " ", str(line or "")).strip(" .;-–—•")
+            if not cleaned:
+                continue
+
+            parts = [
+                part.strip(" .;-–—•")
+                for part in re.split(
+                    rf"\s+(?=(?:{starter_pattern})(?:\s|$))",
+                    cleaned,
+                    flags=re.IGNORECASE,
+                )
+                if part.strip(" .;-–—•")
+            ]
+
+            result.extend(parts if len(parts) > 1 else [cleaned])
+
+        return self._dedupe_preserve_order(result)
+
     def _lines_after_heading(
         self,
         lines: list[str],
@@ -1781,7 +1840,15 @@ class ProfileStructuringService:
     ) -> list[str]:
         for idx, line in enumerate(lines):
             if self._normalize_heading(line) == heading:
-                return lines[idx + 1 : idx + 1 + max_lines]
+                result: list[str] = []
+                for candidate in lines[idx + 1 :]:
+                    normalized = self._normalize_heading(candidate)
+                    if normalized in STRUCTURED_V2_SECTION_HEADINGS:
+                        break
+                    result.append(candidate)
+                    if len(result) >= max_lines:
+                        break
+                return result
         return []
 
     def _normalize_heading(self, value: str) -> str:
@@ -1876,16 +1943,43 @@ class ProfileStructuringService:
 
     def _split_known_inline_skills(self, value: str) -> list[str]:
         known_skills = [
+            # accounting / admin
+            "1С:Бухгалтерия",
+            "1С 8.3",
+            "Первичная документация",
+            "Сверка взаиморасчётов",
+            "Банк-клиент",
+            "Excel",
+            "НДС",
+            "Акты сверки",
+            "Деловая переписка",
+            "Контур",
+            "Умная Логистика",
+            "Архивация документов",
+            "Платежные поручения",
+
+            # management / warehouse
+            "Складская логистика",
+            "Управление персоналом",
+            "Контроль качества",
+            "WMS",
+            "1С",
+
+            # IT / product
             "Stakeholder Management",
             "Project Management",
             "FastAPI",
+            "API",
             "PostgreSQL",
+            "SQL",
             "SQLAlchemy",
             "Pytest",
             "Python",
+            "LLM",
             "Docker",
             "Redis",
             "Git",
+            "Tensorflow",
             "Agile",
             "Scrum",
             "Kanban",
@@ -1907,13 +2001,29 @@ class ProfileStructuringService:
 
         for line in lines:
             candidate = line.strip()
+            candidate = re.split(
+                r"\s+(?:образование|опыт работы|опыт|курсы|проекты|стажировки|контакты|достижения|о себе)\s*[:：]",
+                candidate,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0].strip()
             if not candidate:
                 continue
 
             inline_skills = self._split_known_inline_skills(candidate)
             if len(inline_skills) >= 2:
                 result.extend(inline_skills)
-            else:
-                result.append(candidate)
+                continue
+
+            comma_parts = [
+                part.strip(" .;:-–—•")
+                for part in re.split(r"[,;|]", candidate)
+                if part.strip(" .;:-–—•")
+            ]
+            if len(comma_parts) >= 2:
+                result.extend(comma_parts)
+                continue
+
+            result.append(candidate)
 
         return self._dedupe_preserve_order(result)

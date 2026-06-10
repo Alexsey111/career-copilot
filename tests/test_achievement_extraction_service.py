@@ -154,6 +154,33 @@ def test_splits_multiple_dash_separated_achievements() -> None:
     assert "Внедрила систему проектной отчётности" in titles
 
 
+def test_achievement_extraction_ignores_pdf_bullet_layout_noise() -> None:
+    service = AchievementExtractionService()
+
+    signals, warnings = service.extract_contribution_signals_for_review(
+        """
+Марина Соколова Бухгалтер Опыт: ООО «РегионТрейд» Бухгалтер 2020–2026 Обязанности:
+Ведение первичной бухгалтерской документации Работа с актами, счетами, накладными и счетами-фактурами
+Сверка взаиморасчётов с контрагентами Подготовка платежных поручений Работа в 1С:Бухгалтерия и Excel
+Участие в подготовке данных для налоговой и бухгалтерской отчётности Достижения:
+Сократила количество ошибок в первичных документах Навела порядок в архиве закрывающих документов
+Ускорила процесс сверки с контрагентами Подготовила шаблоны для регулярных бухгалтерских операций
+Навыки: 1С:Бухгалтерия Первичная документация Сверка взаиморасчётов Банк-клиент Excel НДС
+Акты сверки Деловая переписка Образование: Финансовый колледж Бухгалтерский учёт и экономика
+• • • • • • • • • • 1
+"""
+    )
+
+    titles = [item.title for item in signals]
+
+    assert "1" not in titles
+    assert signals
+    assert any("Сократила количество ошибок" in title for title in titles)
+    assert warnings == [
+        "normalized contribution signals were extracted; candidate ownership requires review"
+    ]
+
+
 def test_achievement_extraction_strips_inline_skills_heading_tail() -> None:
     service = AchievementExtractionService()
 

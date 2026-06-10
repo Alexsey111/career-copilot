@@ -46,6 +46,7 @@ LEGACY_DOMAIN_SPECIFIC_SYNTHESIS = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
 
 MAX_RESUME_WORDS = 1200
 MAX_KEYWORD_LOSS_RATIO = 0.3
+MAX_RESUME_ACHIEVEMENTS = None
 
 PROTECTED_TECH_TERMS = {
     "python",
@@ -72,6 +73,14 @@ KNOWN_MULTIWORD_SKILLS = [
     "Legal Research",
     "Документооборот",
     "Арбитраж",
+    "1С:Бухгалтерия",
+    "Первичная документация",
+    "Сверка взаиморасчётов",
+    "Банк-клиент",
+    "Excel",
+    "НДС",
+    "Акты сверки",
+    "Деловая переписка",
     "Складская логистика",
     "Управление персоналом",
     "Контроль качества",
@@ -382,6 +391,8 @@ class ResumeGenerationService:
             missing_keywords=missing_keywords,
             analysis_match_score=analysis.match_score,
         )
+        experience_items = self._build_experience_items(profile)
+
         tailoring = self._build_ats_tailoring_sections(
             vacancy_title=vacancy.title,
             matched_keywords=matched_keywords,
@@ -389,6 +400,7 @@ class ResumeGenerationService:
             selected_skills=selected_skills,
             selected_achievements=selected_achievements,
             evidence_snippets=evidence_snippets,
+            experience_items=experience_items,
         )
 
         summary_bullets = self._build_summary_bullets(
@@ -399,7 +411,6 @@ class ResumeGenerationService:
             matched_keywords=matched_keywords,
         )
 
-        experience_items = self._build_experience_items(profile)
         claims_needing_confirmation = self._build_claims_needing_confirmation(
             profile=profile,
             selected_achievements=selected_achievements,
@@ -587,7 +598,19 @@ class ResumeGenerationService:
         if not text:
             return []
 
-        remaining = str(text)
+        remaining = re.sub(
+            r"\s+(?:образование|опыт работы|опыт|курсы|проекты|стажировки|контакты|достижения|о себе)\s*[:：].*$",
+            "",
+            str(text),
+            flags=re.IGNORECASE | re.DOTALL,
+        ).strip()
+
+        remaining = re.sub(
+            r"(?m)^[•\s\d]+$",
+            "",
+            remaining,
+        ).strip()
+
         extracted: list[str] = []
 
         for skill in KNOWN_MULTIWORD_SKILLS:
@@ -611,6 +634,12 @@ class ResumeGenerationService:
     def _clean_skill_candidate(self, value: str) -> str | None:
         cleaned = re.sub(r"\s+", " ", value.strip(" .;-–—•"))
         if not cleaned:
+            return None
+
+        if re.fullmatch(r"[•\s\d]+", cleaned):
+            return None
+
+        if re.fullmatch(r"\d+", cleaned):
             return None
 
         noise_markers = [
@@ -917,9 +946,13 @@ class ResumeGenerationService:
                 3
             ),
         )
+        limit = MAX_RESUME_ACHIEVEMENTS
+        if limit:
+            selected = selected[:limit]
+
         return [
             achievement_to_dict(item)
-            for item in selected[:3]
+            for item in selected
         ]
 
     def _selected_achievements_from_evidence_bank(
@@ -1660,21 +1693,37 @@ class ResumeGenerationService:
         selected_skills: list[str],
         selected_achievements: list[dict[str, Any]],
         evidence_snippets: list[dict[str, Any]],
+        experience_items: list[dict[str, Any]],
     ) -> dict[str, Any]:
         relevant_to_vacancy = self._build_relevant_to_vacancy(
             matched_keywords=matched_keywords,
             selected_skills=selected_skills,
             evidence_snippets=evidence_snippets,
         )
+
+        selected_skill_keys = {
+            self._normalize_display_skill(skill).casefold()
+            for skill in selected_skills
+        }
+        relevant_keys = {
+            self._normalize_display_skill(item).casefold()
+            for item in relevant_to_vacancy
+        }
+
+        if relevant_keys and relevant_keys.issubset(selected_skill_keys):
+            relevant_to_vacancy = []
+
         vacancy_aligned_summary = self._build_vacancy_aligned_summary(
             vacancy_title=vacancy_title,
-            relevant_to_vacancy=relevant_to_vacancy,
+            selected_skills=selected_skills,
             selected_achievements=selected_achievements,
+            experience_items=experience_items,
         )
         competency_mapping = self._build_competency_mapping(
             relevant_to_vacancy=relevant_to_vacancy,
             evidence_snippets=evidence_snippets,
             missing_keywords=missing_keywords,
+            selected_achievements=selected_achievements,
         )
         return {
             "vacancy_aligned_summary": vacancy_aligned_summary,
@@ -1686,43 +1735,61 @@ class ResumeGenerationService:
         self,
         *,
         vacancy_title: str,
-        relevant_to_vacancy: list[str],
+        selected_skills: list[str],
         selected_achievements: list[dict[str, Any]],
+        experience_items: list[dict[str, Any]],
     ) -> str:
-        role = vacancy_title.strip() or "целевую позицию"
-        corpus = " ".join(
-            [
-                role,
-                " ".join(relevant_to_vacancy),
-                " ".join(
-                    " ".join(
-                        str(item.get(field) or "")
-                        for field in ("title", "action", "narrative")
-                    )
-                    for item in selected_achievements
-                ),
-            ]
-        ).lower()
+        role = re.sub(
+            r"\s+вакансия\s*$",
+            "",
+            vacancy_title.strip(),
+            flags=re.IGNORECASE,
+        ).strip() or "кандидат"
 
-        if any(marker in corpus for marker in ("workflow", "automation", "llm", "prompt", "openai")):
-            focus_terms = relevant_to_vacancy[:3]
-            focus = ", ".join(focus_terms) if focus_terms else "автоматизация и workflow"
-            return (
-                f"Профессиональный профиль под {role}: практический опыт в зоне {focus}, "
-                "с акцентом на проверяемые факты и релевантный вклад."
-            )
-        if any(marker in corpus for marker in ("fastapi", "backend", "api")):
-            return (
-                f"Backend-разработчик под {role}: практический опыт в backend/API задачах, "
-                "с акцентом на проверяемые факты и релевантный вклад."
-            )
-
-        focus_terms = relevant_to_vacancy[:3]
-        focus = ", ".join(focus_terms) if focus_terms else "релевантные профессиональные задачи"
-        return (
-            f"Профессиональный профиль под {role}: практический опыт в зоне {focus}, "
-            "с акцентом на проверяемые факты и профессиональный вклад."
+        experience_text = " ".join(
+            str(item.get("description_raw") or "")
+            for item in experience_items[:2]
         )
+
+        experience_text = re.sub(r"\s+", " ", experience_text).strip()
+
+        focus_phrases: list[str] = []
+
+        rules = [
+            ("ведения первичной документации", ("первичн", "документац")),
+            ("работы с актами, счетами и накладными", ("акт", "счет", "счёт", "накладн")),
+            ("сверки взаиморасчётов с контрагентами", ("сверк", "контрагент")),
+            ("подготовки платёжных поручений", ("платеж", "платёж")),
+            ("работы в 1С:Бухгалтерия и Excel", ("1с", "excel")),
+            ("подготовки данных для бухгалтерской и налоговой отчётности", ("отчётност", "отчетност", "налог")),
+        ]
+
+        lowered_experience = experience_text.lower()
+
+        for label, markers in rules:
+            if any(marker in lowered_experience for marker in markers):
+                focus_phrases.append(label)
+
+        focus_phrases = self._dedupe_preserve_order(focus_phrases)
+
+        if not focus_phrases:
+            focus_phrases = selected_skills[:3]
+
+        focus = ", ".join(focus_phrases[:3]) if focus_phrases else "релевантных профессиональных задач"
+        achievement_titles = [
+            str(item.get("title") or "").strip()
+            for item in selected_achievements[:2]
+            if str(item.get("title") or "").strip()
+        ]
+
+        summary = f"{role} с опытом {focus}."
+        if achievement_titles:
+            summary += (
+                " Среди подтверждённых результатов: "
+                + "; ".join(achievement_titles)
+                + "."
+            )
+        return summary
 
     def _filter_document_usable_evidence(
         self,
@@ -1819,13 +1886,30 @@ class ResumeGenerationService:
         relevant_to_vacancy: list[str],
         evidence_snippets: list[dict[str, Any]],
         missing_keywords: list[str],
+        selected_achievements: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         mapping: list[dict[str, Any]] = []
-        for competency in relevant_to_vacancy[:6]:
+        selected_titles = {
+            str(item.get("title") or "").strip().lower()
+            for item in selected_achievements
+            if str(item.get("title") or "").strip()
+        }
+        relevant_titles = {str(item).strip().lower() for item in relevant_to_vacancy if str(item).strip()}
+
+        for competency in relevant_to_vacancy:
             evidence = self._find_best_evidence_for_competency(
                 competency,
                 evidence_snippets,
             )
+            evidence_title = str(evidence.get("title") or "").strip().lower() if evidence else ""
+            if (
+                evidence
+                and selected_titles
+                and evidence_title not in selected_titles
+                and evidence_title not in relevant_titles
+            ):
+                continue
+
             mapping.append(
                 {
                     "competency": competency,
@@ -1856,7 +1940,26 @@ class ResumeGenerationService:
                 }
             )
 
-        return mapping[:8]
+        deduped_mapping: list[dict[str, Any]] = []
+        seen_signatures: set[tuple[str, str | None]] = set()
+
+        for item in mapping:
+            competency = str(item.get("competency") or "").strip()
+            evidence_id = item.get("evidence_id")
+            evidence_text = str(item.get("evidence") or "").strip()
+
+            signature = (
+                evidence_text.lower() if evidence_text else competency.lower(),
+                str(evidence_id) if evidence_id else None,
+            )
+
+            if signature in seen_signatures:
+                continue
+
+            seen_signatures.add(signature)
+            deduped_mapping.append(item)
+
+        return deduped_mapping
 
     def _find_best_evidence_for_competency(
         self,
@@ -2033,17 +2136,15 @@ class ResumeGenerationService:
             return "Обработка данных и извлечение сигналов для принятия решений"
 
         if evidence:
-            skills = [
-                self._normalize_display_skill(str(skill))
-                for skill in (evidence.get("skills") or [])
-                if str(skill).strip()
-            ]
-            skills = [
-                skill for skill in self._dedupe_preserve_order(skills)
-                if skill.lower() not in LOW_SIGNAL_SKILLS
-            ]
-            if skills:
-                return f"Практическое применение: {', '.join(skills[:4])}"
+            snippet = str(evidence.get("snippet_text") or "").strip()
+
+            if snippet:
+                snippet = re.sub(r"\s+", " ", snippet)
+
+                if len(snippet) > 140:
+                    snippet = snippet[:140].rsplit(" ", 1)[0] + "..."
+
+                return snippet
 
         return "Практический опыт требует дополнительного подтверждения"
 
@@ -2086,9 +2187,17 @@ class ResumeGenerationService:
         if not value:
             return None
 
-        text = re.sub(r"\s+", " ", str(value)).strip(" .;-–—•")
-        if not text:
+        lines = [
+            re.sub(r"[ \t]+", " ", line).strip(" .;-–—•")
+            for line in str(value).splitlines()
+        ]
+
+        lines = [line for line in lines if line]
+
+        if not lines:
             return None
+
+        text = "\n".join(lines)
 
         for boundary in EXPERIENCE_RESPONSIBILITY_BOUNDARIES:
             text = re.sub(

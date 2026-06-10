@@ -176,6 +176,34 @@ Acme, AI Engineer
     assert draft.headline == "Prompt Engineering, Data Science, Vibe-coding"
 
 
+def test_build_draft_does_not_leak_pdf_experience_role_into_target_roles() -> None:
+    from app.services.resume_parser_service import ResumeParserService
+
+    normalized = ResumeParserService()._normalize_text(
+        """
+Перминов Алексей
+30.11.1972 г.р.
+Профессиональные навыки
+Python, Git, Искусственный интеллект, LLM, Нейросети, API, SQL,
+Анализ данных, Tensorflow, Vibe-coding.
+Желаемая должность
+Prompt Engineering, Data Science, Vibe-coding
+ОПЫТ РАБОТЫ
+Acme, AI Engineer
+01.01.2023 - по настоящее время
+"""
+    )
+
+    draft = ProfileStructuringService()._build_draft(normalized)
+
+    assert draft.target_roles == [
+        "Prompt Engineering",
+        "Data Science",
+        "Vibe-coding",
+    ]
+    assert "AI Engineer" not in draft.target_roles
+
+
 def test_structured_resume_extraction_v2_finds_ai_automation_and_competency_signals() -> None:
     service = ProfileStructuringService()
 

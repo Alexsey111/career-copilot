@@ -288,6 +288,8 @@ class AchievementExtractionService:
                 cleaned = self._strip_inline_layout_heading_tail(
                     re.sub(r"^\s*[-•]\s+", "", line).strip()
                 )
+                if self._looks_like_resume_layout_noise(cleaned):
+                    continue
                 if cleaned:
                     for item in self._split_inline_contribution_items(cleaned):
                         bullet_blocks.append([item])
@@ -301,6 +303,13 @@ class AchievementExtractionService:
             and not self._looks_like_hard_achievement_stop(line)
             and not self._looks_like_resume_layout_noise(line)
         ]
+        contribution_lines = [
+            line
+            for line in section_lines
+            if self._line_has_contribution_signal(line)
+        ]
+        if len(contribution_lines) >= 2:
+            return [[line] for line in contribution_lines[:6]]
         if section_lines and self._line_has_contribution_signal(" ".join(section_lines)):
             return [section_lines[:6]]
         return []
@@ -309,6 +318,35 @@ class AchievementExtractionService:
         cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" ;-–—•")
         if not cleaned:
             return []
+
+        sentence_starters = (
+            "Сократил", "Сократила",
+            "Снизил", "Снизила",
+            "Ускорил", "Ускорила",
+            "Улучшил", "Улучшила",
+            "Навел", "Навела", "Навёл",
+            "Подготовил", "Подготовила",
+            "Внедрил", "Внедрила",
+            "Разработал", "Разработала",
+            "Создал", "Создала",
+        )
+
+        starter_pattern = "|".join(re.escape(starter) for starter in sentence_starters)
+        split_by_starters = [
+            part.strip(" ;-–—•")
+            for part in re.split(
+                rf"\s+(?=(?:{starter_pattern})(?:\s|$))",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+            if part.strip(" ;-–—•")
+        ]
+
+        if len(split_by_starters) >= 2 and all(
+            self._line_has_contribution_signal(part)
+            for part in split_by_starters
+        ):
+            return split_by_starters
 
         # Split only when dash likely separates two achievement-like clauses.
         parts = [
@@ -487,9 +525,13 @@ class AchievementExtractionService:
             "реализ",
             "сниз",
             "сократ",
+            "ускор",
             "увелич",
             "улучш",
             "внедр",
+            "навел",
+            "навёл",
+            "подготов",
             "managed",
             "built",
             "implemented",
@@ -590,12 +632,19 @@ class AchievementExtractionService:
         }
 
     def _looks_like_resume_layout_noise(self, line: str) -> bool:
-        return self.legacy_recovery_service.looks_like_legacy_resume_layout_noise(line)
+        if self.legacy_recovery_service.looks_like_legacy_resume_layout_noise(line):
+            return True
+
+        return bool(re.fullmatch(r"[•\s\d]+", line.strip()))
 
     def _looks_like_hard_achievement_stop(self, line: str) -> bool:
         normalized = self._normalize(line)
 
         hard_stop_markers = {
+            "НАВЫКИ",
+            "ОБРАЗОВАНИЕ",
+            "ОПЫТ РАБОТЫ",
+            "КОНТАКТЫ",
             "КУРСЫ",
             "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
             "ПРОМПТ-ИНЖИНИРИНГ УНИВЕРСИТЕТ",
@@ -604,7 +653,7 @@ class AchievementExtractionService:
         if normalized in hard_stop_markers:
             return True
 
-        if normalized.startswith("КУРСЫ "):
+        if normalized.startswith(("НАВЫКИ ", "ОБРАЗОВАНИЕ ", "ОПЫТ РАБОТЫ ", "КОНТАКТЫ ", "КУРСЫ ")):
             return True
 
         if normalized.startswith("ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ"):
