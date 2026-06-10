@@ -264,6 +264,7 @@ class CoverLetterGenerationService:
             missing_keywords=missing_keywords,
             profile_skills=profile_skills,
             vacancy_title=vacancy.title,
+            candidate_experiences=profile.experiences,
         )
         vacancy_alignment = self._build_vacancy_alignment(
             matched_keywords=matched_keywords,
@@ -684,6 +685,7 @@ class CoverLetterGenerationService:
         missing_keywords: list[str],
         profile_skills: list[str],
         vacancy_title: str,
+        candidate_experiences: list[Any] | None = None,
     ) -> str:
         parts: list[str] = []
         selected_evidence = selected_evidence or []
@@ -696,16 +698,32 @@ class CoverLetterGenerationService:
             selected_achievements=selected_achievements,
             selected_evidence=selected_evidence,
         )
+        experience_value = self._cover_letter_experience_value(
+            vacancy_title=vacancy_title,
+            matched_keywords=matched_keywords,
+            candidate_experiences=candidate_experiences,
+        )
 
-        if requirement_focus and project_value:
+        if requirement_focus and (experience_value or project_value):
             parts.append(
-                f"Вижу совпадение с задачами роли в части {requirement_focus}. "
-                f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                f"Вижу совпадение с задачами роли в части {requirement_focus}."
             )
+            if experience_value:
+                parts.append(
+                    f"Из опыта работы особенно релевантно: {experience_value}."
+                )
+            if project_value:
+                parts.append(
+                    f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                )
         elif requirement_focus:
             parts.append(
                 f"Вижу совпадение с задачами роли в части {requirement_focus}. "
                 "Готов обсудить, какие задачи команды лучше всего ложатся на этот опыт."
+            )
+        elif experience_value:
+            parts.append(
+                f"Из опыта работы особенно релевантно: {experience_value}."
             )
         elif project_value:
             parts.append(
@@ -814,6 +832,50 @@ class CoverLetterGenerationService:
             return ""
         return "; ".join(project_phrases[:2])
 
+    def _cover_letter_experience_value(
+        self,
+        *,
+        vacancy_title: str,
+        matched_keywords: list[str],
+        candidate_experiences: list[Any] | None,
+    ) -> str:
+        if not candidate_experiences:
+            return ""
+
+        corpus = " ".join([vacancy_title, *matched_keywords]).lower()
+
+        priority_markers = (
+            "команд",
+            "управлен",
+            "обуч",
+            "контрол",
+            "отчет",
+            "отчёт",
+            "мерчандайз",
+            "супервайзер",
+            "маршрут",
+            "аудит",
+        )
+
+        bullets: list[str] = []
+
+        for exp in candidate_experiences[:3]:
+            description = str(getattr(exp, "description_raw", "") or "")
+            for part in re.split(r"\s+-\s+|[\n;•]+", description):
+                cleaned = re.sub(r"\s+", " ", part).strip(" .;-–—•")
+                if not cleaned:
+                    continue
+
+                normalized = cleaned.lower()
+                if any(marker in corpus and marker in normalized for marker in priority_markers):
+                    bullets.append(cleaned)
+
+        bullets = self._dedupe_preserve_order(bullets)
+        if not bullets:
+            return ""
+
+        return "; ".join(bullets[:2])
+
     def _cover_letter_project_phrase(
         self,
         *,
@@ -834,7 +896,7 @@ class CoverLetterGenerationService:
         }
         if requires_confirmation or low_ownership or not confirmed:
             cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
-            return f"требует подтверждения: {cleaned_title}" if cleaned_title else ""
+            return f"подтверждаемый проектный контекст: {cleaned_title}" if cleaned_title else ""
 
         if any(marker in corpus for marker in ("computer vision", "image", "изображ", "video", "видео")):
             return "подтверждённый контекст обработки визуальных данных"

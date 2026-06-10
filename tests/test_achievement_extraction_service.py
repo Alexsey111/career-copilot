@@ -102,6 +102,58 @@ ACHIEVEMENTS
     ]
 
 
+def test_splits_inline_dash_separated_achievements() -> None:
+    service = AchievementExtractionService()
+
+    result, warnings = service.extract_contribution_signals_for_review(
+        """
+        Достижения:
+        - Снизил количество ошибок комплектации на 30% - Сократил время обработки заказов
+        - Организовал обучение новых сотрудников
+        """
+    )
+
+    titles = [item.title for item in result]
+
+    assert "Снизил количество ошибок комплектации на 30%" in titles
+    assert "Сократил время обработки заказов" in titles
+    assert "Организовал обучение новых сотрудников" in titles
+
+
+def test_skips_numeric_noise_contribution_title() -> None:
+    service = AchievementExtractionService()
+
+    signals, _ = service.extract_contribution_signals_for_review(
+        """
+        Достижения:
+        - 1
+        - Сократила количество ошибок в первичных документах
+        """
+    )
+
+    titles = [item.title for item in signals]
+
+    assert "1" not in titles
+    assert "Сократила количество ошибок в первичных документах" in titles
+
+
+def test_splits_multiple_dash_separated_achievements() -> None:
+    service = AchievementExtractionService()
+
+    signals, _ = service.extract_contribution_signals_for_review(
+        """
+        Достижения:
+        - Запустила 8 проектов в срок - Снизила количество просроченных задач на 40% - Внедрила систему проектной отчётности
+        """
+    )
+
+    titles = [item.title for item in signals]
+
+    assert "Запустила 8 проектов в срок" in titles
+    assert "Снизила количество просроченных задач на 40%" in titles
+    assert "Внедрила систему проектной отчётности" in titles
+
+
 def test_achievement_extraction_strips_inline_skills_heading_tail() -> None:
     service = AchievementExtractionService()
 

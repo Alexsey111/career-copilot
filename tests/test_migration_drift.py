@@ -15,7 +15,7 @@ from app import models  # noqa: F401
 
 MIGRATION_TEST_DATABASE_URL = os.getenv(
     "MIGRATION_TEST_DATABASE_URL",
-    "postgresql+psycopg://career_user:career_pass@localhost:5432/career_copilot_migration_test",
+    "postgresql+psycopg://career_user:career_pass@127.0.0.1:5433/career_copilot_migration_test",
 )
 
 

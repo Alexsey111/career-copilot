@@ -72,6 +72,16 @@ KNOWN_MULTIWORD_SKILLS = [
     "Legal Research",
     "Документооборот",
     "Арбитраж",
+    "Складская логистика",
+    "Управление персоналом",
+    "Контроль качества",
+]
+
+EXPERIENCE_RESPONSIBILITY_BOUNDARIES = [
+    "Организация складских процессов",
+    "Ведение медицинской документации",
+    "Координация маршрутизации пациентов",
+    "Претензионная работа",
 ]
 
 DISPLAY_NORMALIZATION_MAP = {
@@ -689,7 +699,7 @@ class ResumeGenerationService:
         if not section_lines:
             return []
 
-        joined = " ".join(section_lines)
+        joined = "\n".join(section_lines)
         return self._split_skill_text(joined)
 
     def _select_resume_skills(
@@ -699,8 +709,17 @@ class ResumeGenerationService:
         matched_keywords: list[str],
     ) -> list[str]:
         matched_skills: list[str] = []
+        raw_skill_set = {
+            self._normalize_display_skill(skill).strip().lower()
+            for skill in raw_skills
+            if skill
+        }
 
         for keyword in matched_keywords:
+            normalized_keyword = self._normalize_display_skill(keyword).strip().lower()
+            if normalized_keyword not in raw_skill_set:
+                continue
+
             for raw_skill in raw_skills:
                 if self._skill_matches_keyword(raw_skill, keyword):
                     matched_skills.append(raw_skill)
@@ -1725,6 +1744,25 @@ class ResumeGenerationService:
             for item in selected_evidence_reason
         )
 
+    def _looks_like_ai_or_tech_context(self, text: str) -> bool:
+        corpus = text.lower()
+        return any(
+            marker in corpus
+            for marker in (
+                "python",
+                "fastapi",
+                "backend",
+                "api",
+                "llm",
+                "openai",
+                "chatgpt",
+                "prompt",
+                "machine learning",
+                "computer vision",
+                "искусственный интеллект",
+            )
+        )
+
     def _build_relevant_to_vacancy(
         self,
         *,
@@ -1751,13 +1789,19 @@ class ResumeGenerationService:
                 for snippet in evidence_snippets
             ]
         ).lower()
-        semantic_rules = [
-            ("Prompt engineering", ("prompt", "prompt engineering", "промпт")),
-            ("AI tooling", ("llm", "chatgpt", "ai interaction", "ai tooling")),
-            ("Workflow automation", ("automation", "workflow", "no-code", "nocode")),
-            ("Python", ("python",)),
-            ("AI/LLM tooling", ("llm", "openai", "chatgpt", "искусственный интеллект")),
-        ]
+        if self._looks_like_ai_or_tech_context(
+            " ".join([*matched_keywords, *selected_skills, evidence_text])
+        ):
+            semantic_rules = [
+                ("Prompt engineering", ("prompt", "prompt engineering", "промпт")),
+                ("AI tooling", ("llm", "chatgpt", "ai interaction", "ai tooling")),
+                ("Workflow automation", ("automation", "workflow", "no-code", "nocode")),
+                ("Python", ("python",)),
+                ("AI/LLM tooling", ("llm", "openai", "chatgpt", "искусственный интеллект")),
+            ]
+        else:
+            semantic_rules = []
+
         for label, markers in semantic_rules:
             if any(marker in evidence_text for marker in markers):
                 candidates.append(label)
@@ -2026,7 +2070,9 @@ class ResumeGenerationService:
                 "company": exp.company,
                 "role": exp.role,
                 "period": self._format_period(exp.start_date, exp.end_date),
-                "description_raw": exp.description_raw,
+                "description_raw": self._normalize_experience_description(
+                    exp.description_raw
+                ),
             }
 
             if self._looks_like_low_confidence_experience_item(item):
@@ -2035,6 +2081,33 @@ class ResumeGenerationService:
             items.append(item)
 
         return items
+
+    def _normalize_experience_description(self, value: str | None) -> str | None:
+        if not value:
+            return None
+
+        text = re.sub(r"\s+", " ", str(value)).strip(" .;-–—•")
+        if not text:
+            return None
+
+        for boundary in EXPERIENCE_RESPONSIBILITY_BOUNDARIES:
+            text = re.sub(
+                rf"(?<!^)\s+({re.escape(boundary)})",
+                r"\n\1",
+                text,
+                flags=re.IGNORECASE,
+            )
+
+        parts = [
+            part.strip(" .;-–—•")
+            for part in re.split(r"\s+-\s+|[;•]+", text)
+            if part.strip(" .;-–—•")
+        ]
+
+        if len(parts) <= 1:
+            return text
+
+        return "\n".join(self._dedupe_preserve_order(parts))
 
     def _looks_like_low_confidence_experience_item(self, item: dict) -> bool:
         combined = " ".join(

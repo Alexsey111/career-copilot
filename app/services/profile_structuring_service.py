@@ -977,7 +977,7 @@ class ProfileStructuringService:
                 ),
             ),
             ("automation", ("автоматизац", "автоматизирован", "automation")),
-            ("workflow", ("workflow", "процесс", "пайплайн", "pipeline")),
+            ("workflow", ("workflow", "workflow automation", "пайплайн", "pipeline")),
             ("Python", ("python",)),
             ("Git", ("git",)),
             ("API", ("api",)),
@@ -1367,6 +1367,20 @@ class ProfileStructuringService:
 
         skill_lines: list[str] = []
         for line in section:
+            normalized_heading = self._normalize_heading(line)
+            if normalized_heading in {
+                "ОБРАЗОВАНИЕ",
+                "ОПЫТ",
+                "ОПЫТ РАБОТЫ",
+                "КУРСЫ",
+                "ПРОЕКТЫ",
+                "СТАЖИРОВКИ",
+                "КОНТАКТЫ",
+                "ДОСТИЖЕНИЯ",
+                "О СЕБЕ",
+            }:
+                break
+
             if NUMBERED_ITEM_RE.match(line):
                 break
             lowered = line.lower()
@@ -1379,6 +1393,10 @@ class ProfileStructuringService:
                 flags=re.IGNORECASE,
             ).strip()
             if cleaned:
+                if re.fullmatch(r"[•\s\d]+", cleaned):
+                    continue
+                if re.fullmatch(r"\d+", cleaned):
+                    continue
                 skill_lines.append(cleaned)
 
         summary = "\n".join(skill_lines[:6]).strip()
@@ -1795,8 +1813,16 @@ class ProfileStructuringService:
 
             for heading in heading_patterns:
                 current = re.sub(
-                    rf"\s+({re.escape(heading)}\s*[:：])",
+                    rf"(?<!^)(?<!\n)\s*({re.escape(heading)}\s*[:：])",
                     r"\n\1",
+                    current,
+                    flags=re.IGNORECASE,
+                )
+
+            for heading in heading_patterns:
+                current = re.sub(
+                    rf"(?im)^({re.escape(heading)}\s*[:：])\s+(.+)$",
+                    r"\1\n\2",
                     current,
                     flags=re.IGNORECASE,
                 )

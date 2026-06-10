@@ -188,27 +188,40 @@ class AchievementExtractionService:
             source_text = self._strip_inline_layout_heading_tail(
                 re.sub(r"\s+", " ", " ".join(block)).strip()
             )
-            if (
-                not title
-                or self._looks_like_noise_title(title)
-                or self._looks_like_responsibility_like_contribution(title, source_text)
-            ):
-                continue
+            titles = self._split_inline_contribution_items(title)
+            for split_title in titles:
+                if (
+                    not split_title
+                    or self._looks_like_noise_title(split_title)
+                    or self._looks_like_invalid_contribution_title(split_title)
+                    or self._looks_like_responsibility_like_contribution(split_title, source_text)
+                ):
+                    continue
 
-            signals.append(
-                NormalizedContributionSignal(
-                    title=title,
-                    contribution_type=self._classify_contribution_type(title, source_text),
-                    source_text=source_text or title,
-                    skills=self._extract_contribution_skills(title, source_text),
-                    confidence="medium",
-                    ownership_confidence="low",
-                    requires_confirmation=True,
-                    source_layer="generic_extraction",
+                signals.append(
+                    NormalizedContributionSignal(
+                        title=split_title,
+                        contribution_type=self._classify_contribution_type(split_title, source_text),
+                        source_text=source_text or split_title,
+                        skills=self._extract_contribution_skills(split_title, source_text),
+                        confidence="medium",
+                        ownership_confidence="low",
+                        requires_confirmation=True,
+                        source_layer="generic_extraction",
+                    )
                 )
-            )
 
         return self._dedupe_contribution_signals(signals)
+
+    def _looks_like_invalid_contribution_title(self, title: str) -> bool:
+        cleaned = re.sub(r"\s+", " ", str(title or "")).strip(" .;-–—•")
+        if not cleaned:
+            return True
+        if len(cleaned) < 4:
+            return True
+        if re.fullmatch(r"\d+", cleaned):
+            return True
+        return False
 
     def _build_reviewed_candidate_ownership(
         self,
@@ -276,7 +289,8 @@ class AchievementExtractionService:
                     re.sub(r"^\s*[-•]\s+", "", line).strip()
                 )
                 if cleaned:
-                    bullet_blocks.append([cleaned])
+                    for item in self._split_inline_contribution_items(cleaned):
+                        bullet_blocks.append([item])
         if bullet_blocks:
             return bullet_blocks
 
@@ -290,6 +304,36 @@ class AchievementExtractionService:
         if section_lines and self._line_has_contribution_signal(" ".join(section_lines)):
             return [section_lines[:6]]
         return []
+
+    def _split_inline_contribution_items(self, value: str) -> list[str]:
+        cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" ;-–—•")
+        if not cleaned:
+            return []
+
+        # Split only when dash likely separates two achievement-like clauses.
+        parts = [
+            part.strip(" ;-–—•")
+            for part in re.split(r"\s+-\s+", cleaned)
+            if part.strip(" ;-–—•")
+        ]
+
+        if len(parts) <= 1:
+            return [cleaned]
+
+        achievement_like_parts = [
+            part
+            for part in parts
+            if self._line_has_contribution_signal(part)
+            and not (
+                self._looks_like_responsibility_like_contribution(part, part)
+                or "участв" in part.lower()
+            )
+        ]
+
+        if len(achievement_like_parts) >= 2:
+            return achievement_like_parts
+
+        return [cleaned]
 
     def _strip_inline_layout_heading_tail(self, value: str) -> str:
         cleaned = str(value or "").strip()
@@ -413,6 +457,7 @@ class AchievementExtractionService:
             "проведени",
             "проводил",
             "взаимодейств",
+            "участв",
             "работа с",
             "осуществл",
             "выполнял",
@@ -436,12 +481,15 @@ class AchievementExtractionService:
         markers = (
             "разработ",
             "создал",
+            "запуст",
             "провел",
             "провёл",
             "реализ",
+            "сниз",
             "сократ",
             "увелич",
             "улучш",
+            "внедр",
             "managed",
             "built",
             "implemented",
