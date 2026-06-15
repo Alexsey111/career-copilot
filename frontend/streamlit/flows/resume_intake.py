@@ -143,7 +143,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
             "Повторная загрузка файла не нужна."
         )
 
-        if st.button("Использовать текущее резюме и продолжить", type="primary", use_container_width=True):
+        if st.button("Использовать текущее резюме и продолжить", type="primary", width="stretch"):
             st.session_state.source_file = active_resume
             restored = _restore_resume_pipeline_state(client, token)
             if not restored and not st.session_state.get("resume_import"):
@@ -183,7 +183,7 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
     st.caption(f"Тип: {uploaded_file.type or 'не определён'}")
     st.caption(f"Размер: {uploaded_file.size} байт")
 
-    if st.button("Загрузить резюме", type="primary", use_container_width=True):
+    if st.button("Загрузить резюме", type="primary", width="stretch"):
         try:
             result = client.upload_file(path="/files/upload",
                 file_kind="resume",
@@ -255,7 +255,7 @@ def render_manual_profile_intake_step(client: CareerCopilotApiClient, token: str
         submitted = st.form_submit_button(
             "Создать профиль",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if not submitted:
@@ -352,7 +352,7 @@ def render_github_public_intake_step(client: CareerCopilotApiClient, token: str 
     max_repositories = st.slider("Сколько репозиториев импортировать", min_value=1, max_value=30, value=12)
     include_readme = st.checkbox("Читать README snippets", value=True)
 
-    if not st.button("Импортировать GitHub", type="primary", use_container_width=True):
+    if not st.button("Импортировать GitHub", type="primary", width="stretch"):
         return
 
     if not github_url.strip():
@@ -482,7 +482,7 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
         ),
     )
 
-    if st.button("Импортировать резюме", type="primary", use_container_width=True):
+    if st.button("Импортировать резюме", type="primary", width="stretch"):
         try:
             result = client.post_json(
                 "/profile/import-resume",
@@ -576,7 +576,7 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
             )
         return
 
-    if st.button("Извлечь структурированный профиль", type="primary", use_container_width=True):
+    if st.button("Извлечь структурированный профиль", type="primary", width="stretch"):
         try:
             result = client.post_json("/profile/extract-structured",
                 {
@@ -719,7 +719,7 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
     if achievements_already_ready:
         st.success("Достижения уже извлечены. Повторный анализ не нужен.")
 
-    if not achievements_already_ready and st.button("Извлечь достижения", type="primary", use_container_width=True):
+    if not achievements_already_ready and st.button("Извлечь достижения", type="primary", width="stretch"):
         try:
             result = client.post_json("/profile/extract-achievements",
                 {
@@ -756,7 +756,7 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
 
     if st.button(
         "Сгенерировать черновики проектов из GitHub evidence",
-        use_container_width=True,
+        width="stretch",
     ):
         try:
             result = client.generate_repository_achievements(token=token)
@@ -919,7 +919,7 @@ def render_achievements_step(client: CareerCopilotApiClient, token: str | None =
                 submitted_review = st.form_submit_button(
                     "Сохранить проверку достижений",
                     type="primary",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if submitted_review:

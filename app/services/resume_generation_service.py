@@ -25,6 +25,16 @@ from app.domain.evidence_confidence import (
     aggregate_evidence_confidence,
 )
 from app.domain.document_models import SelectedAchievement
+from app.domain.evidence_alignment import (
+    polish_summary_evidence_phrase,
+    score_alignment_item,
+)
+from app.domain.text_normalization import (
+    clean_vacancy_title,
+    dedupe_subsumed_phrases,
+    humanize_vacancy_requirement_phrase,
+    make_user_facing_evidence_phrase,
+)
 from app.services.document_compat import (
     achievement_to_dict,
     ensure_keyword_set,
@@ -38,6 +48,7 @@ from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.profile_structuring_service import ProfileStructuringService
 from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryService
 from app.services.resume_renderer import render_resume
+from app.services.vacancy_fit_context_service import VacancyFitContextService
 from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
 
 
@@ -84,6 +95,19 @@ KNOWN_MULTIWORD_SKILLS = [
     "Складская логистика",
     "Управление персоналом",
     "Контроль качества",
+]
+
+GENERIC_MULTIWORD_SKILLS = [
+    *KNOWN_MULTIWORD_SKILLS,
+    "Медицинская документация",
+    "Клиническая диагностика",
+    "Электронные медицинские системы",
+    "Амбулаторный прием",
+    "Амбулаторный приём",
+    "Экстренная медицинская помощь",
+    "Предрейсовые осмотры",
+    "Послерейсовые осмотры",
+    "Медицинское освидетельствование",
 ]
 
 EXPERIENCE_RESPONSIBILITY_BOUNDARIES = [
@@ -403,6 +427,15 @@ class ResumeGenerationService:
             experience_items=experience_items,
         )
 
+        vacancy_fit_context = VacancyFitContextService().build(
+            matched_keywords=matched_keywords,
+            missing_keywords=missing_keywords,
+            selected_skills=selected_skills,
+            evidence_snippets=evidence_snippets,
+            selected_achievements=selected_achievements,
+        )
+        vacancy_fit_narrative = vacancy_fit_context["vacancy_fit_narrative"]
+
         summary_bullets = self._build_summary_bullets(
             profile=profile,
             vacancy_title=vacancy.title,
@@ -488,7 +521,10 @@ class ResumeGenerationService:
                 "ai_enhanced_v1" if use_ai_enhancement else "deterministic_v1_review_ready"
             ),
             fit_summary=fit_summary,
+            vacancy_fit_narrative=vacancy_fit_narrative,
             vacancy_aligned_summary=tailoring["vacancy_aligned_summary"],
+            vacancy_evidence_alignment=tailoring["vacancy_evidence_alignment"],
+            top_alignment_evidence=tailoring["top_alignment_evidence"],
             competency_mapping=tailoring["competency_mapping"],
             relevant_to_vacancy=tailoring["relevant_to_vacancy"],
             project_sections=project_sections,
@@ -588,11 +624,11 @@ class ResumeGenerationService:
         profile_summary: str | None,
         raw_text: str,
     ) -> list[str]:
-        raw_text_skills = self._extract_skills_from_raw_text(raw_text)
-        if raw_text_skills:
-            return raw_text_skills
+        profile_skills = self._split_skill_text(profile_summary or "")
+        if profile_skills:
+            return profile_skills
 
-        return self._split_skill_text(profile_summary or "")
+        return self._extract_skills_from_raw_text(raw_text)
 
     def _split_skill_text(self, text: str) -> list[str]:
         if not text:
@@ -613,7 +649,7 @@ class ResumeGenerationService:
 
         extracted: list[str] = []
 
-        for skill in KNOWN_MULTIWORD_SKILLS:
+        for skill in GENERIC_MULTIWORD_SKILLS:
             if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", remaining, re.IGNORECASE):
                 extracted.append(skill)
                 remaining = re.sub(
@@ -706,7 +742,7 @@ class ResumeGenerationService:
 
         for line in lines:
             heading_match = re.match(
-                r"^(ПРОФЕССИОНАЛЬНЫЕ\s+НАВЫКИ|НАВЫКИ)\s*[:：-]?\s*(.*)$",
+                r"^(ПРОФЕССИОНАЛЬНЫЕ\s+НАВЫКИ(?:\s+И\s+\w+)?|НАВЫКИ(?:\s+И\s+\w+)?|КОМПЕТЕНЦИИ|SKILLS)\s*[:：-]?\s*(.*)$",
                 line,
                 flags=re.IGNORECASE,
             )
@@ -1629,7 +1665,7 @@ class ResumeGenerationService:
         analysis_match_score: int | None,
     ) -> dict:
         return {
-            "target_role": vacancy_title,
+            "target_role": clean_vacancy_title(vacancy_title),
             "match_score": analysis_match_score,
             "matched_keyword_count": len(matched_keywords),
             "missing_keyword_count": len(missing_keywords),
@@ -1645,6 +1681,7 @@ class ResumeGenerationService:
         matched_keywords: list[str],
     ) -> list[str]:
         bullets: list[str] = []
+        clean_title = clean_vacancy_title(vacancy_title)
 
         if profile.headline:
             bullets.append(
@@ -1653,7 +1690,7 @@ class ResumeGenerationService:
 
         if matched_keywords:
             bullets.append(
-                f"Подтверждённые пересечения с вакансией {vacancy_title}: "
+                f"Подтверждённые пересечения с вакансией {clean_title}: "
                 f"{', '.join(matched_keywords[:6])}."
             )
 
@@ -1713,11 +1750,23 @@ class ResumeGenerationService:
         if relevant_keys and relevant_keys.issubset(selected_skill_keys):
             relevant_to_vacancy = []
 
+        vacancy_evidence_alignment = self._build_vacancy_evidence_alignment(
+            matched_keywords=matched_keywords,
+            missing_keywords=missing_keywords,
+            selected_skills=selected_skills,
+            evidence_snippets=evidence_snippets,
+            selected_achievements=selected_achievements,
+        )
+        top_alignment_evidence = self._build_top_alignment_evidence(
+            vacancy_evidence_alignment=vacancy_evidence_alignment,
+        )
         vacancy_aligned_summary = self._build_vacancy_aligned_summary(
             vacancy_title=vacancy_title,
             selected_skills=selected_skills,
             selected_achievements=selected_achievements,
             experience_items=experience_items,
+            vacancy_evidence_alignment=vacancy_evidence_alignment,
+            top_alignment_evidence=top_alignment_evidence,
         )
         competency_mapping = self._build_competency_mapping(
             relevant_to_vacancy=relevant_to_vacancy,
@@ -1727,9 +1776,270 @@ class ResumeGenerationService:
         )
         return {
             "vacancy_aligned_summary": vacancy_aligned_summary,
+            "vacancy_evidence_alignment": vacancy_evidence_alignment,
+            "top_alignment_evidence": top_alignment_evidence,
             "competency_mapping": competency_mapping,
             "relevant_to_vacancy": relevant_to_vacancy,
         }
+
+    def _build_vacancy_evidence_alignment(
+        self,
+        *,
+        matched_keywords: list[str],
+        missing_keywords: list[str],
+        selected_skills: list[str],
+        evidence_snippets: list[dict[str, Any]],
+        selected_achievements: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        requirements = self._dedupe_preserve_order(
+            [
+                self._display_relevance_label(str(item).strip())
+                for item in [*matched_keywords, *missing_keywords]
+                if str(item).strip()
+            ]
+        )
+        selected_titles = {
+            str(item.get("title") or "").strip().lower()
+            for item in selected_achievements
+            if str(item.get("title") or "").strip()
+        }
+        selected_skill_keys = {
+            self._normalize_display_skill(skill).strip().lower()
+            for skill in selected_skills
+            if str(skill).strip()
+        }
+
+        alignment: list[dict[str, Any]] = []
+        for requirement in requirements:
+            evidence = self._find_best_evidence_for_competency(
+                requirement,
+                evidence_snippets,
+            )
+            evidence_title = (
+                str(evidence.get("title") or "").strip().lower()
+                if evidence
+                else ""
+            )
+            requirement_title = str(requirement or "").strip().lower()
+            if (
+                evidence
+                and selected_titles
+                and evidence_title not in selected_titles
+                and evidence_title != requirement_title
+            ):
+                evidence = None
+
+            evidence_label = (
+                self._render_alignment_evidence_label(evidence)
+                if evidence
+                else None
+            )
+            skill_supported = self._requirement_supported_by_skills(
+                requirement=requirement,
+                selected_skill_keys=selected_skill_keys,
+            )
+            label_is_fallback = False
+            if evidence_label is None and skill_supported:
+                evidence_label = humanize_vacancy_requirement_phrase(requirement)
+                if evidence_label is None:
+                    evidence_label = self._display_relevance_label(requirement)
+                label_is_fallback = True
+
+            confidence = (
+                "high"
+                if evidence_label and not label_is_fallback
+                else "medium" if skill_supported else "gap"
+            )
+            alignment.append(
+                {
+                    "requirement": requirement,
+                    "evidence": evidence_label,
+                    "confidence": confidence,
+                    "evidence_id": evidence.get("id") if evidence else None,
+                    "fact_status": evidence.get("fact_status") if evidence else "needs_review",
+                }
+            )
+
+        return self._dedupe_vacancy_evidence_alignment(alignment)[:8]
+
+    def _build_top_alignment_evidence(
+        self,
+        *,
+        vacancy_evidence_alignment: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        prioritized = []
+        for item in vacancy_evidence_alignment:
+            confidence = str(item.get("confidence") or "").strip().lower()
+            evidence = str(item.get("evidence") or "").strip()
+            requirement = str(item.get("requirement") or "").strip()
+            if not evidence or confidence not in {"high", "medium"}:
+                continue
+
+            user_facing_evidence = make_user_facing_evidence_phrase(evidence)
+            summary_phrase = self._alignment_summary_phrase(
+                requirement=requirement,
+                evidence=user_facing_evidence or requirement,
+            )
+            summary_phrase = polish_summary_evidence_phrase(summary_phrase)
+            if make_user_facing_evidence_phrase(summary_phrase) is None:
+                continue
+
+            prioritized.append(
+                {
+                    "requirement": requirement,
+                    "evidence": user_facing_evidence or requirement,
+                    "summary_phrase": summary_phrase,
+                    "confidence": confidence,
+                    "evidence_id": item.get("evidence_id"),
+                    "fact_status": item.get("fact_status"),
+                }
+            )
+
+        prioritized = self._dedupe_top_alignment_evidence(prioritized)
+        prioritized = [
+            item
+            for item in prioritized
+            if item.get("summary_phrase")
+        ]
+        if prioritized:
+            phrases = dedupe_subsumed_phrases(
+                [str(item.get("summary_phrase") or "") for item in prioritized]
+            )
+            by_phrase = {
+                str(item.get("summary_phrase") or "").strip(): item
+                for item in prioritized
+            }
+            prioritized = [
+                by_phrase[phrase]
+                for phrase in phrases
+                if phrase in by_phrase
+            ]
+
+        prioritized = sorted(prioritized, key=score_alignment_item, reverse=True)
+
+        return prioritized[:3]
+
+    def _alignment_summary_phrase(
+        self,
+        *,
+        requirement: str,
+        evidence: str,
+    ) -> str:
+        text = re.sub(r"\s+", " ", str(evidence or "")).strip(" .;-–—•")
+        if not text:
+            return self._display_relevance_label(requirement)
+
+        leading_action_pattern = r"^(Сократил|Сократила|Снизил|Снизила|Ускорил|Ускорила|Улучшил|Улучшила|Внедрил|Внедрила|Создал|Создала|Разработал|Разработала|Участвовал|Участвовала|Провёл|Провел|Провела|Перевёл|Перевел|Перевела|Настроил|Настроила|Оптимизировал|Оптимизировала|Автоматизировал|Автоматизировала|Мигрировал|Мигрировала|Рефакторил|Модернизировал)\s+"
+        stripped = re.sub(leading_action_pattern, "", text, flags=re.IGNORECASE)
+        stripped = re.sub(r"^(по|для|на)\s+", "", stripped, flags=re.IGNORECASE)
+        polished = polish_summary_evidence_phrase(stripped or self._display_relevance_label(requirement))
+        return polished or self._display_relevance_label(requirement)
+
+    def _dedupe_top_alignment_evidence(
+        self,
+        values: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for item in values:
+            requirement = str(item.get("requirement") or "").strip()
+            summary_phrase = str(item.get("summary_phrase") or "").strip()
+            signature = (requirement.casefold(), summary_phrase.casefold())
+            if not requirement or not summary_phrase or signature in seen:
+                continue
+            seen.add(signature)
+            result.append(item)
+        return result
+
+    def _requirement_supported_by_skills(
+        self,
+        *,
+        requirement: str,
+        selected_skill_keys: set[str],
+    ) -> bool:
+        requirement_key = self._normalize_display_skill(requirement).strip().lower()
+        if requirement_key in selected_skill_keys:
+            return True
+
+        selected_text = " ".join(selected_skill_keys)
+        requirement_lower = requirement_key
+
+        support_markers = {
+            "pytest": ("pytest", "test", "testing", "testclient"),
+            "api": ("fastapi", "backend", "api"),
+            "fastapi": ("fastapi", "backend", "api"),
+            "backend": ("fastapi", "backend", "api"),
+            "docker": ("docker", "container", "infrastructure"),
+            "cicd": ("ci", "cd", "cicd", "pipeline"),
+            "ci/cd": ("ci", "cd", "cicd", "pipeline"),
+            "postgresql": ("postgres", "postgresql", "sqlalchemy"),
+            "sqlalchemy": ("postgres", "postgresql", "sqlalchemy"),
+            "workflow automation": ("workflow", "automation", "nocode", "no-code"),
+            "git": ("git", "github", "repository", "version control"),
+            "python": ("python",),
+        }
+
+        for marker, support_tokens in support_markers.items():
+            if marker in requirement_lower and any(token in selected_text for token in support_tokens):
+                return True
+
+        return False
+
+    def _format_summary_focus_phrases(
+        self,
+        phrases: list[str],
+    ) -> str:
+        cleaned = [
+            re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+            for value in phrases
+            if str(value or "").strip()
+        ]
+        cleaned = dedupe_subsumed_phrases(
+            self._dedupe_preserve_order([item for item in cleaned if item])
+        )
+        if not cleaned:
+            return "релевантных профессиональных задач"
+        if len(cleaned) == 1:
+            return cleaned[0]
+        if len(cleaned) == 2:
+            return " и ".join(cleaned)
+        return f"{', '.join(cleaned[:-1])} и {cleaned[-1]}"
+
+    def _render_alignment_evidence_label(
+        self,
+        evidence: dict[str, Any],
+    ) -> str | None:
+        for field in ("title", "snippet_text"):
+            value = re.sub(r"\s+", " ", str(evidence.get(field) or "")).strip()
+            display_value = make_user_facing_evidence_phrase(value)
+            if display_value and display_value.lower() != "technology stack from resume":
+                return (
+                    display_value[:140].rsplit(" ", 1)[0]
+                    if len(display_value) > 140
+                    else display_value
+                )
+        skills = [
+            self._normalize_display_skill(str(skill))
+            for skill in evidence.get("skills") or []
+            if str(skill).strip()
+        ]
+        return ", ".join(self._dedupe_preserve_order(skills)[:3]) or None
+
+    def _dedupe_vacancy_evidence_alignment(
+        self,
+        alignment: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for item in alignment:
+            requirement = str(item.get("requirement") or "").strip()
+            evidence = str(item.get("evidence") or "").strip()
+            signature = (requirement.casefold(), evidence.casefold())
+            if not requirement or signature in seen:
+                continue
+            seen.add(signature)
+            result.append(item)
+        return result
 
     def _build_vacancy_aligned_summary(
         self,
@@ -1738,47 +2048,41 @@ class ResumeGenerationService:
         selected_skills: list[str],
         selected_achievements: list[dict[str, Any]],
         experience_items: list[dict[str, Any]],
+        vacancy_evidence_alignment: list[dict[str, Any]] | None = None,
+        top_alignment_evidence: list[dict[str, Any]] | None = None,
     ) -> str:
-        role = re.sub(
-            r"\s+вакансия\s*$",
-            "",
-            vacancy_title.strip(),
-            flags=re.IGNORECASE,
-        ).strip() or "кандидат"
+        role = clean_vacancy_title(vacancy_title) or "кандидат"
 
-        experience_text = " ".join(
-            str(item.get("description_raw") or "")
-            for item in experience_items[:2]
-        )
-
-        experience_text = re.sub(r"\s+", " ", experience_text).strip()
-
-        focus_phrases: list[str] = []
-
-        rules = [
-            ("ведения первичной документации", ("первичн", "документац")),
-            ("работы с актами, счетами и накладными", ("акт", "счет", "счёт", "накладн")),
-            ("сверки взаиморасчётов с контрагентами", ("сверк", "контрагент")),
-            ("подготовки платёжных поручений", ("платеж", "платёж")),
-            ("работы в 1С:Бухгалтерия и Excel", ("1с", "excel")),
-            ("подготовки данных для бухгалтерской и налоговой отчётности", ("отчётност", "отчетност", "налог")),
+        focus_phrases = [
+            str(item.get("summary_phrase") or "").strip()
+            for item in (top_alignment_evidence or [])
+            if str(item.get("summary_phrase") or "").strip()
         ]
 
-        lowered_experience = experience_text.lower()
+        if not focus_phrases:
+            responsibility_items: list[str] = []
+            for item in experience_items[:2]:
+                responsibilities = item.get("responsibilities") or []
+                if isinstance(responsibilities, list):
+                    responsibility_items.extend(
+                        str(value).strip()
+                        for value in responsibilities
+                        if str(value).strip()
+                    )
 
-        for label, markers in rules:
-            if any(marker in lowered_experience for marker in markers):
-                focus_phrases.append(label)
+                description_raw = str(item.get("description_raw") or "").strip()
+                if description_raw and not responsibility_items:
+                    responsibility_items.append(description_raw)
 
-        focus_phrases = self._dedupe_preserve_order(focus_phrases)
+            focus_phrases = self._dedupe_preserve_order(responsibility_items)
 
         if not focus_phrases:
             focus_phrases = selected_skills[:3]
 
-        focus = ", ".join(focus_phrases[:3]) if focus_phrases else "релевантных профессиональных задач"
+        focus = self._format_summary_focus_phrases(focus_phrases[:3])
         achievement_titles = [
             str(item.get("title") or "").strip()
-            for item in selected_achievements[:2]
+            for item in selected_achievements[:3]
             if str(item.get("title") or "").strip()
         ]
 

@@ -22,6 +22,41 @@ from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryServ
 NUMBERED_ITEM_RE = re.compile(r"^\d{1,2}\s*[.)\-–—:]\s+")
 ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
 
+CONTRIBUTION_ACTION_VERBS = (
+    "Сократил",
+    "Сократила",
+    "Снизил",
+    "Снизила",
+    "Ускорил",
+    "Ускорила",
+    "Улучшил",
+    "Улучшила",
+    "Внедрил",
+    "Внедрила",
+    "Создал",
+    "Создала",
+    "Разработал",
+    "Разработала",
+    "Участвовал",
+    "Участвовала",
+    "Провёл",
+    "Провел",
+    "Провела",
+    "Перевёл",
+    "Перевел",
+    "Перевела",
+    "Настроил",
+    "Настроила",
+    "Оптимизировал",
+    "Оптимизировала",
+    "Автоматизировал",
+    "Автоматизировала",
+    "Мигрировал",
+    "Мигрировала",
+    "Рефакторил",
+    "Модернизировал",
+)
+
 
 @dataclass
 class AchievementDraft:
@@ -319,19 +354,7 @@ class AchievementExtractionService:
         if not cleaned:
             return []
 
-        sentence_starters = (
-            "Сократил", "Сократила",
-            "Снизил", "Снизила",
-            "Ускорил", "Ускорила",
-            "Улучшил", "Улучшила",
-            "Навел", "Навела", "Навёл",
-            "Подготовил", "Подготовила",
-            "Внедрил", "Внедрила",
-            "Разработал", "Разработала",
-            "Создал", "Создала",
-        )
-
-        starter_pattern = "|".join(re.escape(starter) for starter in sentence_starters)
+        starter_pattern = "|".join(re.escape(starter) for starter in CONTRIBUTION_ACTION_VERBS)
         split_by_starters = [
             part.strip(" ;-–—•")
             for part in re.split(
@@ -362,10 +385,7 @@ class AchievementExtractionService:
             part
             for part in parts
             if self._line_has_contribution_signal(part)
-            and not (
-                self._looks_like_responsibility_like_contribution(part, part)
-                or "участв" in part.lower()
-            )
+            and not self._looks_like_responsibility_like_contribution(part, part)
         ]
 
         if len(achievement_like_parts) >= 2:
@@ -532,6 +552,7 @@ class AchievementExtractionService:
             "навел",
             "навёл",
             "подготов",
+            "участв",
             "managed",
             "built",
             "implemented",
@@ -542,7 +563,9 @@ class AchievementExtractionService:
             "prepared",
             "negotiated",
         )
-        return any(marker in lowered for marker in markers)
+        return any(marker in lowered for marker in markers) or any(
+            verb.casefold() in lowered for verb in CONTRIBUTION_ACTION_VERBS
+        )
 
     def _dedupe_contribution_signals(
         self,

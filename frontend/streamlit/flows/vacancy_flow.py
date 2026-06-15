@@ -125,7 +125,7 @@ def _render_hh_vacancy_import(client: CareerCopilotApiClient, token: str | None)
         key="hh_vacancy_import_url",
     )
 
-    if st.button("Загрузить вакансию по ссылке HH", type="primary", use_container_width=True):
+    if st.button("Загрузить вакансию по ссылке HH", type="primary", width="stretch"):
         if not hh_source_url.strip():
             st.error("Вставьте ссылку на вакансию HH.")
         else:
@@ -217,7 +217,7 @@ def _render_file_vacancy_import(client: CareerCopilotApiClient, token: str | Non
         st.caption(f"Тип: {uploaded_vacancy_file.type or 'не определён'}")
         st.caption(f"Размер: {uploaded_vacancy_file.size} байт")
 
-    if st.button("Импортировать вакансию из файла", type="primary", use_container_width=True):
+    if st.button("Импортировать вакансию из файла", type="primary", width="stretch"):
         if uploaded_vacancy_file is None:
             st.error("Выберите файл вакансии.")
             return
@@ -325,7 +325,7 @@ def _render_manual_vacancy_import(client: CareerCopilotApiClient, token: str | N
         submitted = st.form_submit_button(
             "Импортировать вакансию",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if submitted:
@@ -451,7 +451,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
     with st.expander("Технические детали", expanded=False):
         st.caption(f"vacancy_id: {vacancy_id}")
 
-    if st.button("Проанализировать вакансию", type="primary", use_container_width=True):
+    if st.button("Проанализировать вакансию", type="primary", width="stretch"):
         try:
             result = client.post_json(f"/vacancies/{vacancy_id}/analyze",
                 {}, token=token)

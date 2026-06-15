@@ -109,7 +109,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
         st.dataframe(
             reminder_rows,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -199,7 +199,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
     st.markdown("### Список откликов")
     st.dataframe(
         table_rows,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -436,7 +436,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         submitted = st.form_submit_button(
             "Сохранить новый статус",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if submitted:

@@ -612,7 +612,7 @@ def _render_evidence_used_panel(
 
     st.markdown("#### Использованные доказательства")
     st.caption("Опыт, который система реально использовала при подготовке документа.")
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
     st.markdown("#### Почему эти проекты попали в резюме")
     matched_keywords = summary.get("matched_keywords") or []
@@ -770,7 +770,7 @@ def _render_export_controls(
                 data=content,
                 file_name=f"{safe_kind}-{document_id}.{extension}",
                 mime=mime,
-                use_container_width=True,
+                width="stretch",
                 key=f"document_review_export_{document_kind}_{export_format}_{key_suffix}_{document_id}",
             )
 
@@ -862,14 +862,14 @@ def _render_action_bar(
         approve_clicked = st.button(
             "Утвердить",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=str(document.get("review_status") or "") == "approved",
             key=f"document_review_approve_{key_suffix}",
         )
 
         use_draft_clicked = st.button(
             "Использовать как draft",
-            use_container_width=True,
+            width="stretch",
             help=(
                 "Не утверждает документ как финальный. "
                 "Позволяет продолжить workflow, а отклик будет помечен как review_required."
@@ -880,14 +880,14 @@ def _render_action_bar(
     with col_enhance:
         enhance_clicked = st.button(
             "Создать улучшенную версию",
-            use_container_width=True,
+            width="stretch",
             key=f"document_review_enhance_{key_suffix}",
         )
 
     with col_back:
         back_clicked = st.button(
             "Назад",
-            use_container_width=True,
+            width="stretch",
             disabled=selection_state_key is None,
             key=f"document_review_back_{key_suffix}",
         )
@@ -998,6 +998,10 @@ def render_document_review_workspace(
     token: str | None,
     selection_state_key: str | None = None,
 ) -> None:
+    if not client.has_entity_id(document_id):
+        st.warning("Документ ещё не выбран для review-summary.")
+        return
+
     try:
         document = client.get_document_version(document_id, token=token)
     except Exception as exc:

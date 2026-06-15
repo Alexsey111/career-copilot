@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.application_record_repository import ApplicationRecordRepository
@@ -15,6 +17,9 @@ from app.services.evidence_coverage_service import EvidenceCoverageService
 from app.services.evidence_insights_service import EvidenceInsightsService
 from app.services.gap_trend_service import GapTrendService
 from app.services.vacancy_fit_service import VacancyFitService
+
+
+logger = logging.getLogger(__name__)
 
 
 class CareerInsightsService:
@@ -46,24 +51,48 @@ class CareerInsightsService:
         *,
         user_id: UUID,
     ) -> dict[str, Any]:
-        analytics = await self.application_analytics_service.get_summary(
-            session,
-            user_id=user_id,
+        analytics = await self._safe_call(
+            component="application_analytics",
+            fallback=self._empty_analytics(),
+            call=self.application_analytics_service.get_summary(
+                session,
+                user_id=user_id,
+            ),
         )
-        applications = await self.application_repo.list_by_user_id(session, user_id)
-        evidence_trends = await self.evidence_coverage_service.build_coverage_trends(
-            session,
-            user_id=user_id,
+        applications = await self._safe_call(
+            component="applications",
+            fallback=[],
+            call=self.application_repo.list_by_user_id(session, user_id),
         )
-        gap_trends = await self.gap_trend_service.build_gap_trends(
-            session,
-            user_id=user_id,
+        evidence_trends = await self._safe_call(
+            component="evidence_coverage",
+            fallback=self._empty_evidence_trends(),
+            call=self.evidence_coverage_service.build_coverage_trends(
+                session,
+                user_id=user_id,
+            ),
         )
-        evidence_insights = await self.evidence_insights_service.get_evidence_insights(
-            session,
-            user_id=user_id,
+        gap_trends = await self._safe_call(
+            component="gap_trends",
+            fallback=self._empty_gap_trends(),
+            call=self.gap_trend_service.build_gap_trends(
+                session,
+                user_id=user_id,
+            ),
         )
-        vacancies = await self.vacancy_repo.list_by_user_id(session, user_id=user_id)
+        evidence_insights = await self._safe_call(
+            component="evidence_insights",
+            fallback=self._empty_evidence_insights(),
+            call=self.evidence_insights_service.get_evidence_insights(
+                session,
+                user_id=user_id,
+            ),
+        )
+        vacancies = await self._safe_call(
+            component="vacancies",
+            fallback=[],
+            call=self.vacancy_repo.list_by_user_id(session, user_id=user_id),
+        )
 
         application_patterns = self._build_application_patterns(
             analytics=analytics,
@@ -97,6 +126,56 @@ class CareerInsightsService:
             "application_patterns": application_patterns,
             "strategic_recommendations": strategic_recommendations,
             "vacancy_intelligence_sample": vacancy_samples,
+        }
+
+    async def _safe_call(
+        self,
+        *,
+        component: str,
+        fallback: Any,
+        call,
+    ) -> Any:
+        try:
+            return await call
+        except HTTPException as exc:
+            logger.warning(
+                "career_insights_component_unavailable",
+                extra={
+                    "component": component,
+                    "status_code": exc.status_code,
+                    "detail": exc.detail,
+                },
+            )
+            return fallback
+
+    def _empty_analytics(self) -> dict[str, Any]:
+        return {
+            "count_by_status": {},
+            "offers_count": 0,
+        }
+
+    def _empty_evidence_trends(self) -> dict[str, Any]:
+        return {
+            "most_reusable_evidence": [],
+            "unused_evidence": [],
+            "weak_evidence_clusters": [],
+        }
+
+    def _empty_gap_trends(self) -> dict[str, Any]:
+        return {
+            "top_recurring_gaps": [],
+            "vacancy_samples": [],
+        }
+
+    def _empty_evidence_insights(self) -> dict[str, Any]:
+        return {
+            "missing_metrics_count": 0,
+            "weak_evidence_count": 0,
+            "missing_star_fields_count": 0,
+            "unused_evidence_count": 0,
+            "overused_evidence_count": 0,
+            "unverified_evidence_count": 0,
+            "recommendations": [],
         }
 
     def _build_application_patterns(

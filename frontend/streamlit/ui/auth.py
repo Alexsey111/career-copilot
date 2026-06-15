@@ -67,7 +67,7 @@ def render_sidebar() -> tuple[str, CareerCopilotApiClient, str | None]:
             button_label = "Зарегистрироваться"
             success_message = "✅ Пользователь зарегистрирован. Теперь можно войти."
 
-        if st.sidebar.button(button_label, use_container_width=True, type="primary"):
+        if st.sidebar.button(button_label, width="stretch", type="primary"):
             normalized_email = email.strip().lower()
 
             if not normalized_email:
@@ -105,14 +105,14 @@ def render_sidebar() -> tuple[str, CareerCopilotApiClient, str | None]:
     else:
         st.sidebar.success(f"👤 {st.session_state.get('user_email', 'user')}")
         st.sidebar.caption(f"Токен активен до завершения сессии")
-        if st.sidebar.button("Выйти", use_container_width=True):
+        if st.sidebar.button("Выйти", width="stretch"):
             st.session_state.pop("auth_token", None)
             st.session_state.pop("user_email", None)
             st.rerun()
 
     st.sidebar.markdown("---")
 
-    if st.sidebar.button("Проверить соединение", use_container_width=True):
+    if st.sidebar.button("Проверить соединение", width="stretch"):
         result = client.check_backend()
         if result.ok:
             st.sidebar.success("✅ Backend доступен")

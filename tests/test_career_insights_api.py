@@ -198,3 +198,32 @@ async def test_career_insights_summary_api_returns_operational_guidance(
         }
         for item in payload["strategic_recommendations"]
     )
+
+
+async def test_career_insights_summary_api_does_not_fail_when_vacancy_fit_is_unavailable(
+    client,
+    db_session,
+    test_user,
+) -> None:
+    vacancy_repo = VacancyRepository()
+    await vacancy_repo.create(
+        db_session,
+        user_id=test_user.id,
+        source="manual",
+        source_url=None,
+        external_id=None,
+        title="ГИП",
+        company="Project Co",
+        location=None,
+        description_raw="Требования: BIM-процессы и взаимодействие с экспертизой",
+        normalized_json={},
+    )
+    await db_session.commit()
+
+    response = await client.get(f"{API_PREFIX}/career-insights/summary")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["application_patterns"]["applications_sent"] == 0
+    assert payload["vacancy_intelligence_sample"]
+    assert payload["vacancy_intelligence_sample"][0]["status"] == "fit_unavailable"

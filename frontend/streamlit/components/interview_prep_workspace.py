@@ -238,7 +238,7 @@ def _render_competency_coverage(
             }
         )
 
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
     st.caption(
         "✅ подтверждено · ⚠️ найдено, но требует подтверждения · "
@@ -474,7 +474,7 @@ def _render_evidence_links(evidence_links: list[dict[str, Any]]) -> None:
             }
         )
 
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def _render_weak_areas(weak_areas: list[dict[str, Any]]) -> None:
@@ -528,7 +528,7 @@ def _render_create_action(
     if st.button(
         "Создать сессию подготовки к интервью",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         key=button_key,
     ):
         try:
@@ -674,7 +674,7 @@ def render_interview_prep_workspace_tab(
         }
         for item in normalized_sessions
     ]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
     options = [item.session_id for item in normalized_sessions]
     labels = {

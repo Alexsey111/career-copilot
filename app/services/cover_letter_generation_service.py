@@ -35,6 +35,18 @@ from app.services.document_feedback import build_claim, build_warning
 from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
+from app.services.vacancy_fit_context_service import VacancyFitContextService
+from app.domain.evidence_alignment import (
+    polish_summary_evidence_phrase,
+    score_alignment_item,
+)
+from app.domain.requirement_normalization import normalize_requirement_phrase
+from app.domain.requirement_normalization import requirement_match_key
+from app.domain.text_normalization import (
+    clean_vacancy_title,
+    dedupe_subsumed_phrases,
+    make_user_facing_evidence_phrase,
+)
 from app.services.resume_renderer import render_cover_letter
 from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
 
@@ -140,6 +152,8 @@ class CoverLetterGenerationService:
                 detail="candidate profile not found for vacancy user",
             )
 
+        vacancy_title = clean_vacancy_title(vacancy.title)
+
         latest_extraction = await self.file_extraction_repository.get_latest_for_active_source_file_kind(
             session,
             user_id,
@@ -206,7 +220,7 @@ class CoverLetterGenerationService:
             )
 
         selected_cover_letter_evidence = self._select_cover_letter_evidence(
-            vacancy_title=vacancy.title,
+            vacancy_title=vacancy_title,
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
             evidence_snippets=evidence_snippets,
@@ -250,10 +264,19 @@ class CoverLetterGenerationService:
 
         # Собираем профильные навыки для контекста
         profile_skills = self._extract_skills_from_profile(profile)
+        vacancy_fit_context = VacancyFitContextService().build(
+            matched_keywords=matched_keywords,
+            missing_keywords=missing_keywords,
+            selected_skills=profile_skills,
+            evidence_snippets=evidence_snippets,
+            selected_achievements=selected_achievements,
+        )
+        vacancy_evidence_alignment = vacancy_fit_context["vacancy_evidence_alignment"]
+        vacancy_fit_narrative = vacancy_fit_context["vacancy_fit_narrative"]
 
         opening = self._build_opening(
             full_name=profile.full_name,
-            vacancy_title=vacancy.title,
+            vacancy_title=vacancy_title,
             company=vacancy.company,
             headline=profile.headline,
         )
@@ -263,20 +286,17 @@ class CoverLetterGenerationService:
             selected_evidence=selected_cover_letter_evidence,
             missing_keywords=missing_keywords,
             profile_skills=profile_skills,
-            vacancy_title=vacancy.title,
+            vacancy_title=vacancy_title,
             candidate_experiences=profile.experiences,
+            vacancy_fit_narrative=vacancy_fit_narrative,
         )
-        vacancy_alignment = self._build_vacancy_alignment(
-            matched_keywords=matched_keywords,
-            selected_evidence=selected_cover_letter_evidence,
-            selected_achievements=selected_achievements,
-        )
+        vacancy_alignment = vacancy_evidence_alignment
         evidence_relevance = self._build_evidence_relevance(
             selected_evidence=selected_cover_letter_evidence,
             selected_achievements=selected_achievements,
         )
         closing = self._build_closing(
-            vacancy_title=vacancy.title,
+            vacancy_title=vacancy_title,
             company=vacancy.company,
         )
         claims_needing_confirmation = self._build_claims_needing_confirmation(
@@ -663,6 +683,7 @@ class CoverLetterGenerationService:
         company: str | None,
         headline: str | None,
     ) -> str:
+        vacancy_title = clean_vacancy_title(vacancy_title)
         company_phrase = f" в {company}" if company else ""
         name_sentence = f"Меня зовут {full_name}. " if full_name else ""
 
@@ -686,9 +707,12 @@ class CoverLetterGenerationService:
         profile_skills: list[str],
         vacancy_title: str,
         candidate_experiences: list[Any] | None = None,
+        vacancy_fit_narrative: dict[str, Any] | None = None,
     ) -> str:
+        vacancy_title = clean_vacancy_title(vacancy_title)
         parts: list[str] = []
         selected_evidence = selected_evidence or []
+        vacancy_fit_narrative = vacancy_fit_narrative or {"critical_gaps": []}
 
         requirement_focus = self._cover_letter_requirement_focus(
             matched_keywords=matched_keywords,
@@ -705,17 +729,31 @@ class CoverLetterGenerationService:
         )
 
         if requirement_focus and (experience_value or project_value):
-            parts.append(
-                f"Вижу совпадение с задачами роли в части {requirement_focus}."
-            )
-            if experience_value:
+            lead_project = self._project_value_should_lead(project_value)
+            if lead_project:
+                if project_value:
+                    parts.append(
+                        f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                    )
+                if experience_value:
+                    parts.append(
+                        f"Из опыта работы особенно релевантно: {experience_value}."
+                    )
                 parts.append(
-                    f"Из опыта работы особенно релевантно: {experience_value}."
+                    f"Вижу совпадение с задачами роли в части {requirement_focus}."
                 )
-            if project_value:
+            else:
                 parts.append(
-                    f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                    f"Вижу совпадение с задачами роли в части {requirement_focus}."
                 )
+                if experience_value:
+                    parts.append(
+                        f"Из опыта работы особенно релевантно: {experience_value}."
+                    )
+                if project_value:
+                    parts.append(
+                        f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                    )
         elif requirement_focus:
             parts.append(
                 f"Вижу совпадение с задачами роли в части {requirement_focus}. "
@@ -731,7 +769,7 @@ class CoverLetterGenerationService:
             )
 
         gap_paragraph = self._build_gap_mitigation_paragraph(
-            missing_keywords=missing_keywords,
+            vacancy_fit_narrative=vacancy_fit_narrative,
             profile_skills=profile_skills,
             vacancy_title=vacancy_title,
         )
@@ -746,6 +784,21 @@ class CoverLetterGenerationService:
             )
 
         return " ".join(parts)
+
+    def _project_value_should_lead(self, project_value: str) -> bool:
+        lowered = str(project_value or "").lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "pytest",
+                "автотест",
+                "автоматическ",
+                "тестирован",
+                "ci/cd",
+                "pipeline",
+                "пайплайн",
+            )
+        )
 
     def _cover_letter_focus_from_headline(self, headline: str | None) -> str:
         if not headline:
@@ -768,6 +821,7 @@ class CoverLetterGenerationService:
         matched_keywords: list[str],
         vacancy_title: str,
     ) -> str:
+        vacancy_title = clean_vacancy_title(vacancy_title)
         labels: list[str] = []
         corpus = " ".join([vacancy_title, *matched_keywords]).lower()
 
@@ -790,7 +844,39 @@ class CoverLetterGenerationService:
         selected_achievements: list[dict],
         selected_evidence: list[dict[str, Any]],
     ) -> str:
-        project_phrases: list[str] = []
+        candidates: list[tuple[str, int, str]] = []
+
+        for item in selected_evidence:
+            phrase = self._cover_letter_project_phrase(
+                title=str(item.get("title") or ""),
+                body=str(item.get("snippet_text") or ""),
+                skills=[str(skill) for skill in item.get("skills") or []],
+                fact_status=str(item.get("fact_status") or ""),
+                ownership_confidence=str(
+                    item.get("ownership_confidence")
+                    or item.get("candidate_ownership_confidence")
+                    or ""
+                ),
+                requires_confirmation=bool(item.get("requires_confirmation") is True),
+            )
+            if phrase:
+                phrase = polish_summary_evidence_phrase(phrase)
+                candidates.append(
+                    (
+                        phrase,
+                        score_alignment_item(
+                            {
+                                "requirement": str(item.get("title") or ""),
+                                "evidence": phrase,
+                                "confidence": "high"
+                                if str(item.get("fact_status") or "").strip().lower()
+                                in {"confirmed", "user_provided"}
+                                else "medium",
+                            }
+                        ),
+                        phrase,
+                    )
+                )
 
         for item in selected_achievements:
             phrase = self._cover_letter_project_phrase(
@@ -809,28 +895,44 @@ class CoverLetterGenerationService:
                 requires_confirmation=bool(item.get("requires_confirmation") is True),
             )
             if phrase:
-                project_phrases.append(phrase)
+                phrase = polish_summary_evidence_phrase(phrase)
+                candidates.append(
+                    (
+                        phrase,
+                        score_alignment_item(
+                            {
+                                "requirement": str(item.get("title") or ""),
+                                "evidence": phrase,
+                                "confidence": "high"
+                                if str(item.get("fact_status") or "").strip().lower()
+                                in {"confirmed", "user_provided"}
+                                else "medium",
+                            }
+                        ),
+                        phrase,
+                    )
+                )
 
-        for item in selected_evidence:
-            phrase = self._cover_letter_project_phrase(
-                title=str(item.get("title") or ""),
-                body=str(item.get("snippet_text") or ""),
-                skills=[str(skill) for skill in item.get("skills") or []],
-                fact_status=str(item.get("fact_status") or ""),
-                ownership_confidence=str(
-                    item.get("ownership_confidence")
-                    or item.get("candidate_ownership_confidence")
-                    or ""
-                ),
-                requires_confirmation=bool(item.get("requires_confirmation") is True),
-            )
-            if phrase:
-                project_phrases.append(phrase)
-
-        project_phrases = self._dedupe_preserve_order(project_phrases)
-        if not project_phrases:
+        if not candidates:
             return ""
-        return "; ".join(project_phrases[:2])
+
+        kept_bases = dedupe_subsumed_phrases(
+            self._dedupe_preserve_order([base for base, _, _ in candidates])
+        )
+        kept_base_keys = {str(base).casefold() for base in kept_bases}
+        project_phrases = [
+            (score, phrase)
+            for base, score, phrase in candidates
+            if str(base).casefold() in kept_base_keys
+        ]
+        project_phrases = [
+            phrase
+            for score, phrase in sorted(project_phrases, key=lambda pair: pair[0], reverse=True)
+        ]
+        project_phrases = dedupe_subsumed_phrases(
+            self._dedupe_preserve_order(project_phrases)
+        )
+        return "; ".join(project_phrases[:2]) if project_phrases else ""
 
     def _cover_letter_experience_value(
         self,
@@ -842,6 +944,7 @@ class CoverLetterGenerationService:
         if not candidate_experiences:
             return ""
 
+        vacancy_title = clean_vacancy_title(vacancy_title)
         corpus = " ".join([vacancy_title, *matched_keywords]).lower()
 
         priority_markers = (
@@ -896,7 +999,10 @@ class CoverLetterGenerationService:
         }
         if requires_confirmation or low_ownership or not confirmed:
             cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
-            return f"подтверждаемый проектный контекст: {cleaned_title}" if cleaned_title else ""
+            display_title = make_user_facing_evidence_phrase(cleaned_title)
+            if display_title:
+                return f"подтверждаемый проектный контекст: {display_title}"
+            return "подтверждаемый проектный контекст"
 
         if any(marker in corpus for marker in ("computer vision", "image", "изображ", "video", "видео")):
             return "подтверждённый контекст обработки визуальных данных"
@@ -906,19 +1012,27 @@ class CoverLetterGenerationService:
 
         if any(marker in corpus for marker in ("vacancy", "резюме", "document", "review")):
             return "подтверждённый проектный контекст без расширения роли"
+        if any(
+            marker in corpus
+            for marker in ("pytest", "test", "testing", "автотест", "автоматическ", "тестирован")
+        ):
+            return "настройки автоматического тестирования"
         if any(marker in corpus for marker in ("fastapi", "backend", "api")):
-            return "подтверждённые backend/API implementation signals"
+            if "fastapi" in corpus:
+                return "разработка REST API на FastAPI"
+            return "разработка REST API"
         if any(marker in corpus for marker in ("automation", "workflow", "openai", "telegram")):
             return "опыт автоматизации рабочих процессов с интеграциями"
         if any(marker in corpus for marker in ("analytics", "analysis", "аналит")):
             return "опыт аналитического pipeline для извлечения прикладных сигналов"
 
         cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
-        if cleaned_title and cleaned_title.lower() not in {
+        display_title = make_user_facing_evidence_phrase(cleaned_title)
+        if display_title and display_title.lower() not in {
             "technology stack from resume",
             "technologies from resume",
         }:
-            return cleaned_title
+            return display_title
         return ""
 
     def _select_cover_letter_evidence(
@@ -951,7 +1065,7 @@ class CoverLetterGenerationService:
             for item in selected_achievements
             if str(item.get("title") or "").strip()
         }
-        phrases: list[str] = []
+        candidates: list[tuple[str, int, str]] = []
         for item in selected_evidence:
             title = str(item.get("title") or "").strip()
             if not title:
@@ -970,12 +1084,62 @@ class CoverLetterGenerationService:
             if display_title is None and not skills:
                 continue
             if display_title is None:
-                phrases.append(", ".join(skills[:4]))
+                phrase = polish_summary_evidence_phrase(", ".join(skills[:4]))
+                candidates.append(
+                    (
+                        phrase,
+                        score_alignment_item(
+                            {
+                                "requirement": phrase,
+                                "evidence": phrase,
+                                "confidence": item.get("confidence") or "medium",
+                            }
+                        ),
+                        phrase,
+                    )
+                )
                 continue
             if skills:
-                phrases.append(f"{display_title} ({', '.join(skills[:3])})")
+                phrase = f"{display_title} ({', '.join(skills[:3])})"
             else:
-                phrases.append(display_title)
+                phrase = display_title
+
+            phrase = polish_summary_evidence_phrase(phrase)
+            candidates.append(
+                (
+                    display_title,
+                    score_alignment_item(
+                        {
+                            "requirement": title,
+                            "evidence": phrase,
+                            "confidence": "high"
+                            if str(item.get("source_type") or "").strip()
+                            in {"achievement", "resume_structured"}
+                            else "medium",
+                        }
+                    ),
+                    phrase,
+                )
+            )
+
+        if not candidates:
+            return []
+
+        kept_bases = dedupe_subsumed_phrases(
+            self._dedupe_preserve_order([base for base, _, _ in candidates])
+        )
+        kept_base_keys = {str(base).casefold() for base in kept_bases}
+
+        scored_phrases = [
+            (score, phrase)
+            for base, score, phrase in candidates
+            if str(base).casefold() in kept_base_keys
+        ]
+
+        phrases = [
+            phrase
+            for _, phrase in sorted(scored_phrases, key=lambda pair: pair[0], reverse=True)
+        ]
         return self._dedupe_preserve_order(phrases)
 
     def _display_evidence_title(self, title: str) -> str | None:
@@ -985,10 +1149,10 @@ class CoverLetterGenerationService:
 
         lower = cleaned.lower()
         if lower in PROJECT_DISPLAY_HINTS:
-            return f"{cleaned} — {PROJECT_DISPLAY_HINTS[lower]}"
+            return make_user_facing_evidence_phrase(cleaned)
         if lower in {"technology stack from resume", "technologies from resume"}:
             return None
-        return cleaned
+        return make_user_facing_evidence_phrase(cleaned)
 
     def _normalize_display_skill(self, value: str) -> str:
         cleaned = re.sub(
@@ -1010,51 +1174,6 @@ class CoverLetterGenerationService:
         lower = cleaned.lower()
         return replacements.get(lower, cleaned)
 
-    def _build_vacancy_alignment(
-        self,
-        *,
-        matched_keywords: list[str],
-        selected_evidence: list[dict[str, Any]],
-        selected_achievements: list[dict],
-    ) -> list[dict[str, Any]]:
-        evidence_items = self._build_evidence_relevance(
-            selected_evidence=selected_evidence,
-            selected_achievements=selected_achievements,
-        )
-        alignment: list[dict[str, Any]] = []
-
-        for keyword in matched_keywords[:6]:
-            evidence = self._find_evidence_for_keyword(keyword, evidence_items)
-            alignment.append(
-                {
-                    "keyword": keyword,
-                    "coverage": "evidence_grounded" if evidence else "profile_keyword",
-                    "evidence_title": evidence.get("title") if evidence else None,
-                    "explanation": (
-                        f"{keyword} связано с извлечённым фактом: {evidence['title']}"
-                        if evidence
-                        else f"{keyword} найдено в анализе профиля и вакансии"
-                    ),
-                }
-            )
-
-        for evidence in evidence_items:
-            if any(item.get("evidence_id") == evidence.get("evidence_id") for item in alignment):
-                continue
-            skills = evidence.get("skills") or []
-            alignment.append(
-                {
-                    "keyword": skills[0] if skills else evidence.get("title"),
-                    "coverage": "extracted_evidence",
-                    "evidence_title": evidence.get("title"),
-                    "explanation": f"Извлечённый факт усиливает объяснение релевантности: {evidence.get('title')}",
-                }
-            )
-            if len(alignment) >= 6:
-                break
-
-        return alignment
-
     def _build_evidence_relevance(
         self,
         *,
@@ -1066,14 +1185,15 @@ class CoverLetterGenerationService:
 
         for achievement in selected_achievements:
             title = str(achievement.get("title") or "").strip()
-            if not title:
+            display_title = make_user_facing_evidence_phrase(title)
+            if not display_title:
                 continue
-            key = title.lower()
+            key = display_title.lower()
             seen.add(key)
             items.append(
                 {
                     "evidence_id": achievement.get("id"),
-                    "title": title,
+                    "title": display_title,
                     "source_type": "achievement",
                     "fact_status": achievement.get("fact_status") or "confirmed",
                     "evidence_strength": "medium",
@@ -1084,19 +1204,29 @@ class CoverLetterGenerationService:
 
         for evidence in selected_evidence:
             title = str(evidence.get("title") or "").strip()
+            display_title = make_user_facing_evidence_phrase(title)
+            display_skills = [
+                cleaned
+                for skill in (evidence.get("skills") or [])
+                if (cleaned := self._normalize_display_skill(str(skill)))
+                and cleaned.lower() not in LOW_SIGNAL_SKILLS
+            ]
+            display_skills = self._dedupe_preserve_order(display_skills)
+            if display_title is None and display_skills:
+                display_title = ", ".join(display_skills[:3])
             evidence_id = str(evidence.get("evidence_id") or "").strip()
-            key = evidence_id or title.lower()
-            if not title or key in seen:
+            key = evidence_id or str(display_title or "").lower()
+            if not display_title or key in seen:
                 continue
             seen.add(key)
             items.append(
                 {
                     "evidence_id": evidence_id or None,
-                    "title": title,
+                    "title": display_title,
                     "source_type": evidence.get("source_type"),
                     "fact_status": evidence.get("fact_status"),
                     "evidence_strength": evidence.get("evidence_strength"),
-                    "skills": list(evidence.get("skills") or []),
+                    "skills": display_skills,
                     "reason": evidence.get("reason"),
                 }
             )
@@ -1126,6 +1256,7 @@ class CoverLetterGenerationService:
         vacancy_title: str,
         company: str | None,
     ) -> str:
+        vacancy_title = clean_vacancy_title(vacancy_title)
         company_phrase = f" в {company}" if company else ""
         return (
             f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
@@ -1135,7 +1266,7 @@ class CoverLetterGenerationService:
     def _build_gap_mitigation_paragraph(
         self,
         *,
-        missing_keywords: list[str],
+        vacancy_fit_narrative: dict[str, Any],
         profile_skills: list[str],
         vacancy_title: str,
     ) -> str | None:
@@ -1143,27 +1274,44 @@ class CoverLetterGenerationService:
         Генерирует абзац, который проактивно закрывает критичные пробелы.
         Возвращает None, если пробелов нет или они не критичны.
         """
-        if not missing_keywords:
+        vacancy_title = clean_vacancy_title(vacancy_title)
+        gap_items = vacancy_fit_narrative.get("critical_gaps") or []
+        if not gap_items:
             return None
 
-        # Берём топ-3 самых критичных gap'а (must-have из анализа)
-        critical_gaps = [kw for kw in missing_keywords[:3] if kw]
+        matched_labels = {
+            requirement_match_key(str(item.get("label") or ""))
+            for item in (vacancy_fit_narrative.get("matched_strengths") or [])
+            if requirement_match_key(str(item.get("label") or ""))
+        }
+
+        # Берём не больше двух gap'ов, чтобы абзац оставался коротким и не звучал оборонительно.
+        gap_items = self._dedupe_gap_keywords(
+            [
+                str(item.get("label") or "").strip()
+                for item in gap_items
+                if str(item.get("label") or "").strip()
+                and requirement_match_key(str(item.get("label") or ""))
+                not in matched_labels
+            ]
+        )
+        gap_items = sorted(
+            gap_items,
+            key=self._score_gap_for_cover_letter,
+            reverse=True,
+        )
+        critical_gaps = gap_items[:2]
+
         if not critical_gaps:
             return None
 
-        mitigations = self._build_gap_mitigations(
-            critical_gaps=critical_gaps,
-            vacancy_title=vacancy_title,
-        )
-
-        if not mitigations:
+        gap_focus = self._render_gap_focus(critical_gaps)
+        if not gap_focus:
             return None
 
         return (
-            "Отмечу, что "
-            + "; ".join(item.mitigation_text for item in mitigations)
-            + ". "
-            "Готов оперативно закрыть оставшиеся зоны в процессе онбординга."
+            "При этом понимаю, что для роли важно "
+            f"усилить доменную практику в {gap_focus}."
         )
 
     def _build_gap_mitigations(
@@ -1172,6 +1320,7 @@ class CoverLetterGenerationService:
         critical_gaps: list[str],
         vacancy_title: str,
     ) -> list[GapMitigation]:
+        vacancy_title = clean_vacancy_title(vacancy_title)
         bridge_phrases = {
             "FastAPI": "имею опыт работы с async-фреймворками (Starlette, aiohttp) и готов быстро адаптироваться под FastAPI",
             "PostgreSQL": "работаю с реляционными СУБД и знаком с принципами оптимизации запросов",
@@ -1180,6 +1329,8 @@ class CoverLetterGenerationService:
             "CI/CD": "настраивал базовые пайплайны деплоя и готов активно развивать эту компетенцию",
             "Kubernetes": "изучаю оркестрацию контейнеров и готов применять знания на практике",
             "AWS": "имею опыт работы с облачными сервисами и готов освоить специфичные для роли инструменты",
+            "Automation": "развиваю навыки автоматизации тестирования и рабочих процессов",
+            "Automation Tooling": "развиваю навыки автоматизации тестирования и рабочих процессов",
         }
 
         mitigations: list[GapMitigation] = []
@@ -1193,16 +1344,89 @@ class CoverLetterGenerationService:
                     )
                 )
             else:
+                if gap.lower() in {"automation", "automation tooling"}:
+                    mitigations.append(
+                        GapMitigation(
+                            keyword=gap,
+                            mitigation_text=(
+                                "развиваю навыки автоматизации тестирования и готов "
+                                "усилить практику в рамках онбординга"
+                            ),
+                        )
+                    )
+                    continue
                 mitigations.append(
                     GapMitigation(
                         keyword=gap,
                         mitigation_text=(
-                            f"активно изучаю {gap} в рамках подготовки к роли {vacancy_title}"
+                            f"готов усилить практику по {gap} в рамках онбординга на позиции {vacancy_title}"
                         ),
                     )
                 )
 
         return mitigations
+
+    def _render_gap_focus(self, critical_gaps: list[str]) -> str | None:
+        if not critical_gaps:
+            return None
+
+        rendered_gaps: list[str] = []
+        for gap in critical_gaps[:2]:
+            rendered_gaps.append(self._to_gap_case(gap))
+
+        rendered_gaps = [gap for gap in rendered_gaps if gap]
+        if not rendered_gaps:
+            return None
+        if len(rendered_gaps) == 1:
+            return rendered_gaps[0]
+        return f"{rendered_gaps[0]} и {rendered_gaps[1]}"
+
+    def _score_gap_for_cover_letter(self, label: str) -> int:
+        lowered = str(label or "").lower()
+        if "bim" in lowered:
+            return 100
+        if "экспертиз" in lowered:
+            return 90
+        if "объект" in lowered:
+            return 70
+        if "деловая коммуникация" in lowered:
+            return 10
+        return 30
+
+    def _to_gap_case(self, gap: str) -> str:
+        normalized = re.sub(r"\s+", " ", str(gap or "")).strip(" .;-–—•")
+        lowered = normalized.lower()
+        if lowered in {"automation", "automation tooling"}:
+            return "автоматизации тестирования"
+        if lowered == "bim-процессы":
+            return "BIM-процессах"
+        if lowered == "взаимодействие с экспертизой":
+            return "взаимодействии с экспертизой"
+        if lowered == "ведение проектной документации":
+            return "ведении проектной документации"
+        if lowered == "деловая коммуникация":
+            return "деловой коммуникации"
+        return normalized
+
+    def _dedupe_gap_keywords(self, keywords: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+        for keyword in keywords:
+            display = make_user_facing_evidence_phrase(keyword)
+            if display is None:
+                continue
+            key = re.sub(
+                r"\b(tooling|tools|инструменты|инструментов)\b",
+                "",
+                display,
+                flags=re.IGNORECASE,
+            )
+            key = re.sub(r"\s+", " ", key).strip().casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(display)
+        return dedupe_subsumed_phrases(result)
 
     def _build_claims_needing_confirmation(
         self,
@@ -1449,6 +1673,7 @@ class CoverLetterGenerationService:
         gaps: list[str],
         achievements: list[str],
     ) -> str:
+        vacancy_title = clean_vacancy_title(vacancy_title)
         parts = []
 
         # Intro

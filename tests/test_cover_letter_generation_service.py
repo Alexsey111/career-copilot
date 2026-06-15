@@ -10,6 +10,8 @@ from app.services.cover_letter_generation_service import (
     PROJECT_DISPLAY_HINTS,
 )
 from app.services.resume_renderer import render_cover_letter
+from app.services.vacancy_fit_context_service import VacancyFitContextService
+from app.services.vacancy_fit_narrative_service import VacancyFitNarrativeService
 
 
 class MockCoverLetterClient(BaseLLMClient):
@@ -311,14 +313,176 @@ def test_cover_letter_evidence_phrases_render_human_readable_project_context() -
     )
 
     assert phrases == [
-        "content-factory — automation workflow evidence (Python, OpenAI)",
+        "content-factory (Python, OpenAI)",
         "ChatGPT, LLM, AI Workflow",
     ]
 
 
-def test_cover_letter_alignment_sections_are_evidence_grounded() -> None:
+def test_cover_letter_project_value_prefers_safe_evidence_phrases() -> None:
     service = CoverLetterGenerationService()
 
+    phrase = service._cover_letter_project_value(
+        selected_achievements=[
+            {
+                "title": "Сократил время ответа API на 35%",
+                "fact_status": "confirmed",
+            }
+        ],
+        selected_evidence=[
+            {
+                "title": "Repository evidence: backend/API implementation signals",
+                "snippet_text": "Repository evidence indicates backend/API implementation signals.",
+                "skills": ["FastAPI", "API"],
+                "fact_status": "confirmed",
+                "ownership_confidence": "high",
+            },
+            {
+                "title": "Настроил автоматическое тестирование",
+                "snippet_text": "Pytest test suite",
+                "skills": ["Pytest"],
+                "fact_status": "confirmed",
+                "ownership_confidence": "high",
+            },
+        ],
+    )
+
+    assert phrase.startswith("настройки автоматического тестирования")
+    assert "разработки REST API на FastAPI" in phrase
+    assert "implementation signals" not in phrase
+
+
+def test_cover_letter_relevance_paragraph_leads_with_testing_evidence() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=["Python", "FastAPI", "CI/CD"],
+        selected_achievements=[],
+        selected_evidence=[
+            {
+                "evidence_id": "ev-1",
+                "title": "Настроил автоматическое тестирование",
+                "snippet_text": "Pytest test suite",
+                "skills": ["Pytest", "Testing"],
+                "source_type": "resume_structured",
+                "fact_status": "confirmed",
+                "evidence_strength": "high",
+            },
+            {
+                "evidence_id": "ev-2",
+                "title": "Разработка REST API",
+                "snippet_text": "FastAPI backend",
+                "skills": ["FastAPI", "API"],
+                "source_type": "resume_structured",
+                "fact_status": "confirmed",
+                "evidence_strength": "high",
+            },
+        ],
+        missing_keywords=[],
+        profile_skills=[],
+        vacancy_title="Backend Developer",
+    )
+
+    assert paragraph.startswith("Из подтверждённого опыта особенно релевантно:")
+    assert "настройки автоматического тестирования" in paragraph
+    assert "разработки REST API на FastAPI" in paragraph
+
+
+def test_cover_letter_evidence_phrases_drop_subsumed_generic_variants() -> None:
+    service = CoverLetterGenerationService()
+
+    phrases = service._build_evidence_relevance_phrases(
+        selected_evidence=[
+            {
+                "evidence_id": "ev-1",
+                "title": "разработка REST API",
+                "source_type": "resume_structured",
+                "skills": ["API"],
+            },
+            {
+                "evidence_id": "ev-2",
+                "title": "разработка REST API на FastAPI",
+                "source_type": "resume_structured",
+                "skills": ["FastAPI", "API"],
+            },
+        ],
+        selected_achievements=[],
+    )
+
+    assert len(phrases) == 1
+    assert phrases[0].startswith("разработка REST API на FastAPI")
+
+
+def test_cover_letter_gap_mitigation_dedupes_internal_automation_labels() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {"label": "Automation"},
+                {"label": "Automation Tooling"},
+            ]
+        },
+        profile_skills=[],
+        vacancy_title="Backend Developer",
+    )
+
+    assert paragraph is not None
+    assert "автоматизации тестирования" in paragraph
+    assert "Automation" not in paragraph
+    assert "Automation Tooling" not in paragraph
+
+
+def test_cover_letter_gap_mitigation_uses_single_short_sentence() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {"label": "BIM-процессы"},
+                {"label": "взаимодействие с экспертизой"},
+                {"label": "ведение проектной документации"},
+            ]
+        },
+        profile_skills=[],
+        vacancy_title="ГИП",
+    )
+
+    assert (
+        paragraph
+        == "При этом понимаю, что для роли важно усилить доменную практику в BIM-процессах и взаимодействии с экспертизой."
+    )
+    assert paragraph.count(".") == 1
+    assert ";" not in paragraph
+
+
+def test_cover_letter_gap_mitigation_filters_direct_matches() -> None:
+    service = CoverLetterGenerationService()
+    narrative = VacancyFitNarrativeService().build(
+        matched_keywords=["Деловая коммуникация Организаторские навыки"],
+        missing_keywords=[
+            "деловая коммуникация",
+            "BIM-процессы",
+            "взаимодействие с экспертизой",
+        ],
+        vacancy_evidence_alignment=[],
+        selected_achievements=[],
+        selected_skills=[],
+    )
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative=narrative,
+        profile_skills=[],
+        vacancy_title="ГИП",
+    )
+
+    assert paragraph == (
+        "При этом понимаю, что для роли важно усилить доменную практику в BIM-процессах и взаимодействии с экспертизой."
+    )
+    assert "деловой коммуникации" not in paragraph
+    assert "деловой коммуникации" not in paragraph
+
+
+def test_cover_letter_alignment_sections_are_evidence_grounded() -> None:
     selected_evidence = [
         {
             "evidence_id": "ev-1",
@@ -331,29 +495,17 @@ def test_cover_letter_alignment_sections_are_evidence_grounded() -> None:
         }
     ]
 
-    relevance = service._build_evidence_relevance(
-        selected_evidence=selected_evidence,
-        selected_achievements=[],
-    )
-    alignment = service._build_vacancy_alignment(
+    context = VacancyFitContextService().build(
         matched_keywords=["prompt engineering"],
-        selected_evidence=selected_evidence,
+        missing_keywords=[],
+        selected_skills=["ChatGPT", "LLM", "prompt engineering"],
+        evidence_snippets=selected_evidence,
         selected_achievements=[],
     )
+    narrative = context["vacancy_fit_narrative"]
 
-    assert relevance == [
-        {
-            "evidence_id": "ev-1",
-            "title": "Prompt Engineering",
-            "source_type": "resume_structured",
-            "fact_status": "user_provided",
-            "evidence_strength": "medium",
-            "skills": ["ChatGPT", "LLM", "prompt engineering"],
-            "reason": "required skill matches",
-        }
-    ]
-    assert alignment[0]["coverage"] == "evidence_grounded"
-    assert alignment[0]["evidence_title"] == "Prompt Engineering"
+    assert context["vacancy_evidence_alignment"][0]["confidence"] == "high"
+    assert narrative["matched_strengths"][0]["label"].casefold() == "prompt engineering"
 
 
 def test_cover_letter_warnings_keep_missing_keywords_out_of_rendered_letter() -> None:

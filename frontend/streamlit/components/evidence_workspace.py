@@ -333,7 +333,7 @@ def _render_insights_section(
             )
 
         if rows:
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.info("Пока нет рекомендаций к действию.")
     else:
@@ -388,7 +388,7 @@ def _render_detail_panel(
         confirm_clicked = st.button(
             "Подтвердить доказательство",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not snippet_id or fact_status == "confirmed",
             key=f"evidence_confirm_{snippet_id}",
         )
@@ -396,7 +396,7 @@ def _render_detail_panel(
     with col_reject:
         reject_clicked = st.button(
             "Отклонить доказательство",
-            use_container_width=True,
+            width="stretch",
             disabled=not snippet_id or fact_status == "rejected",
             key=f"evidence_reject_{snippet_id}",
         )
@@ -492,7 +492,7 @@ def _render_detail_panel(
                         "Дата": usage.get("created_at") or "—",
                     }
                 )
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def render_evidence_workspace_tab(
@@ -562,7 +562,7 @@ def render_evidence_workspace_tab(
         return
 
     st.markdown("### Каталог подтверждающего опыта")
-    st.dataframe(_build_rows(snippet_rows), use_container_width=True, hide_index=True)
+    st.dataframe(_build_rows(snippet_rows), width="stretch", hide_index=True)
 
     snippet_ids = [str(item.get("id") or "").strip() for item in snippet_rows if item.get("id")]
     if not snippet_ids:

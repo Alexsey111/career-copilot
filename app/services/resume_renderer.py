@@ -3,6 +3,50 @@
 from __future__ import annotations
 
 import re
+from typing import Any
+
+from app.domain.text_normalization import clean_vacancy_title
+
+
+def _render_vacancy_fit_narrative(
+    narrative: dict[str, Any],
+) -> list[str]:
+    lines: list[str] = []
+
+    matched = narrative.get("matched_strengths") or []
+    if matched:
+        lines.append("")
+        lines.append("ПОЧЕМУ ВЫ ПОДХОДИТЕ НА ВАКАНСИЮ")
+
+        lines.append("")
+        lines.append("Прямые совпадения:")
+
+        for item in matched:
+            label = item.get("label")
+            if label:
+                lines.append(f"- {label}")
+
+    transferable = narrative.get("transferable_strengths") or []
+    if transferable:
+        lines.append("")
+        lines.append("Переносимые компетенции:")
+
+        for item in transferable:
+            label = item.get("label")
+            if label:
+                lines.append(f"- {label}")
+
+    gaps = narrative.get("critical_gaps") or []
+    if gaps:
+        lines.append("")
+        lines.append("Требуют подтверждения:")
+
+        for item in gaps:
+            label = item.get("label")
+            if label:
+                lines.append(f"- {label}")
+
+    return lines
 
 
 def render_resume(content_json: dict) -> str:
@@ -31,12 +75,7 @@ def render_resume(content_json: dict) -> str:
 
     lines.append("")
     lines.append("ЦЕЛЕВАЯ ПОЗИЦИЯ")
-    title = re.sub(
-        r"\s+вакансия\s*$",
-        "",
-        str(vacancy["title"] or ""),
-        flags=re.IGNORECASE,
-    ).strip()
+    title = clean_vacancy_title(vacancy.get("title"))
     lines.append(title)
 
     lines.append("")
@@ -44,6 +83,8 @@ def render_resume(content_json: dict) -> str:
     vacancy_aligned_summary = sections.get("vacancy_aligned_summary")
     if vacancy_aligned_summary:
         lines.append(vacancy_aligned_summary)
+    vacancy_fit_narrative = sections.get("vacancy_fit_narrative") or {}
+    lines.extend(_render_vacancy_fit_narrative(vacancy_fit_narrative))
     # summary_bullets are kept in content_json for trace/review,
     # but not rendered into final ATS-safe resume text.
 

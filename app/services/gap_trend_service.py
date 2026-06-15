@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from typing import Any
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.vacancy_repository import VacancyRepository
@@ -38,11 +39,25 @@ class GapTrendService:
         sample_fits: list[dict[str, Any]] = []
 
         for vacancy in vacancies[:limit]:
-            fit = await self.vacancy_fit_service.build_vacancy_fit(
-                session,
-                vacancy_id=vacancy.id,
-                user_id=user_id,
-            )
+            try:
+                fit = await self.vacancy_fit_service.build_vacancy_fit(
+                    session,
+                    vacancy_id=vacancy.id,
+                    user_id=user_id,
+                )
+            except HTTPException as exc:
+                sample_fits.append(
+                    {
+                        "vacancy_id": vacancy.id,
+                        "vacancy_title": vacancy.title,
+                        "overall_fit_score": None,
+                        "gap_severity": None,
+                        "readiness_recommendation": None,
+                        "status": "fit_unavailable",
+                        "reason": str(exc.detail or "vacancy fit unavailable"),
+                    }
+                )
+                continue
             sample_fits.append(
                 {
                     "vacancy_id": fit.get("vacancy_id"),

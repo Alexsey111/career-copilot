@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from app.services.career_insights_service import CareerInsightsService
 
@@ -117,6 +118,11 @@ class _ApplicationRepo:
         return [rejected, applied, interview]
 
 
+class _FailingGapTrendService:
+    async def build_gap_trends(self, session, *, user_id, limit=20):  # noqa: D401
+        raise HTTPException(status_code=400, detail="gap trends unavailable")
+
+
 @pytest.mark.asyncio
 async def test_career_insights_service_builds_deterministic_guidance() -> None:
     service = CareerInsightsService(
@@ -140,3 +146,21 @@ async def test_career_insights_service_builds_deterministic_guidance() -> None:
     assert "Add stronger leadership evidence" in rec_titles
     assert "Create STAR examples for Kubernetes" in rec_titles
     assert "Strengthen quantified impact metrics" in rec_titles
+
+
+@pytest.mark.asyncio
+async def test_career_insights_service_degrades_when_component_returns_http_400() -> None:
+    service = CareerInsightsService(
+        application_analytics_service=_AnalyticsService(),
+        gap_trend_service=_FailingGapTrendService(),
+        evidence_coverage_service=_EvidenceCoverageService(),
+        evidence_insights_service=_EvidenceInsightsService(),
+        vacancy_repo=_VacancyRepo(),
+        application_repo=_ApplicationRepo(),
+    )
+
+    summary = await service.build_career_insights(None, user_id=uuid4())
+
+    assert summary["repeated_gaps"] == []
+    assert summary["application_patterns"]["applications_sent"] == 4
+    assert summary["vacancy_intelligence_sample"]

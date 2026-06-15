@@ -91,6 +91,10 @@ def _render_resume_provenance_preview(
     document_id: str,
     token: str | None,
 ) -> None:
+    if not client.has_entity_id(document_id):
+        st.caption("Информация об использованных доказательствах пока недоступна.")
+        return
+
     try:
         summary = client.get_document_review_summary(document_id, token=token)
     except Exception as exc:
@@ -174,7 +178,7 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
         "Резюме будет создано как draft. Перед использованием его нужно проверить и подтвердить человеком."
     )
 
-    if st.button("Сгенерировать адаптированное резюме", type="primary", use_container_width=True):
+    if st.button("Сгенерировать адаптированное резюме", type="primary", width="stretch"):
         try:
             result = client.post_json("/documents/resumes/generate",
                 {
@@ -284,7 +288,7 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
     if st.button(
         "Сгенерировать сопроводительное письмо",
         type="primary",
-        use_container_width=True,
+        width="stretch",
     ):
         try:
             result = client.post_json("/documents/letters/generate",
@@ -485,7 +489,7 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
         height=90,
     )
 
-    if st.button("Сохранить отклик в трекере", type="primary", use_container_width=True):
+    if st.button("Сохранить отклик в трекере", type="primary", width="stretch"):
         try:
             result = client.post_json("/applications",
                 {
@@ -633,7 +637,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
         if st.button(
             "Пометить отклик готовым к ручной отправке",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         ):
             try:
                 result = client.patch_json(
@@ -709,7 +713,7 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
     if st.button(
         "Я отправил отклик вручную",
         type="primary",
-        use_container_width=True,
+        width="stretch",
     ):
         try:
             result = client.post_json(f"/applications/{application_id}/submit",

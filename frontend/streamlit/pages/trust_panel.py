@@ -365,7 +365,7 @@ def render_trust_panel(
         entity_id = str(selected_option).strip()
         entity_label = labels.get(entity_id, "Сессия подготовки к интервью")
 
-    if not entity_id:
+    if not client.has_entity_id(entity_id):
         st.warning(_translate_trust_text("Entity id is missing."))
         return
 
@@ -521,7 +521,7 @@ def render_trust_panel(
                 }
             )
         if evidence_rows:
-            st.dataframe(evidence_rows, use_container_width=True, hide_index=True)
+            st.dataframe(evidence_rows, width="stretch", hide_index=True)
 
     st.divider()
     st.markdown("### Рекомендованные действия")

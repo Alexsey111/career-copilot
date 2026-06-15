@@ -89,3 +89,23 @@ def test_import_vacancy_from_url_posts_to_hh_endpoint(monkeypatch: pytest.Monkey
     assert captured["headers"]["Authorization"] == "Bearer token-abc"
     assert captured["timeout"] == 45.0
     assert result["source"] == "hh"
+
+
+def test_review_summary_rejects_missing_entity_id_before_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_get(*args, **kwargs):
+        raise AssertionError("HTTP request should not be made for missing entity_id")
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    client = CareerCopilotApiClient(api_base_url="http://localhost:8000/api/v1")
+
+    with pytest.raises(ValueError, match="review summary entity_id is required"):
+        client.get_document_review_summary(None)
+
+    with pytest.raises(ValueError, match="review summary entity_id is required"):
+        client.get_document_review_summary("None")
+
+    with pytest.raises(ValueError, match="review summary entity_id is required"):
+        client.get_review_summary(entity_type="document", entity_id="None")

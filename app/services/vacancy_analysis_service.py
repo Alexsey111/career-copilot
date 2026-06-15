@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.requirement_normalization import normalize_requirement_phrase
 from app.domain.skills.utils import (
     extract_keywords,
     get_related_skills,
@@ -371,9 +372,15 @@ class VacancyAnalysisService:
         nice_to_have: list[str],
     ) -> list[RequirementKeyword]:
         items: list[RequirementKeyword] = []
+        analysis_keywords = keywords
 
         for requirement_text in must_have:
-            for keyword in self._extract_keywords("", requirement_text):
+            requirement_keywords = self._extract_keywords("", requirement_text)
+            if not requirement_keywords:
+                fallback_keyword = self._compact_requirement_label(requirement_text)
+                requirement_keywords = [fallback_keyword] if fallback_keyword else []
+
+            for keyword in requirement_keywords:
                 if self._is_soft_ai_interest_keyword(keyword, requirement_text):
                     continue
                 items.append(
@@ -386,7 +393,12 @@ class VacancyAnalysisService:
                 )
 
         for requirement_text in nice_to_have:
-            for keyword in self._extract_keywords("", requirement_text):
+            requirement_keywords = self._extract_keywords("", requirement_text)
+            if not requirement_keywords:
+                fallback_keyword = self._compact_requirement_label(requirement_text)
+                requirement_keywords = [fallback_keyword] if fallback_keyword else []
+
+            for keyword in requirement_keywords:
                 items.append(
                     RequirementKeyword(
                         keyword=keyword,
@@ -397,7 +409,7 @@ class VacancyAnalysisService:
                 )
 
         if not items:
-            for keyword in keywords:
+            for keyword in analysis_keywords:
                 items.append(
                     RequirementKeyword(
                         keyword=keyword,
@@ -408,6 +420,25 @@ class VacancyAnalysisService:
                 )
 
         return self._dedupe_requirement_keywords(items)
+
+    def _compact_requirement_label(self, value: str) -> str | None:
+        cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        if not cleaned:
+            return None
+
+        cleaned = re.sub(
+            r"^(опыт|знание|понимание|навык|умение|наличие|требуется)\s+",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip(" .;-–—•")
+
+        cleaned = normalize_requirement_phrase(cleaned)
+
+        if len(cleaned) > 120:
+            cleaned = cleaned[:120].rsplit(" ", 1)[0].strip(" .;-–—•")
+
+        return cleaned or None
 
     def _dedupe_requirement_keywords(
         self,

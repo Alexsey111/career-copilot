@@ -360,7 +360,7 @@ class CareerCopilotApiClient:
     def get_system_health_diagnostics(self, token: str | None = None) -> dict[str, Any]:
         return self.get_json("/health/diagnostics", token=token)
 
-    def get_document_review_summary(self, document_id: str, token: str | None = None) -> dict[str, Any]:
+    def get_document_review_summary(self, document_id: str | None, token: str | None = None) -> dict[str, Any]:
         return self.get_review_summary(
             entity_type="document",
             entity_id=document_id,
@@ -371,10 +371,24 @@ class CareerCopilotApiClient:
         self,
         *,
         entity_type: str,
-        entity_id: str,
+        entity_id: str | None,
         token: str | None = None,
     ) -> dict[str, Any]:
-        return self.get_json(f"/review/summary/{entity_type}/{entity_id}", token=token)
+        cleaned_entity_id = self._require_entity_id(entity_id)
+        return self.get_json(f"/review/summary/{entity_type}/{cleaned_entity_id}", token=token)
+
+    def has_entity_id(self, entity_id: str | None) -> bool:
+        try:
+            self._require_entity_id(entity_id)
+        except ValueError:
+            return False
+        return True
+
+    def _require_entity_id(self, entity_id: str | None) -> str:
+        cleaned = str(entity_id or "").strip()
+        if not cleaned or cleaned.casefold() in {"none", "null"}:
+            raise ValueError("review summary entity_id is required")
+        return cleaned
 
     def list_evidence_snippets(self, token: str | None = None) -> list[Any]:
         return self.get_json("/evidence/snippets", token=token)

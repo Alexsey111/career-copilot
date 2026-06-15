@@ -180,6 +180,60 @@ def test_fallback_requirement_keywords_use_valid_scope() -> None:
     assert {item.scope for item in requirement_keywords} == {"must_have"}
 
 
+def test_requirement_text_used_as_keyword_when_catalog_has_no_match() -> None:
+    service = VacancyAnalysisService()
+
+    profile = SimpleNamespace(
+        headline="Backend Developer",
+        summary="Работаю с Python и API.",
+        target_roles_json=["Backend Developer"],
+        experiences=[],
+        achievements=[],
+    )
+
+    strengths, gaps, match_score = service._compare_with_profile(
+        profile,
+        keywords=[],
+        must_have=["Опыт работы с Revit"],
+        nice_to_have=[],
+    )
+
+    assert strengths == []
+    assert gaps
+    assert gaps[0]["requirement_text"] == "Опыт работы с Revit"
+    assert "Revit" in gaps[0]["keyword"]
+    assert match_score == 0
+
+
+def test_unknown_requirement_is_normalized_before_becoming_gap_keyword() -> None:
+    service = VacancyAnalysisService()
+
+    profile = SimpleNamespace(
+        headline="Backend Developer",
+        summary="Работаю с Python и API.",
+        target_roles_json=["Backend Developer"],
+        experiences=[],
+        achievements=[],
+    )
+
+    strengths, gaps, match_score = service._compare_with_profile(
+        profile,
+        keywords=[],
+        must_have=[
+            "Проектная документация Проектный менеджмент Ведение проектной документации"
+        ],
+        nice_to_have=[],
+    )
+
+    assert strengths == []
+    assert gaps
+    assert gaps[0]["keyword"] == "ведение проектной документации"
+    assert gaps[0]["requirement_text"] == (
+        "Проектная документация Проектный менеджмент Ведение проектной документации"
+    )
+    assert match_score == 0
+
+
 def test_profile_summary_skills_are_used_for_match_score() -> None:
     service = VacancyAnalysisService()
 

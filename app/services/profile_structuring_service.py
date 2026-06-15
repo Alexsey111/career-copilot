@@ -2015,6 +2015,11 @@ class ProfileStructuringService:
                 result.extend(inline_skills)
                 continue
 
+            compact_parts = self._split_compact_skill_line(candidate)
+            if len(compact_parts) >= 2:
+                result.extend(compact_parts)
+                continue
+
             comma_parts = [
                 part.strip(" .;:-–—•")
                 for part in re.split(r"[,;|]", candidate)
@@ -2025,5 +2030,35 @@ class ProfileStructuringService:
                 continue
 
             result.append(candidate)
+
+        return self._dedupe_preserve_order(result)
+
+    def _split_compact_skill_line(self, value: str) -> list[str]:
+        known_skills = [
+            "Медицинская документация",
+            "Клиническая диагностика",
+            "Электронные медицинские системы",
+            "Терапия",
+            "Амбулаторный прием",
+            "Амбулаторный приём",
+            "Экстренная медицинская помощь",
+            "Предрейсовые осмотры",
+            "Послерейсовые осмотры",
+            "Медицинское освидетельствование",
+        ]
+
+        remaining = value.strip()
+        result: list[str] = []
+
+        for skill in known_skills:
+            pattern = rf"(?<!\w){re.escape(skill)}(?!\w)"
+            if re.search(pattern, remaining, flags=re.IGNORECASE):
+                result.append(skill)
+                remaining = re.sub(pattern, "\n", remaining, flags=re.IGNORECASE)
+
+        for part in re.split(r"[\n,;|]+", remaining):
+            cleaned = part.strip(" .;:-–—•")
+            if cleaned:
+                result.append(cleaned)
 
         return self._dedupe_preserve_order(result)

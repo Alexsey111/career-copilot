@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.orchestrator import AIOrchestrator
 from app.ai.clients.base import BaseLLMClient
+from app.domain.text_normalization import dedupe_subsumed_phrases
 from app.services.evidence_bank_service import EvidenceBankItem, EvidenceBankService
 from app.services.profile_structuring_service import ProfileStructuringService
 from app.services.resume_generation_service import ResumeGenerationService
@@ -496,7 +497,7 @@ def test_resume_skill_cleanup_splits_known_multiword_skills() -> None:
     ]
 
 
-def test_resume_skills_prefer_raw_text_section_over_profile_summary() -> None:
+def test_resume_skills_prefer_profile_summary_over_raw_text_section() -> None:
     service = ResumeGenerationService()
 
     skills = service._extract_skills_from_profile_or_raw_text(
@@ -509,15 +510,8 @@ def test_resume_skills_prefer_raw_text_section_over_profile_summary() -> None:
 """,
     )
 
-    assert skills == [
-        "Гражданское право",
-        "Договорное право",
-        "Документооборот",
-        "Арбитраж",
-    ]
-    assert "Python" not in skills
-    assert "LLM" not in skills
-    assert "Docker" not in skills
+    assert skills == ["Python", "LLM", "Docker"]
+    assert "Гражданское право" not in skills
 
 
 def test_resume_filters_low_confidence_experience_from_noisy_layout() -> None:
@@ -1446,6 +1440,145 @@ def test_project_bullet_concept_does_not_depend_on_tailored_resume_marker() -> N
     ) is None
 
 
+def test_vacancy_summary_filters_internal_alignment_labels() -> None:
+    service = ResumeGenerationService()
+
+    top_alignment = service._build_top_alignment_evidence(
+        vacancy_evidence_alignment=[
+            {
+                "requirement": "API",
+                "evidence": "Repository evidence: backend/API implementation signals",
+                "confidence": "high",
+            },
+            {
+                "requirement": "Pytest",
+                "evidence": "Настроил автоматическое тестирование",
+                "confidence": "high",
+            },
+            {
+                "requirement": "CI/CD",
+                "evidence": "Настройка CI/CD",
+                "confidence": "high",
+            },
+        ],
+    )
+
+    summary = service._build_vacancy_aligned_summary(
+        vacancy_title="Backend Developer",
+        selected_skills=[],
+        selected_achievements=[],
+        experience_items=[
+            {
+                "responsibilities": ["Поддержка пользовательских сценариев"],
+            }
+        ],
+        top_alignment_evidence=top_alignment,
+    )
+
+    assert "implementation signals" not in summary
+    assert "Поддержка пользовательских сценариев" not in summary
+    assert "настройки автоматического тестирования" in summary
+    assert "настройки CI/CD" in summary
+    assert "оптимизации времени ответа API на 35%" not in summary
+
+
+def test_vacancy_alignment_uses_skill_fallback_when_snippets_are_missing() -> None:
+    service = ResumeGenerationService()
+
+    alignment = service._build_vacancy_evidence_alignment(
+        matched_keywords=["Python", "Pytest", "Docker"],
+        missing_keywords=[],
+        selected_skills=["Python", "Pytest", "Docker"],
+        evidence_snippets=[],
+        selected_achievements=[],
+    )
+    top_alignment = service._build_top_alignment_evidence(
+        vacancy_evidence_alignment=alignment,
+    )
+
+    assert alignment
+    assert any(item["evidence"] == "Python-разработка" for item in alignment)
+    assert any(item["evidence"] == "настройка автоматического тестирования" for item in alignment)
+    assert any(item["evidence"] == "контейнеризация" for item in alignment)
+    assert top_alignment
+    assert [item["summary_phrase"] for item in top_alignment] == [
+        "настройки автоматического тестирования",
+        "контейнеризации",
+        "Python-разработки",
+    ]
+
+
+def test_vacancy_alignment_maps_api_requirement_from_fastapi_skill() -> None:
+    service = ResumeGenerationService()
+
+    alignment = service._build_vacancy_evidence_alignment(
+        matched_keywords=["API"],
+        missing_keywords=[],
+        selected_skills=["FastAPI", "Python"],
+        evidence_snippets=[],
+        selected_achievements=[],
+    )
+
+    assert alignment[0]["evidence"] == "разработка REST API"
+    assert alignment[0]["confidence"] == "medium"
+
+
+def test_top_alignment_evidence_prefers_testing_and_ci_cd_signals() -> None:
+    service = ResumeGenerationService()
+
+    top_alignment = service._build_top_alignment_evidence(
+        vacancy_evidence_alignment=[
+            {
+                "requirement": "Python",
+                "evidence": "Python-разработка",
+                "confidence": "medium",
+            },
+            {
+                "requirement": "Pytest",
+                "evidence": "настройка автоматического тестирования",
+                "confidence": "medium",
+            },
+            {
+                "requirement": "CI/CD",
+                "evidence": "настройка CI/CD",
+                "confidence": "medium",
+            },
+        ],
+    )
+
+    assert [item["requirement"] for item in top_alignment] == [
+        "Pytest",
+        "CI/CD",
+        "Python",
+    ]
+
+
+def test_summary_focus_drops_subsumed_generic_phrase() -> None:
+    phrases = dedupe_subsumed_phrases(
+        [
+            "разработка REST API",
+            "разработка REST API на FastAPI",
+            "настройка CI/CD",
+        ]
+    )
+
+    assert phrases == [
+        "разработка REST API на FastAPI",
+        "настройка CI/CD",
+    ]
+
+
+def test_summary_polishes_time_response_phrase() -> None:
+    service = ResumeGenerationService()
+
+    phrase = service._alignment_summary_phrase(
+        requirement="API",
+        evidence="Сократил время ответа API на 35%",
+    )
+
+    assert phrase == "оптимизации времени ответа API на 35%"
+
+
 def test_resume_generation_builds_internships_from_latest_extraction() -> None:
     service = ResumeGenerationService()
 
@@ -1822,6 +1955,12 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
     assert "Python" in tailoring["relevant_to_vacancy"]
     assert "Python-based AI systems" not in tailoring["relevant_to_vacancy"]
     assert any(
+        item["requirement"] == "Prompt engineering"
+        and item["evidence"] == "Prompt Engineering"
+        and item["confidence"] == "high"
+        for item in tailoring["vacancy_evidence_alignment"]
+    )
+    assert any(
         item["competency"] == "Prompt engineering"
         and "prompt" in (item.get("evidence") or "").lower()
         for item in tailoring["competency_mapping"]
@@ -1868,7 +2007,7 @@ def test_resume_summary_fallback_is_domain_neutral_for_non_it_roles() -> None:
     )
 
     lowered = summary.lower()
-    assert lowered.startswith("вакансия терапевт с опытом")
+    assert lowered.startswith("терапевт с опытом")
     assert "релевантных профессиональных задач" in lowered
     assert "инженерный профиль" not in lowered
     assert "прикладные инженерные задачи" not in lowered
@@ -1886,7 +2025,7 @@ def test_vacancy_summary_does_not_force_ai_backend_identity_for_non_it_role() ->
 
     lowered = summary.lower()
 
-    assert lowered.startswith("вакансия терапевт с опытом")
+    assert lowered.startswith("терапевт с опытом")
     assert "python-разработчик" not in lowered
     assert "ai automation engineer" not in lowered
     assert "backend-сервис" not in lowered
