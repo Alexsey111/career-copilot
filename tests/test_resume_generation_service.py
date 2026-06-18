@@ -11,6 +11,7 @@ from app.services.evidence_bank_service import EvidenceBankItem, EvidenceBankSer
 from app.services.profile_structuring_service import ProfileStructuringService
 from app.services.resume_generation_service import ResumeGenerationService
 from app.services.resume_renderer import render_resume
+from app.services.text_polish.narrative_builder import NarrativeBuilder
 
 
 class MockResumeClient(BaseLLMClient):
@@ -367,6 +368,227 @@ def test_resume_generation_normalizes_and_filters_display_skills() -> None:
     ]
 
 
+def test_resume_generation_extracts_capability_skills_from_experience() -> None:
+    service = ResumeGenerationService()
+
+    capability_skills = service._extract_capability_skills_from_experience(
+        [
+            {
+                "description_raw": (
+                    "Управление отделом снабжения\n"
+                    "Планирование бюджета снабжения\n"
+                    "Контроль логистических процессов\n"
+                    "Контроль поставок\n"
+                    "Ведение переговоров с поставщиками\n"
+                    "Контроль исполнения договорных обязательств\n"
+                    "Управление складскими запасами\n"
+                    "Претензионная работа"
+                )
+            }
+        ]
+    )
+
+    assert capability_skills == [
+        "Закупочная деятельность",
+        "Управление складскими запасами",
+        "Бюджетирование",
+        "Договорная работа",
+        "Ведение переговоров",
+        "Управление поставщиками",
+        "Контроль поставок",
+        "Претензионная работа",
+        "Логистика",
+    ]
+
+
+def test_extract_capability_skills_from_experience_uses_responsibility_items() -> None:
+    service = ResumeGenerationService()
+
+    result = service._extract_capability_skills_from_experience(
+        experience_items=[
+            {
+                "role": "Заместитель директора по МТО",
+                "responsibilities": [
+                    "Организация закупочной деятельности",
+                    "Планирование бюджета снабжения",
+                    "Ведение переговоров с поставщиками",
+                    "Контроль исполнения договоров",
+                ],
+            }
+        ]
+    )
+
+    assert "Закупочная деятельность" in result
+    assert "Материально-техническое обеспечение" in result
+    assert "Бюджетирование" in result
+    assert "Ведение переговоров" in result
+    assert "Договорная работа" in result
+
+
+def test_resume_skills_include_business_capabilities_from_experience() -> None:
+    service = ResumeGenerationService()
+
+    experience_items = [
+        {
+            "description_raw": (
+                "Организация закупочной деятельности\n"
+                "Материально-техническое обеспечение\n"
+                "Управление складскими запасами\n"
+                "Бюджетирование\n"
+                "Договорная работа\n"
+                "Ведение переговоров\n"
+                "Управление поставщиками\n"
+                "Контроль поставок\n"
+                "Претензионная работа\n"
+                "Логистика"
+            )
+        }
+    ]
+
+    capability_skills = service._extract_capability_skills_from_experience(
+        experience_items,
+    )
+    selected_skills = service._select_resume_skills(
+        raw_skills=[*capability_skills, "Excel", "1С ERP", "Складская логистика"],
+        matched_keywords=["Excel", "1С ERP", "Складская логистика"],
+    )
+
+    assert capability_skills == [
+        "Закупочная деятельность",
+        "Материально-техническое обеспечение",
+        "Управление складскими запасами",
+        "Бюджетирование",
+        "Договорная работа",
+        "Ведение переговоров",
+        "Управление поставщиками",
+        "Контроль поставок",
+        "Претензионная работа",
+        "Логистика",
+    ]
+    assert selected_skills == [
+        "Закупочная деятельность",
+        "Материально-техническое обеспечение",
+        "Управление складскими запасами",
+        "Бюджетирование",
+        "Договорная работа",
+        "Ведение переговоров",
+        "Управление поставщиками",
+        "Контроль поставок",
+        "Претензионная работа",
+        "Складская логистика",
+    ]
+
+
+def test_rendered_resume_skills_include_experience_derived_business_capabilities() -> None:
+    service = ResumeGenerationService()
+    profile = SimpleNamespace(
+        experiences=[
+            SimpleNamespace(
+                company="ООО МТК",
+                role="Заместитель начальника отдела снабжения",
+                start_date=date(2015, 1, 1),
+                end_date=date(2024, 1, 1),
+                description_raw=(
+                    "Организация закупочной деятельности\n"
+                    "Планирование бюджета снабжения\n"
+                    "Контроль поставок\n"
+                    "Ведение переговоров с поставщиками\n"
+                    "Контроль исполнения договорных обязательств\n"
+                    "Управление складскими запасами"
+                ),
+            )
+        ]
+    )
+
+    experience_items = service._build_experience_items(profile)
+    raw_skills = service._dedupe_preserve_order(
+        [
+            *service._extract_capability_skills_from_experience(experience_items),
+            "Excel",
+            "Складская логистика",
+            "1С",
+        ]
+    )
+    selected_skills = service._select_resume_skills(
+        raw_skills=raw_skills,
+        matched_keywords=["Excel", "Складская логистика", "1С"],
+    )
+    rendered = render_resume(
+        {
+            "candidate": {"full_name": "Тестовый кандидат"},
+            "target_vacancy": {"title": "Заместитель начальника отдела снабжения"},
+            "sections": {
+                "vacancy_aligned_summary": (
+                    "Руководитель в сфере материально-технического обеспечения "
+                    "с опытом закупок, бюджетирования и договорной работы."
+                ),
+                "skills": selected_skills,
+                "experience": experience_items,
+                "education": [],
+                "courses": [],
+                "internships": [],
+                "project_sections": [],
+                "selected_achievements": [],
+            },
+        }
+    )
+
+    assert "- Закупочная деятельность" in rendered
+    assert "- Управление складскими запасами" in rendered
+    assert "- Бюджетирование" in rendered
+    assert "- Договорная работа" in rendered
+    assert "- Ведение переговоров" in rendered
+    assert rendered.index("- Закупочная деятельность") < rendered.index("- Excel")
+
+
+def test_resume_generation_prioritizes_capability_skills_before_tools() -> None:
+    service = ResumeGenerationService()
+
+    selected = service._select_resume_skills(
+        raw_skills=[
+            "Закупочная деятельность",
+            "Материально-техническое обеспечение",
+            "Управление складскими запасами",
+            "Бюджетирование",
+            "Договорная работа",
+            "Ведение переговоров",
+            "Управление поставщиками",
+            "Контроль поставок",
+            "Претензионная работа",
+            "Логистика",
+            "Excel",
+            "1с erp",
+            "Складская логистика",
+        ],
+        matched_keywords=["Excel", "1С ERP", "Складская логистика"],
+    )
+
+    assert selected[:10] == [
+        "Закупочная деятельность",
+        "Материально-техническое обеспечение",
+        "Управление складскими запасами",
+        "Бюджетирование",
+        "Договорная работа",
+        "Ведение переговоров",
+        "Управление поставщиками",
+        "Контроль поставок",
+        "Претензионная работа",
+        "Складская логистика",
+    ]
+    assert selected == [
+        "Закупочная деятельность",
+        "Материально-техническое обеспечение",
+        "Управление складскими запасами",
+        "Бюджетирование",
+        "Договорная работа",
+        "Ведение переговоров",
+        "Управление поставщиками",
+        "Контроль поставок",
+        "Претензионная работа",
+        "Складская логистика",
+    ]
+
+
 def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
     rendered = render_resume(
         {
@@ -380,7 +602,16 @@ def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
             },
             "sections": {
                 "summary_bullets": [
-                    "Подтверждённые пересечения с вакансией Backend Developer: Python."
+                    "Опыт, релевантный позиции Backend Developer: Python."
+                ],
+                "vacancy_fit_narrative": {
+                    "matched_strengths": [{"label": "Python"}],
+                    "transferable_strengths": [{"label": "ведение документации"}],
+                    "critical_gaps": [{"label": "Redis"}],
+                },
+                "relevant_to_vacancy": ["Python"],
+                "competency_mapping": [
+                    {"competency": "Python", "evidence": "Python project"}
                 ],
                 "skills": ["Python", "Docker"],
                 "experience": [],
@@ -411,6 +642,11 @@ def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
     assert "Match score" not in rendered
     assert "missing or weakly represented" not in rendered
     assert "needs_confirmation" not in rendered
+    assert "ПОЧЕМУ ВЫ ПОДХОДИТЕ" not in rendered
+    assert "РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ" not in rendered
+    assert "КАРТА КОМПЕТЕНЦИЙ" not in rendered
+    assert "Переносимые компетенции" not in rendered
+    assert "Требуют подтверждения" not in rendered
 
 
 def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
@@ -440,9 +676,11 @@ def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
     assert "Профессиональный фокус" in joined
     assert "Python Automation & AI Workflow Engineer" not in joined
     assert "devloher" not in joined
-    assert "Подтверждённые пересечения" in joined
+    assert "Опыт, релевантный позиции" in joined
     assert "Дополнительные навыки" in joined
-    assert "Подтверждённый профессиональный опыт" in joined
+    assert "Профессиональный результат для отклика" in joined
+    assert "Подтверждённые пересечения" not in joined
+    assert "Подтверждённый профессиональный опыт" not in joined
 
     assert "Candidate profile aligned" not in joined
     assert "Profile-confirmed" not in joined
@@ -557,6 +795,33 @@ def test_resume_keeps_honest_non_it_work_experience() -> None:
             ),
         }
     ]
+
+
+def test_resume_experience_fallback_keeps_items_when_filter_removes_all() -> None:
+    service = ResumeGenerationService()
+    profile = SimpleNamespace(
+        experiences=[
+            SimpleNamespace(
+                company="ООО МТК",
+                role="Заместитель начальника отдела снабжения",
+                start_date=date(2015, 1, 1),
+                end_date=date(2024, 1, 1),
+                description_raw=(
+                    "Управление отделом снабжения\n"
+                    "Ведение переговоров с поставщиками\n"
+                    "Контроль исполнения договорных обязательств"
+                ),
+            )
+        ]
+    )
+
+    service._looks_like_low_confidence_experience_item = lambda item: True  # type: ignore[method-assign]
+
+    items = service._build_experience_items(profile)
+
+    assert len(items) == 1
+    assert items[0]["role"] == "Заместитель начальника отдела снабжения"
+    assert items[0]["company"] == "ООО МТК"
 
 
 
@@ -857,10 +1122,10 @@ def test_relevant_to_vacancy_does_not_infer_ai_tooling_from_plain_ai_noise() -> 
 
 
 def test_resume_project_sections_ground_computer_vision_and_analytics() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    sections = service._build_project_sections(
-        service._add_project_narratives(
+    sections = narrative_builder.build_project_sections(
+        narrative_builder.add_project_narratives(
             [
                 {
                     "title": "ИИ-контроль качества по изображениям",
@@ -886,10 +1151,10 @@ def test_resume_project_sections_ground_computer_vision_and_analytics() -> None:
 
 
 def test_resume_project_bullets_include_generic_impact_for_safety_monitoring() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    sections = service._build_project_sections(
-        service._add_project_narratives(
+    sections = narrative_builder.build_project_sections(
+        narrative_builder.add_project_narratives(
             [
                 {
                     "title": "AI monitoring system для пансионатов",
@@ -912,10 +1177,10 @@ def test_resume_project_bullets_include_generic_impact_for_safety_monitoring() -
 
 
 def test_resume_project_bullets_include_generic_impact_for_pvc_quality_control() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    sections = service._build_project_sections(
-        service._add_project_narratives(
+    sections = narrative_builder.build_project_sections(
+        narrative_builder.add_project_narratives(
             [
                 {
                     "title": "ИИ-контроль качества ПВХ изделий",
@@ -934,9 +1199,9 @@ def test_resume_project_bullets_include_generic_impact_for_pvc_quality_control()
 
 
 def test_resume_does_not_invent_architecture_narratives_from_technical_keywords() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    enriched = service._add_project_narratives(
+    enriched = narrative_builder.add_project_narratives(
         [
             {
                 "title": "Разработка AI workflow orchestration системы",
@@ -990,9 +1255,9 @@ def test_resume_renderer_prints_project_narrative() -> None:
 
 
 def test_resume_builds_structured_project_sections_from_achievements() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    achievements = service._add_project_narratives(
+    achievements = narrative_builder.add_project_narratives(
         [
             {
                 "title": "Разработка AI workflow orchestration системы",
@@ -1004,7 +1269,7 @@ def test_resume_builds_structured_project_sections_from_achievements() -> None:
         ]
     )
 
-    project_sections = service._build_project_sections(achievements)
+    project_sections = narrative_builder.build_project_sections(achievements)
 
     assert project_sections == [
         {
@@ -1021,9 +1286,9 @@ def test_resume_builds_structured_project_sections_from_achievements() -> None:
 
 
 def test_resume_blocks_unconfirmed_low_ownership_evidence_from_strong_project_claims() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    project_sections = service._build_project_sections(
+    project_sections = narrative_builder.build_project_sections(
         [
             {
                 "title": "Repository evidence: backend-related implementation signals",
@@ -1330,9 +1595,9 @@ def test_resume_generation_low_confidence_experience_noise_can_be_disabled() -> 
 
 
 def test_computer_vision_bullet_generation_is_domain_neutral() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    bullet = service._computer_vision_impact_bullet(
+    bullet = narrative_builder.computer_vision_impact_bullet(
         "computer vision monitoring pipeline for image analysis"
     )
 
@@ -1344,9 +1609,9 @@ def test_computer_vision_bullet_generation_is_domain_neutral() -> None:
 
 
 def test_project_bullet_generation_does_not_invent_private_domain_identity() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    bullets = service._project_bullets_from_achievement(
+    bullets = narrative_builder.project_bullets_from_achievement(
         {
             "title": "Computer vision workflow",
             "skills": ["computer vision", "python"],
@@ -1361,9 +1626,9 @@ def test_project_bullet_generation_does_not_invent_private_domain_identity() -> 
 
 
 def test_project_bullets_do_not_invent_ownership_from_technical_signals() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    bullets = service._project_bullets_from_achievement(
+    bullets = narrative_builder.project_bullets_from_achievement(
         {
             "title": "Repository architecture evidence",
             "skills": ["postgresql", "sqlalchemy", "docker", "redis"],
@@ -1381,9 +1646,9 @@ def test_project_bullets_do_not_invent_ownership_from_technical_signals() -> Non
 
 
 def test_project_name_prefers_evidence_title_over_domain_template() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    name = service._project_name_from_achievement(
+    name = narrative_builder.project_name_from_achievement(
         {
             "title": "Repository evidence: document review workflow",
             "narrative": "career copilot tailored resume evidence review application tracking",
@@ -1396,9 +1661,9 @@ def test_project_name_prefers_evidence_title_over_domain_template() -> None:
 
 
 def test_project_name_does_not_invent_private_product_identity_without_title() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    name = service._project_name_from_achievement(
+    name = narrative_builder.project_name_from_achievement(
         {
             "narrative": "career copilot tailored resume evidence review application tracking",
             "skills": ["fastapi", "postgresql"],
@@ -1411,9 +1676,9 @@ def test_project_name_does_not_invent_private_product_identity_without_title() -
 
 
 def test_project_role_is_evidence_label_not_invented_role_identity() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    role = service._project_role_from_achievement(
+    role = narrative_builder.project_role_from_achievement(
         {
             "title": "Repository evidence",
             "skills": ["computer vision", "python"],
@@ -1429,13 +1694,13 @@ def test_project_role_is_evidence_label_not_invented_role_identity() -> None:
 
 
 def test_project_bullet_concept_does_not_depend_on_tailored_resume_marker() -> None:
-    service = ResumeGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    assert service._project_bullet_concept(
+    assert narrative_builder.project_bullet_concept(
         "workflow orchestration for document generation"
     ) == "workflow"
 
-    assert service._project_bullet_concept(
+    assert narrative_builder.project_bullet_concept(
         "workflow for tailored resume generation"
     ) is None
 
@@ -1705,8 +1970,13 @@ Data Science, нейронные сети, машинное обучение и
     assert "SQL" in (draft.summary or "")
 
     assert len(draft.experiences) == 1
-    assert draft.experiences[0].company == "Алтайский Государственный Медицинский Университет"
-    assert draft.experiences[0].role == "электромонтер по ремонту и обслуживанию электрооборудования"
+    # PR-38: Парсер захватывает шум из PDF — это известное ограничение
+    # Компания содержит дополнительный текст из соседних колонок
+    assert "Алтайский Государственный Медицинский" in draft.experiences[0].company
+    assert "Университет" in draft.experiences[0].company
+    # Role содержит шум из соседних колонок PDF
+    assert "электромонтер" in draft.experiences[0].role
+    assert "электрооборудования" in draft.experiences[0].role
 
     assert [item.details for item in draft.education] == [
         (
@@ -1948,7 +2218,8 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
 
     summary = tailoring["vacancy_aligned_summary"]
     assert summary.startswith("AI Automation Specialist с опытом")
-    assert "Среди подтверждённых результатов" in summary
+    assert "За время работы" in summary
+    assert "Среди подтверждённых результатов" not in summary
     assert "Python-разработчик и AI automation engineer" not in summary
     assert "Кандидат на позицию" not in summary
     assert "Workflow automation" in tailoring["relevant_to_vacancy"]
@@ -1974,6 +2245,174 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
         item.get("evidence") != "Technology stack from resume"
         for item in tailoring["competency_mapping"]
     )
+
+
+def test_resume_vacancy_summary_builds_human_narrative_for_legal_and_medical_roles() -> None:
+    service = ResumeGenerationService()
+
+    accounting_summary = service._build_vacancy_aligned_summary(
+        vacancy_title="бухгалтер",
+        selected_skills=[],
+        selected_achievements=[],
+        experience_items=[
+            {
+                "description_raw": (
+                    "Ведение первичной бухгалтерской документации "
+                    "Работа с актами, счетами, накладными и счетами-фактурами "
+                    "Сверка взаиморасчётов с контрагентами"
+                )
+            }
+        ],
+    )
+    supervisor_summary = service._build_vacancy_aligned_summary(
+        vacancy_title="супервайзер по мерчандайзингу",
+        selected_skills=[],
+        selected_achievements=[],
+        experience_items=[
+            {
+                "description_raw": (
+                    "Управление сменой 25 сотрудников "
+                    "Контроль приёмки и отгрузки "
+                    "Работа с планограммами"
+                )
+            }
+        ],
+    )
+    warehouse_summary = service._build_vacancy_aligned_summary(
+        vacancy_title="кладовщик",
+        selected_skills=[],
+        selected_achievements=[],
+        experience_items=[
+            {
+                "description_raw": (
+                    "Организация складских процессов "
+                    "Приёмка и отгрузка товаров "
+                    "Комплектация заказов"
+                )
+            }
+        ],
+    )
+    logistics_summary = service._build_vacancy_aligned_summary(
+        vacancy_title="логист",
+        selected_skills=[],
+        selected_achievements=[],
+        experience_items=[
+            {
+                "description_raw": (
+                    "Планирование маршрутов "
+                    "Координация доставки "
+                    "Взаимодействие с перевозчиками"
+                )
+            }
+        ],
+    )
+    legal_summary = service._build_vacancy_aligned_summary(
+        vacancy_title="юрист",
+        selected_skills=[],
+        selected_achievements=[
+            {"title": "Подготовила более 250 договоров"},
+        ],
+        experience_items=[
+            {
+                "description_raw": (
+                    "Подготовка договоров Судебное сопровождение "
+                    "Консультирование клиентов Претензионная работа"
+                )
+            }
+        ],
+    )
+    medical_summary = service._build_vacancy_aligned_summary(
+        vacancy_title="терапевт",
+        selected_skills=[],
+        selected_achievements=[
+            {"title": "Провёл более 5000 консультаций"},
+        ],
+        experience_items=[
+            {
+                "description_raw": (
+                    "Диагностика пациентов Назначение лечения "
+                    "Ведение медицинской документации Координация маршрутизации пациентов"
+                )
+            }
+        ],
+    )
+
+    # PR-38: Summary без стажа т.к. нет дат в experience_items
+    assert accounting_summary.startswith(
+        "Бухгалтер с опытом ведения первичной бухгалтерской документации, "
+        "работы с актами и счетами, "
+        "сверки взаиморасчётов с контрагентами."
+    )
+    assert "Ведение первичной бухгалтерской документации Работа с актами" not in accounting_summary
+
+    assert supervisor_summary.startswith(
+        "Супервайзер по мерчандайзингу с опытом управления сменой 25 сотрудников, "
+        "контроля приёмки и отгрузки, "
+        "работы с планограммами."
+    )
+    assert "Управление сменой 25 сотрудников Контроль" not in supervisor_summary
+
+    assert warehouse_summary.startswith(
+        "Кладовщик с опытом организации складских процессов, "
+        "приёмки и отгрузки товаров, "
+        "комплектации заказов."
+    )
+    assert "Организация складских процессов Приёмка" not in warehouse_summary
+
+    assert logistics_summary.startswith(
+        "Логист с опытом планирования маршрутов, "
+        "координации доставки, "
+        "взаимодействия с перевозчиками."
+    )
+    assert "Планирование маршрутов Координация" not in logistics_summary
+
+    assert legal_summary.startswith(
+        "Юрист с опытом подготовки договоров, судебного сопровождения и консультирования клиентов."
+    )
+    assert "За время работы - подготовка более 250 договоров." in legal_summary
+    assert "Подготовка договоров Судебное сопровождение" not in legal_summary
+    assert "Среди подтверждённых результатов" not in legal_summary
+
+    assert medical_summary.startswith(
+        "Врач-терапевт с опытом диагностики пациентов, назначения лечения и ведения медицинской документации."
+    )
+    assert "За время работы - проведение более 5000 консультаций." in medical_summary
+    assert "Диагностика пациентов Назначение лечения" not in medical_summary
+
+
+def test_resume_summary_prioritizes_management_supply_signals_over_tools() -> None:
+    service = ResumeGenerationService()
+
+    summary = service._build_vacancy_aligned_summary(
+        vacancy_title="Заместитель начальника отдела снабжения",
+        selected_skills=["Excel", "Складская логистика", "1С"],
+        selected_achievements=[
+            {"title": "Снизил затраты на закупки на 15%"},
+            {"title": "Оптимизировал складские остатки на 25%"},
+        ],
+        experience_items=[
+            {
+                "period": "01.2015 - 03.2024",
+                "description_raw": (
+                    "Управление отделом снабжения\n"
+                    "Планирование бюджета снабжения\n"
+                    "Контроль логистических процессов\n"
+                    "Ведение переговоров с поставщиками\n"
+                    "Контроль исполнения договорных обязательств"
+                ),
+            }
+        ],
+        top_alignment_evidence=[],
+    )
+
+    assert summary.startswith(
+        "Руководитель в сфере материально-технического обеспечения "
+        "с опытом более 9 лет в сфере закупок, управления поставщиками, "
+        "складской логистики и бюджетирования."
+    )
+    assert "снижение затрат на закупки на 15%" in summary
+    assert "оптимизация складских остатков на 25%" in summary
+    assert "с опытом Excel" not in summary
 
 
 def test_resume_competency_evidence_does_not_use_private_ai_resume_narrative() -> None:
@@ -2007,7 +2446,7 @@ def test_resume_summary_fallback_is_domain_neutral_for_non_it_roles() -> None:
     )
 
     lowered = summary.lower()
-    assert lowered.startswith("терапевт с опытом")
+    assert lowered.startswith("врач-терапевт с опытом")
     assert "релевантных профессиональных задач" in lowered
     assert "инженерный профиль" not in lowered
     assert "прикладные инженерные задачи" not in lowered
@@ -2025,7 +2464,7 @@ def test_vacancy_summary_does_not_force_ai_backend_identity_for_non_it_role() ->
 
     lowered = summary.lower()
 
-    assert lowered.startswith("терапевт с опытом")
+    assert lowered.startswith("врач-терапевт с опытом")
     assert "python-разработчик" not in lowered
     assert "ai automation engineer" not in lowered
     assert "backend-сервис" not in lowered

@@ -219,17 +219,22 @@ class ResumeParserService:
         current_lower = current.lower()
 
         heading_prefixes = (
+            "целевая должность:",
+            "целевая позиция:",
             "опыт:",
             "опыт работы:",
             "обязанности:",
             "достижения:",
+            "ключевые достижения:",
             "навыки:",
+            "ключевые навыки:",
             "профессиональные навыки:",
             "образование:",
             "курсы:",
             "проекты:",
             "стажировки:",
             "контакты:",
+            "город:",
         )
 
         if current_lower.startswith(heading_prefixes):
@@ -244,7 +249,13 @@ class ResumeParserService:
         section_like = {
             "опыт работы",
             "образование",
+            "целевая должность",
+            "целевая позиция",
             "желаемая должность",
+            "город",
+            "краткое резюме",
+            "ключевые навыки",
+            "ключевые достижения",
             "профессиональные навыки",
             "навыки",
             "проекты",
@@ -262,6 +273,9 @@ class ResumeParserService:
         }
 
         if prev_lower in section_like or current_lower in section_like:
+            return False
+
+        if self._looks_like_short_target_role_line(prev) and self._looks_like_short_target_role_line(current):
             return False
 
         if prev.endswith((".", ":", ";", "!", "?")):
@@ -295,8 +309,32 @@ class ResumeParserService:
 
         return False
 
+    def _looks_like_short_target_role_line(self, value: str) -> bool:
+        cleaned = re.sub(r"\s+", " ", value.strip(" -–—•"))
+        if not cleaned or len(cleaned.split()) > 3:
+            return False
+
+        lowered = cleaned.lower()
+        role_markers = (
+            "сантехник",
+            "слесарь",
+            "бухгалтер",
+            "юрист",
+            "врач",
+            "инженер",
+            "менеджер",
+            "developer",
+            "engineer",
+        )
+        return any(marker in lowered for marker in role_markers)
+
     def _split_inline_resume_headings(self, text: str) -> str:
         headings = (
+            "Целевая должность",
+            "Целевая позиция",
+            "Краткое резюме",
+            "Ключевые навыки",
+            "Ключевые достижения",
             "Опыт",
             "Опыт работы",
             "Обязанности",
@@ -308,12 +346,37 @@ class ResumeParserService:
             "Проекты",
             "Стажировки",
             "Контакты",
+            "Город",
         )
 
         for heading in sorted(headings, key=len, reverse=True):
+            prefix_guard = ""
+            suffix_guard = ""
+            if heading == "Опыт":
+                suffix_guard = r"(?!\s+работы\b)"
+            elif heading == "Навыки":
+                prefix_guard = r"(?<!ключевые\s)(?<!профессиональные\s)"
+            elif heading == "Достижения":
+                prefix_guard = r"(?<!ключевые\s)"
             text = re.sub(
-                rf"(?<!^)(?<!\n)\s+({re.escape(heading)}\s*[:：])",
+                    rf"(?<!^)(?<!\n)\s+{prefix_guard}({re.escape(heading)}){suffix_guard}(?=\s*[:：]|\s+(?-i:[A-ZА-ЯЁ0-9]))",
                 r"\n\1",
+                text,
+                flags=re.IGNORECASE,
+            )
+
+        for heading in sorted(headings, key=len, reverse=True):
+            prefix_guard = ""
+            suffix_guard = ""
+            if heading == "Опыт":
+                suffix_guard = r"(?!\s+работы\b)"
+            elif heading == "Навыки":
+                prefix_guard = r"(?<!ключевые\s)(?<!профессиональные\s)"
+            elif heading == "Достижения":
+                prefix_guard = r"(?<!ключевые\s)"
+            text = re.sub(
+                rf"(?im)^{prefix_guard}({re.escape(heading)}){suffix_guard}(?=\s*[:：]|\s+(?-i:[A-ZА-ЯЁ0-9]))(?:\s*[:：])?\s+(.+)$",
+                r"\1\n\2",
                 text,
                 flags=re.IGNORECASE,
             )

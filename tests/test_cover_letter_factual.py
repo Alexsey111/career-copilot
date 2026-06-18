@@ -49,10 +49,7 @@ async def test_cover_letter_includes_gap_mitigation_when_needed(
 
     # 5. Письмо должно содержать хотя бы одну проактивную формулировку
     mitigation_phrases = [
-        "готов быстро адаптироваться",
-        "активно изучаю",
-        "готов оперативно закрыть",
-        "готов углубить",
+        "готов обсудить план быстрого погружения",
     ]
     has_mitigation = any(phrase in rendered.lower() for phrase in mitigation_phrases)
     

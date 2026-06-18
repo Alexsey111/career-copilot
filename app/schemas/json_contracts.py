@@ -56,6 +56,13 @@ DraftMode = Literal[
     "ai_enhanced_v1",
 ]
 
+RequirementClassification = Literal[
+    "education",
+    "certification",
+    "skill",
+    "competency",
+]
+
 # ---------------------------------------------------------------------------
 # VacancyAnalysis JSON fields
 # ---------------------------------------------------------------------------
@@ -64,6 +71,7 @@ class RequirementItem(StrictBaseModel):
     """Один требование из must_have / nice_to_have."""
     text: str
     scope: RequirementScope = "must_have"
+    classification: RequirementClassification = "competency"
     keyword: str | None = None
     weight: int | None = None
 

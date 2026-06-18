@@ -9,7 +9,12 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.requirement_normalization import normalize_requirement_phrase
+from app.domain.requirement_normalization import (
+    classify_requirement_phrase,
+    is_ignored_requirement_header,
+    normalize_requirement_phrase,
+    normalize_requirement_phrases,
+)
 from app.domain.skills.utils import (
     extract_keywords,
     get_related_skills,
@@ -94,6 +99,20 @@ STOP_HEADINGS = {
     "BENEFITS",
 }
 
+STOP_AFTER_REQUIREMENTS_HEADINGS = {
+    "мы предлагаем",
+    "условия",
+    "о компании",
+    "оплата труда",
+    "график и условия работы",
+    "ключевые навыки",
+}
+
+NORMALIZED_STOP_AFTER_REQUIREMENTS_HEADINGS = {
+    heading.upper()
+    for heading in STOP_AFTER_REQUIREMENTS_HEADINGS
+}
+
 
 @dataclass(frozen=True)
 class RequirementKeyword:
@@ -171,8 +190,21 @@ class VacancyAnalysisService:
 
         # Валидация JSON-контракта перед сохранением
         validated = VacancyAnalysisSchema(
-            must_have=[{"text": item} for item in must_have],
-            nice_to_have=[{"text": item} for item in nice_to_have],
+            must_have=[
+                {
+                    "text": item,
+                    "classification": classify_requirement_phrase(item),
+                }
+                for item in must_have
+            ],
+            nice_to_have=[
+                {
+                    "text": item,
+                    "scope": "nice_to_have",
+                    "classification": classify_requirement_phrase(item),
+                }
+                for item in nice_to_have
+            ],
             keywords=keywords,
             gaps=gaps,
             strengths=strengths,
@@ -426,13 +458,6 @@ class VacancyAnalysisService:
         if not cleaned:
             return None
 
-        cleaned = re.sub(
-            r"^(опыт|знание|понимание|навык|умение|наличие|требуется)\s+",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        ).strip(" .;-–—•")
-
         cleaned = normalize_requirement_phrase(cleaned)
 
         if len(cleaned) > 120:
@@ -523,13 +548,17 @@ class VacancyAnalysisService:
                 capture = True
                 continue
 
-            if capture and normalized in stop_headings:
+            if capture and (
+                normalized in stop_headings
+                or self._is_stop_after_requirements_heading(normalized)
+            ):
                 break
 
             if capture:
                 cleaned = self._clean_bullet(line)
-                if cleaned and len(cleaned) >= 3:
-                    items.append(cleaned)
+                items.extend(self._normalize_requirement_items(cleaned))
+                if self._has_requirement_stop_tail(cleaned):
+                    break
 
         return self._dedupe_preserve_order(items)
 
@@ -537,14 +566,29 @@ class VacancyAnalysisService:
         candidates: list[str] = []
 
         for line in lines:
+            normalized = self._normalize_heading(line)
+            if normalized in REQUIREMENT_START_HEADINGS:
+                continue
+            if normalized in NICE_TO_HAVE_START_HEADINGS or self._is_stop_after_requirements_heading(normalized):
+                break
+
             cleaned = self._clean_bullet(line)
-            if not cleaned:
+            normalized_items = self._normalize_requirement_items(cleaned)
+            if not normalized_items:
                 continue
 
-            if self._extract_keywords("", cleaned):
-                candidates.append(cleaned)
+            for normalized_item in normalized_items:
+                classification = classify_requirement_phrase(normalized_item)
+                if (
+                    self._extract_keywords("", normalized_item)
+                    or classification != "competency"
+                    or "полевой команд" in normalized_item.casefold()
+                ):
+                    candidates.append(normalized_item)
 
             if len(candidates) >= 8:
+                break
+            if self._has_requirement_stop_tail(cleaned):
                 break
 
         return self._dedupe_preserve_order(candidates)
@@ -614,6 +658,47 @@ class VacancyAnalysisService:
             return parts
 
         return [value]
+
+    def _normalize_requirement_items(self, value: str) -> list[str]:
+        cleaned = self._strip_requirement_tail(value)
+        cleaned = re.sub(r"\s+", " ", str(cleaned or "")).strip(" .;-–—•:")
+        if len(cleaned) < 3:
+            return []
+        if is_ignored_requirement_header(cleaned):
+            return []
+
+        normalized_items = normalize_requirement_phrases(cleaned)
+        normalized_items = [
+            item
+            for item in normalized_items
+            if item and not is_ignored_requirement_header(item)
+        ]
+
+        return normalized_items
+
+    def _strip_requirement_tail(self, value: str) -> str:
+        return re.split(
+            r"\s+(?:мы предлагаем|условия|о компании|оплата труда|график и условия работы|ключевые навыки)\b",
+            str(value or ""),
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip(" .;-–—•")
+
+    def _has_requirement_stop_tail(self, value: str) -> bool:
+        return bool(
+            re.search(
+                r"\s+(?:мы предлагаем|условия|о компании|оплата труда|график и условия работы|ключевые навыки)\b",
+                str(value or ""),
+                flags=re.IGNORECASE,
+            )
+        )
+
+    def _is_stop_after_requirements_heading(self, normalized_heading: str) -> bool:
+        return any(
+            normalized_heading == heading
+            or normalized_heading.startswith(f"{heading} ")
+            for heading in NORMALIZED_STOP_AFTER_REQUIREMENTS_HEADINGS
+        )
 
     def _match_heading_prefix(self, value: str) -> tuple[str, str] | None:
         known_headings = sorted(

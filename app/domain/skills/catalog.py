@@ -236,4 +236,19 @@ SKILL_DEFINITIONS: list[SkillDefinition] = [
         patterns=[r"\brag\b", r"retrieval[-\s]?augmented"],
         related_skills=[],
     ),
+    SkillDefinition(
+        canonical_name="Сантехника",
+        patterns=[
+            r"сантехник",
+            r"сантехническ",
+            r"инженерн\w+\s+коммуникац",
+            r"инженерн\w+\s+систем",
+            r"трубопровод",
+            r"запорн\w+\s+арматур",
+        ],
+        related_skills=[
+            "обслуживание инженерных систем",
+            "ремонт трубопроводов",
+        ],
+    ),
 ]

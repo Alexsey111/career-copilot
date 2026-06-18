@@ -64,9 +64,18 @@ async def test_vacancy_analysis_uses_profile_summary_for_scoped_match(client) ->
         "FastAPI",
         "PostgreSQL",
     ]
+    assert [item["classification"] for item in analysis["must_have"]] == [
+        "skill",
+        "skill",
+        "skill",
+    ]
     assert [item["text"] for item in analysis["nice_to_have"]] == [
         "Redis",
         "Docker",
+    ]
+    assert [item["classification"] for item in analysis["nice_to_have"]] == [
+        "skill",
+        "skill",
     ]
 
     assert analysis["keywords"] == [

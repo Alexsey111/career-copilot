@@ -3,50 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from app.domain.text_normalization import clean_vacancy_title
-
-
-def _render_vacancy_fit_narrative(
-    narrative: dict[str, Any],
-) -> list[str]:
-    lines: list[str] = []
-
-    matched = narrative.get("matched_strengths") or []
-    if matched:
-        lines.append("")
-        lines.append("ПОЧЕМУ ВЫ ПОДХОДИТЕ НА ВАКАНСИЮ")
-
-        lines.append("")
-        lines.append("Прямые совпадения:")
-
-        for item in matched:
-            label = item.get("label")
-            if label:
-                lines.append(f"- {label}")
-
-    transferable = narrative.get("transferable_strengths") or []
-    if transferable:
-        lines.append("")
-        lines.append("Переносимые компетенции:")
-
-        for item in transferable:
-            label = item.get("label")
-            if label:
-                lines.append(f"- {label}")
-
-    gaps = narrative.get("critical_gaps") or []
-    if gaps:
-        lines.append("")
-        lines.append("Требуют подтверждения:")
-
-        for item in gaps:
-            label = item.get("label")
-            if label:
-                lines.append(f"- {label}")
-
-    return lines
 
 
 def render_resume(content_json: dict) -> str:
@@ -83,29 +41,10 @@ def render_resume(content_json: dict) -> str:
     vacancy_aligned_summary = sections.get("vacancy_aligned_summary")
     if vacancy_aligned_summary:
         lines.append(vacancy_aligned_summary)
-    vacancy_fit_narrative = sections.get("vacancy_fit_narrative") or {}
-    lines.extend(_render_vacancy_fit_narrative(vacancy_fit_narrative))
     # summary_bullets are kept in content_json for trace/review,
     # but not rendered into final ATS-safe resume text.
-
-    relevant_to_vacancy = sections.get("relevant_to_vacancy") or []
-    if relevant_to_vacancy:
-        lines.append("")
-        lines.append("РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ")
-        for item in relevant_to_vacancy:
-            lines.append(f"- {item}")
-
-    competency_mapping = sections.get("competency_mapping") or []
-    if competency_mapping:
-        lines.append("")
-        lines.append("КАРТА КОМПЕТЕНЦИЙ")
-        for item in competency_mapping:
-            competency = item.get("competency") or item.get("label") or item.get("keyword")
-            evidence = item.get("evidence") or item.get("source") or item.get("evidence_title")
-            if competency and evidence:
-                lines.append(f"- {competency}: {evidence}")
-            elif competency:
-                lines.append(f"- {competency}")
+    # Vacancy fit narrative, relevance lists, and competency mapping are review
+    # metadata. They stay in content_json, but must not leak into the final resume.
 
     lines.append("")
     lines.append("КЛЮЧЕВЫЕ НАВЫКИ")

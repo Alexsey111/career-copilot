@@ -1,3 +1,6 @@
+from datetime import date
+
+from app.services.resume_parser_service import ResumeParserService
 from app.services.profile_structuring_service import ProfileStructuringService
 
 
@@ -45,6 +48,76 @@ Acme, AI Engineer
 
     assert draft.full_name == "Перминов Алексей"
     assert "full_name was not extracted confidently" not in draft.warnings
+
+
+def test_build_draft_keeps_three_token_ru_full_name() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Викторович Кузнецов
+Целевая должность
+Сантехник
+Опыт работы
+ООО «ТехКомСервис»
+Слесарь-сантехник
+03.2019 — настоящее время
+Навыки
+Монтаж систем водоснабжения
+"""
+    )
+
+    assert draft.full_name == "Сергей Викторович Кузнецов"
+    assert draft.headline == "Сантехник"
+    assert "full_name was not extracted confidently" not in draft.warnings
+
+
+def test_build_draft_extracts_name_and_role_from_parser_merged_top_line() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Викторович Кузнецов Целевая должность Сантехник Слесарь-сантехник Город Екатеринбург
+Опыт работы
+ООО «ТехКомСервис» Слесарь-сантехник
+03.2019 — настоящее время
+Навыки
+Монтаж систем водоснабжения Канализация Отопление
+Чтение технических схем Сварочные работы Работа с электроинструментом
+"""
+    )
+
+    assert draft.full_name == "Сергей Викторович Кузнецов"
+    assert draft.target_roles
+    assert "full_name was not extracted confidently" not in draft.warnings
+    assert "target roles were not extracted" not in draft.warnings
+
+
+def test_resume_parser_keeps_plain_target_heading_separate_from_name() -> None:
+    text = ResumeParserService()._normalize_text(
+        """
+Сергей Викторович Кузнецов
+Целевая должность
+Сантехник
+Слесарь-сантехник
+Город
+Екатеринбург
+Опыт работы
+ООО «ТехКомСервис»
+Слесарь-сантехник
+03.2019 — настоящее время
+"""
+    )
+
+    lines = text.splitlines()
+    assert lines[:6] == [
+        "Сергей Викторович Кузнецов",
+        "Целевая должность",
+        "Сантехник",
+        "Слесарь-сантехник",
+        "Город",
+        "Екатеринбург",
+    ]
 
 
 def test_build_draft_extracts_simple_generic_backend_resume() -> None:
@@ -116,6 +189,48 @@ def test_build_draft_warns_on_generated_application_package() -> None:
         "generated application package" in warning
         for warning in draft.warnings
     )
+
+
+def test_build_draft_allows_source_resume_with_brief_summary_heading() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Сергей Викторович Кузнецов
+КРАТКОЕ РЕЗЮМЕ
+Сантехник с опытом обслуживания внутренних инженерных систем.
+ОПЫТ РАБОТЫ
+МУП «Горводоканал»
+Сантехник
+06.2015 — 02.2019
+НАВЫКИ
+Чтение технических схем
+"""
+    )
+
+    assert draft.full_name == "Сергей Викторович Кузнецов"
+    assert draft.experiences
+    assert not any("generated application package" in warning for warning in draft.warnings)
+
+
+def test_build_draft_extracts_full_name_from_top_lines_fallback() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Целевая должность
+Петров Алексей
+
+Сантехник
+Опыт работы
+ООО «Жилсервис»
+Слесарь-сантехник
+03.2020 — 08.2022
+"""
+    )
+
+    assert draft.full_name == "Петров Алексей"
+    assert "full_name was not extracted confidently" not in draft.warnings
 
 
 def test_build_draft_extracts_full_name_from_split_lines() -> None:
@@ -496,6 +611,268 @@ def test_profile_structuring_extracts_description_raw_from_responsibilities() ->
     assert draft.experiences[0].description_raw is not None
     assert "Диагностика пациентов" in draft.experiences[0].description_raw
     assert "Назначение лечения" in draft.experiences[0].description_raw
+
+
+def test_profile_structuring_extracts_multiline_experience_blocks() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Ирина Соколова
+Бухгалтер
+
+Опыт работы
+ООО Альфа
+Бухгалтер
+02.2021 — 06.2023
+Обязанности:
+- Ведение первичной бухгалтерской документации
+- Работа с актами и счетами
+- Сверка взаиморасчётов с контрагентами
+
+Достижения:
+- Снизила количество ошибок в первичных документах
+
+ООО Бета
+Старший бухгалтер
+07.2023 — настоящее время
+Обязанности:
+- Контроль первичной документации
+- Подготовка платёжных поручений
+
+Навыки:
+1С
+Excel
+"""
+    )
+
+    assert len(draft.experiences) == 2
+
+    first, second = draft.experiences
+    assert first.company == "ООО Альфа"
+    assert first.role == "Бухгалтер"
+    assert first.start_date == date(2021, 2, 1)
+    assert first.end_date == date(2023, 6, 30)
+    assert first.description_raw is not None
+    assert "ведение первичной бухгалтерской документации" in first.description_raw.lower()
+    assert "работа с актами и счетами" in first.description_raw.lower()
+    assert "сверка взаиморасчётов с контрагентами" in first.description_raw.lower()
+    assert "снизила количество ошибок" not in first.description_raw.lower()
+
+    assert second.company == "ООО Бета"
+    assert second.role == "Старший бухгалтер"
+    assert second.start_date == date(2023, 7, 1)
+    assert second.end_date is None
+    assert second.description_raw is not None
+    assert "контроль первичной документации" in second.description_raw.lower()
+    assert "подготовка платёжных поручений" in second.description_raw.lower()
+
+
+def test_profile_structuring_extracts_plumber_multiline_resume() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Петров Алексей
+Сантехник
+
+Опыт работы
+ООО «Жилсервис»
+Сантехник
+03.2020 — 08.2022
+Обязанности:
+- Обслуживание сантехнических систем
+- Устранение аварийных протечек
+
+Достижения:
+- Разработал чек-лист профилактического обслуживания оборудования МУП «Горводоканал»
+Слесарь-сантехник
+09.2022 — настоящее время
+Обязанности:
+- Ремонт трубопроводов и запорной арматуры
+- Профилактическое обслуживание оборудования
+
+Навыки:
+Сантехника
+Ремонт трубопроводов
+"""
+    )
+
+    assert draft.full_name == "Петров Алексей"
+    assert draft.target_roles == ["Сантехник"]
+    assert len(draft.experiences) == 2
+    assert draft.experiences[0].company == "ООО «Жилсервис»"
+    assert draft.experiences[1].company == "МУП «Горводоканал»"
+    assert draft.experiences[1].role == "Слесарь-сантехник"
+    assert "Разработал чек-лист" not in draft.experiences[1].company
+
+
+def test_profile_structuring_extracts_quoted_company_lines_with_month_year_ranges() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Орлов Игорь Сергеевич
+Заместитель директора по МТО
+
+Опыт работы
+АО «СибирьЭнергоСтрой»
+Заместитель директора по МТО
+04.2020 — н.в.
+Обязанности:
+- Организация закупочной деятельности
+- Планирование бюджета снабжения
+- Ведение переговоров с поставщиками
+
+ООО «РегионСнаб»
+Начальник отдела снабжения
+01.2016 — 03.2020
+Обязанности:
+- Контроль поставок
+- Договорная работа
+
+Навыки
+МТО
+Закупки
+"""
+    )
+
+    assert len(draft.experiences) == 2
+    assert draft.experiences[0].company == "АО «СибирьЭнергоСтрой»"
+    assert draft.experiences[0].role == "Заместитель директора по МТО"
+    assert draft.experiences[0].start_date == date(2020, 4, 1)
+    assert draft.experiences[0].end_date is None
+    assert draft.experiences[1].company == "ООО «РегионСнаб»"
+    assert draft.experiences[1].role == "Начальник отдела снабжения"
+    assert draft.experiences[1].start_date == date(2016, 1, 1)
+    assert draft.experiences[1].end_date == date(2020, 3, 31)
+
+
+def test_multiline_experience_extracts_supply_management_resume() -> None:
+    service = ProfileStructuringService()
+
+    text = """
+Андрей Николаевич Орлов
+Целевая должность
+Заместитель директора по материально-техническому обеспечению
+Директор по снабжению
+Город
+Новосибирск
+Опыт работы
+АО «СибирьЭнергоСтрой»
+Заместитель директора по МТО
+04.2020 — настоящее время
+
+Обязанности:
+Организация закупочной деятельности
+Управление складскими запасами
+Планирование бюджета снабжения
+
+Достижения:
+Снизил затраты на закупки на 15%
+
+ООО «РегионСнаб»
+Начальник отдела снабжения
+02.2016 — 03.2020
+
+Обязанности:
+Поиск поставщиков
+Проведение тендеров
+Контроль поставок
+""".strip()
+
+    draft = service._build_draft(text)
+
+    assert draft.full_name == "Андрей Николаевич Орлов"
+    assert draft.target_roles == [
+        "Заместитель директора по материально-техническому обеспечению",
+        "Директор по снабжению",
+    ]
+    assert len(draft.experiences) == 2
+
+
+def test_split_inline_responsibility_items_separates_control_and_budgeting_phrases() -> None:
+    service = ProfileStructuringService()
+
+    result = service._split_inline_responsibility_items([
+        "Контроль поставок Формирование бюджета закупок",
+    ])
+
+    assert result == [
+        "Контроль поставок",
+        "Формирование бюджета закупок",
+    ]
+
+
+def test_profile_structuring_cleans_worker_resume_experience_skills_and_achievements() -> None:
+    raw_text = """
+Сергей Викторович Кузнецов
+Целевая должность
+Сантехник
+Слесарь-сантехник
+Город
+Екатеринбург
+Опыт работы
+ООО «ТехКомСервис»
+Слесарь-сантехник
+03.2019 — настоящее время
+
+Обязанности:
+
+Монтаж систем водоснабжения и канализации
+Обслуживание сантехнического оборудования
+Замена трубопроводов
+Устранение аварийных ситуаций
+Установка сантехнических приборов
+Проведение профилактических осмотров
+Работа с технической документацией
+
+Достижения:
+
+Снизил количество аварийных заявок на 20%
+Сократил среднее время устранения неисправностей
+Разработал чек-лист профилактического обслуживания оборудования
+МУП «Горводоканал»
+Сантехник
+06.2015 — 02.2019
+
+Обязанности:
+
+Обслуживание внутренних инженерных систем
+Замена запорной арматуры
+Проведение аварийных работ
+Участие в капитальном ремонте коммуникаций
+Навыки
+Монтаж систем водоснабжения
+Канализация
+Отопление
+Ремонт трубопроводов
+Сантехническое оборудование
+Чтение технических схем
+Сварочные работы
+Работа с электроинструментом
+"""
+
+    parsed = ResumeParserService()._normalize_text(raw_text)
+    draft = ProfileStructuringService()._build_draft(parsed)
+
+    assert [(item.role, item.company) for item in draft.experiences] == [
+        ("Слесарь-сантехник", "ООО «ТехКомСервис»"),
+        ("Сантехник", "МУП «Горводоканал»"),
+    ]
+    assert draft.experiences[1].description_raw == (
+        "Обслуживание внутренних инженерных систем\n"
+        "Замена запорной арматуры\n"
+        "Проведение аварийных работ\n"
+        "Участие в капитальном ремонте коммуникаций"
+    )
+    assert "Чтение технических схем" in draft.technologies
+    assert "Сварочные работы" in draft.technologies
+    assert "Работа с электроинструментом" in draft.technologies
+    assert "Разработал чек-лист профилактического обслуживания оборудования" in [
+        item.title for item in draft.achievements
+    ]
+    assert all("МУП «Горводоканал»" not in item.title for item in draft.achievements)
 
 
 def test_build_draft_splits_compact_name_role_before_inline_experience_heading() -> None:

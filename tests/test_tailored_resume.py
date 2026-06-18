@@ -71,9 +71,11 @@ async def test_tailored_resume_uses_matched_keywords_early(
 
     # 5. Проверка структуры
     assert "ЦЕЛЕВАЯ ПОЗИЦИЯ" in rendered
-    assert "РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ" in rendered
-    assert "КАРТА КОМПЕТЕНЦИЙ" in rendered
     assert "КЛЮЧЕВЫЕ НАВЫКИ" in rendered
+    assert "РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ" not in rendered
+    assert "КАРТА КОМПЕТЕНЦИЙ" not in rendered
+    assert "Переносимые компетенции" not in rendered
+    assert "Требуют подтверждения" not in rendered
 
     from app.models import DocumentVersion
     from sqlalchemy import select

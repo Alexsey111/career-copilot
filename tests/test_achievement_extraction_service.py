@@ -299,6 +299,50 @@ def test_achievement_extraction_skips_generic_responsibilities_before_achievemen
     ]
 
 
+def test_achievement_extraction_does_not_attach_next_company_to_achievement() -> None:
+    service = AchievementExtractionService()
+
+    drafts, warnings = service._build_achievement_drafts(
+        """
+Достижения:
+1. Разработал чек-лист профилактического обслуживания оборудования
+МУП «Горводоканал»
+Слесарь-сантехник
+09.2022 — настоящее время
+Обязанности:
+- Ремонт трубопроводов и запорной арматуры
+"""
+    )
+
+    assert [draft.title for draft in drafts] == [
+        "Разработал чек-лист профилактического обслуживания оборудования"
+    ]
+    assert all("Горводоканал" not in draft.title for draft in drafts)
+    assert warnings == [
+        "normalized contribution signals were extracted; candidate ownership requires review"
+    ]
+
+
+def test_achievement_extraction_strips_inline_company_tail_from_title() -> None:
+    service = AchievementExtractionService()
+
+    drafts, warnings = service._build_achievement_drafts(
+        """
+Достижения:
+- Разработал чек-лист профилактического обслуживания оборудования МУП «Горводоканал»
+Слесарь-сантехник
+"""
+    )
+
+    assert [draft.title for draft in drafts] == [
+        "Разработал чек-лист профилактического обслуживания оборудования"
+    ]
+    assert all("Горводоканал" not in draft.title for draft in drafts)
+    assert warnings == [
+        "normalized contribution signals were extracted; candidate ownership requires review"
+    ]
+
+
 def test_generic_contribution_extraction_does_not_depend_on_legacy_recovery() -> None:
     service = AchievementExtractionService(enable_legacy_recovery=False)
 

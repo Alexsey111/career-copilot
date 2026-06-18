@@ -26,7 +26,7 @@ from app.domain.evidence_confidence import (
 )
 from app.domain.document_models import SelectedAchievement
 from app.domain.evidence_alignment import (
-    polish_summary_evidence_phrase,
+    humanize_experience_phrase,
     score_alignment_item,
 )
 from app.domain.text_normalization import (
@@ -50,6 +50,12 @@ from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryServ
 from app.services.resume_renderer import render_resume
 from app.services.vacancy_fit_context_service import VacancyFitContextService
 from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
+from app.services.text_polish.achievement_verbalizer import AchievementVerbalizer
+from app.services.text_polish.humanizer import (
+    format_summary_focus_phrases,
+    humanize_resume_role,
+)
+from app.services.text_polish.narrative_builder import NarrativeBuilder
 
 
 LEGACY_DOMAIN_SPECIFIC_SYNTHESIS = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
@@ -111,11 +117,96 @@ GENERIC_MULTIWORD_SKILLS = [
 ]
 
 EXPERIENCE_RESPONSIBILITY_BOUNDARIES = [
+    "Подготовка договоров",
+    "Судебное сопровождение",
+    "Консультирование клиентов",
     "Организация складских процессов",
+    "Управление отделом снабжения",
+    "Планирование бюджета снабжения",
+    "Контроль логистических процессов",
+    "Ведение переговоров с поставщиками",
+    "Контроль исполнения договорных обязательств",
+    "Организация закупочной деятельности",
+    "Управление складскими запасами",
+    "Диагностика пациентов",
+    "Назначение лечения",
     "Ведение медицинской документации",
     "Координация маршрутизации пациентов",
     "Претензионная работа",
 ]
+
+CAPABILITY_PHRASES = [
+    "Закупочная деятельность",
+    "Материально-техническое обеспечение",
+    "Управление складскими запасами",
+    "Бюджетирование",
+    "Договорная работа",
+    "Ведение переговоров",
+    "Управление поставщиками",
+    "Контроль поставок",
+    "Претензионная работа",
+    "Логистика",
+]
+
+CAPABILITY_PHRASE_MARKERS = {
+    "Закупочная деятельность": (
+        r"закуп",
+        r"снабжен",
+        r"снабжени",
+        r"мто",
+    ),
+    "Материально-техническое обеспечение": (
+        r"материально[-\s]?техническ",
+        r"\bмто\b",
+    ),
+    "Управление складскими запасами": (
+        r"складск",
+        r"запас",
+        r"остат",
+    ),
+    "Бюджетирование": (
+        r"бюджет",
+        r"бизнес-план",
+        r"планирован",
+    ),
+    "Договорная работа": (
+        r"договор",
+        r"спецификац",
+        r"доп\.?\s*соглаш",
+    ),
+    "Ведение переговоров": (
+        r"переговор",
+        r"переписк",
+        r"поставщик",
+        r"заказчик",
+    ),
+    "Управление поставщиками": (
+        r"поставщик",
+        r"поставк",
+    ),
+    "Контроль поставок": (
+        r"контроль постав",
+        r"контроль логист",
+        r"сроки постав",
+    ),
+    "Претензионная работа": (
+        r"претензи",
+        r"нарекан",
+        r"недостатк",
+    ),
+    "Логистика": (
+        r"логист",
+        r"достав",
+        r"перевоз",
+    ),
+}
+
+BUSINESS_TOOL_SKILL_MARKERS = {
+    "excel",
+    "word",
+    "1с",
+    "1c",
+}
 
 DISPLAY_NORMALIZATION_MAP = {
     "devloher": "developer",
@@ -125,6 +216,10 @@ DISPLAY_NORMALIZATION_MAP = {
     "openai": "OpenAI",
     "ai workflow": "AI Workflow",
     "no-code": "No-code",
+    "1c": "1С",
+    "1с": "1С",
+    "1c erp": "1С ERP",
+    "1с erp": "1С ERP",
 }
 
 ACHIEVEMENT_CATEGORIES = {
@@ -220,6 +315,8 @@ class ResumeGenerationService:
         self.legacy_recovery_service = LegacyResumeRecoveryService(
             enabled=enable_legacy_recovery,
         )
+        self.achievement_verbalizer = AchievementVerbalizer()
+        self.narrative_builder = NarrativeBuilder()
 
     async def generate_resume(
         self,
@@ -270,10 +367,16 @@ class ResumeGenerationService:
             latest_extraction.extracted_text if latest_extraction else ""
         )
 
+        experience_items = self._build_experience_items(profile)
+
         raw_skills = self._extract_skills_from_profile_or_raw_text(
             profile_summary=profile.summary,
             raw_text=latest_extraction.extracted_text if latest_extraction else "",
         )
+        capability_skills = self._extract_capability_skills_from_experience(
+            experience_items=experience_items,
+        )
+        raw_skills = self._dedupe_preserve_order([*capability_skills, *raw_skills])
 
         keyword_set = ensure_keyword_set(self._extract_match_keywords_from_analysis(
             strengths_json=analysis.strengths_json,
@@ -415,7 +518,6 @@ class ResumeGenerationService:
             missing_keywords=missing_keywords,
             analysis_match_score=analysis.match_score,
         )
-        experience_items = self._build_experience_items(profile)
 
         tailoring = self._build_ats_tailoring_sections(
             vacancy_title=vacancy.title,
@@ -485,11 +587,13 @@ class ResumeGenerationService:
             missing_keywords=missing_keywords,
         )
 
-        selected_achievements = self._add_project_narratives(selected_achievements)
+        selected_achievements = self.narrative_builder.add_project_narratives(
+            selected_achievements
+        )
 
         project_sections: list[dict[str, Any]] = []
         if not experience_items:
-            project_sections = self._build_project_sections(
+            project_sections = self.narrative_builder.build_project_sections(
                 selected_achievements
             )
         education_items = self._build_education_items(
@@ -767,6 +871,52 @@ class ResumeGenerationService:
         joined = "\n".join(section_lines)
         return self._split_skill_text(joined)
 
+    def _extract_capability_skills_from_experience(
+        self,
+        experience_items: list[dict[str, Any]],
+    ) -> list[str]:
+        capabilities: list[str] = []
+
+        for item in experience_items or []:
+            search_text = self._build_experience_search_text(item).casefold()
+            if not search_text:
+                continue
+
+            for phrase in CAPABILITY_PHRASES:
+                patterns = CAPABILITY_PHRASE_MARKERS.get(phrase, ())
+                if any(re.search(pattern, search_text) for pattern in patterns):
+                    capabilities.append(phrase)
+
+        return self._dedupe_preserve_order(capabilities)
+
+    def _build_experience_search_text(self, item: dict[str, Any]) -> str:
+        chunks: list[str] = []
+
+        for key in (
+            "role",
+            "position",
+            "title",
+            "company",
+            "description_raw",
+            "description",
+            "summary",
+        ):
+            value = item.get(key)
+            if value:
+                chunks.append(str(value))
+
+        for key in (
+            "responsibilities",
+            "achievements",
+            "bullets",
+            "items",
+        ):
+            value = item.get(key)
+            if isinstance(value, list):
+                chunks.extend(str(part) for part in value if part)
+
+        return re.sub(r"\s+", " ", " ".join(chunks)).strip()
+
     def _select_resume_skills(
         self,
         *,
@@ -800,7 +950,51 @@ class ResumeGenerationService:
                 continue
             normalized.append(cleaned)
 
-        return self._dedupe_preserve_order(normalized)[:10]
+        normalized = self._dedupe_preserve_order(normalized)
+        if "Складская логистика" in normalized and "Логистика" in normalized:
+            normalized = [skill for skill in normalized if skill != "Логистика"]
+        if any(skill in CAPABILITY_PHRASES for skill in normalized):
+            normalized = self._rank_business_capability_skills(
+                normalized,
+                matched_keywords=matched_keywords,
+            )
+        return normalized[:10]
+
+    def _rank_business_capability_skills(
+        self,
+        skills: list[str],
+        *,
+        matched_keywords: list[str],
+    ) -> list[str]:
+        matched_keys = {
+            self._normalize_display_skill(keyword).strip().casefold()
+            for keyword in matched_keywords
+            if str(keyword).strip()
+        }
+        capability_order = {
+            phrase.casefold(): index
+            for index, phrase in enumerate(CAPABILITY_PHRASES)
+        }
+
+        def rank_key(item: tuple[int, str]) -> tuple[int, int, int, int]:
+            index, skill = item
+            normalized = self._normalize_display_skill(skill).strip().casefold()
+            if normalized in capability_order:
+                return (0, capability_order[normalized], 0, index)
+            if normalized in matched_keys and not self._is_business_tool_skill(skill):
+                return (1, 0, 0, index)
+            if self._is_business_tool_skill(skill):
+                return (3, 0, 0, index)
+            return (2, 0, 0, index)
+
+        return [
+            skill
+            for _, skill in sorted(enumerate(skills), key=rank_key)
+        ]
+
+    def _is_business_tool_skill(self, skill: str) -> bool:
+        normalized = self._normalize_display_skill(skill).strip().casefold()
+        return any(marker in normalized for marker in BUSINESS_TOOL_SKILL_MARKERS)
 
     def _normalize_display_skill(self, value: str) -> str:
         cleaned = re.sub(
@@ -1022,93 +1216,6 @@ class ResumeGenerationService:
             if len(selected) >= 5:
                 break
         return selected
-
-    def _add_project_narratives(
-        self,
-        selected_achievements: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        # Legacy marker: existing domain-specific synthesis must not be extended.
-        enriched: list[dict[str, Any]] = []
-
-        for item in selected_achievements:
-            enriched_item = dict(item)
-            title = str(item.get("title") or "").lower()
-            action = str(item.get("action") or "")
-            skills = [
-                str(skill).strip()
-                for skill in (item.get("skills") or [])
-                if str(skill).strip()
-            ]
-
-            corpus = " ".join([title, action, " ".join(skills)]).lower()
-
-            if "workflow orchestration" in corpus or "ai workflow" in corpus:
-                enriched_item["narrative"] = (
-                    "workflow/orchestration implementation signals; ownership requires review"
-                )
-            elif "fastapi" in corpus or "backend" in corpus:
-                enriched_item["narrative"] = (
-                    "backend/API implementation signals; ownership requires review"
-                )
-            elif "computer vision" in corpus or "мониторинг" in corpus:
-                enriched_item["narrative"] = (
-                    "AI/CV pipeline для анализа изображений или видео и поддержки "
-                    "прикладного мониторинга"
-                )
-            elif "analytics" in corpus or "анализ" in corpus:
-                enriched_item["narrative"] = (
-                    "аналитический pipeline для обработки данных и извлечения полезных сигналов"
-                )
-
-            enriched.append(enriched_item)
-
-        return enriched
-
-    def _build_project_sections(
-        self,
-        selected_achievements: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        grouped: dict[str, dict[str, Any]] = {}
-
-        for item in selected_achievements:
-            if not self._allows_strong_project_claim(item):
-                continue
-            project_name = self._project_name_from_achievement(item)
-            role = self._project_role_from_achievement(item)
-            bullets = self._project_bullets_from_achievement(item)
-            if not bullets:
-                continue
-
-            section = grouped.setdefault(
-                project_name,
-                {
-                    "project": project_name,
-                    "role": role,
-                    "bullets": [],
-                },
-            )
-            if not section.get("role") and role:
-                section["role"] = role
-            section["bullets"] = self._dedupe_project_bullets(
-                [*section["bullets"], *bullets]
-            )[:5]
-
-        return list(grouped.values())[:4]
-
-    def _allows_strong_project_claim(self, achievement: dict[str, Any]) -> bool:
-        fact_status = str(achievement.get("fact_status") or "").strip().lower()
-        ownership_confidence = str(
-            achievement.get("ownership_confidence")
-            or achievement.get("candidate_ownership_confidence")
-            or "medium"
-        ).strip().lower()
-        requires_confirmation = bool(achievement.get("requires_confirmation") is True)
-
-        if requires_confirmation:
-            return False
-        if ownership_confidence in {"low", "unknown", "needs_review"}:
-            return False
-        return fact_status in {"confirmed", "user_provided"}
 
     def _build_education_items(
         self,
@@ -1352,173 +1459,6 @@ class ResumeGenerationService:
 
         return result
 
-    def _dedupe_project_bullets(self, bullets: list[str]) -> list[str]:
-        selected: list[str] = []
-        seen_text: set[str] = set()
-        seen_concepts: set[str] = set()
-
-        for bullet in bullets:
-            cleaned = re.sub(r"\s+", " ", str(bullet).strip())
-            normalized = cleaned.lower()
-            if not normalized or normalized in seen_text:
-                continue
-
-            concept = self._project_bullet_concept(normalized)
-            if concept and concept in seen_concepts:
-                continue
-
-            seen_text.add(normalized)
-            if concept:
-                seen_concepts.add(concept)
-            selected.append(cleaned)
-
-        return selected
-
-    def _project_bullet_concept(self, normalized_bullet: str) -> str | None:
-        if "fastapi" in normalized_bullet or "backend" in normalized_bullet:
-            return "backend"
-        if "workflow" in normalized_bullet and (
-            "orchestration" in normalized_bullet
-            or "генерации" in normalized_bullet
-        ):
-            return "workflow"
-        if "persistence" in normalized_bullet or "postgresql" in normalized_bullet:
-            return "persistence"
-        if "computer vision" in normalized_bullet or "мониторинг" in normalized_bullet:
-            return "computer_vision"
-        if "analytics" in normalized_bullet or "аналит" in normalized_bullet:
-            return "analytics"
-        return None
-
-    def _project_name_from_achievement(self, achievement: dict[str, Any]) -> str:
-        title = str(achievement.get("title") or "").strip()
-        if title:
-            return title
-
-        corpus = self._achievement_semantic_corpus(achievement)
-
-        if any(marker in corpus for marker in ("computer vision", "cv", "изображен", "video", "видео")):
-            return "Visual Data Processing Project"
-
-        if any(marker in corpus for marker in ("analytics", "data pipeline", "аналит")):
-            return "Analytics Project"
-
-        if any(marker in corpus for marker in ("workflow orchestration", "ai workflow", "pipeline")):
-            return "Workflow Implementation Project"
-
-        if any(marker in corpus for marker in ("backend", "fastapi", "api")):
-            return "Backend Implementation Project"
-
-        return "Project Evidence"
-
-    def _project_role_from_achievement(self, achievement: dict[str, Any]) -> str:
-        corpus = self._achievement_semantic_corpus(achievement)
-
-        if any(marker in corpus for marker in ("computer vision", "cv", "изображен", "video", "видео")):
-            return "Visual Data Processing Evidence"
-
-        if any(marker in corpus for marker in ("workflow orchestration", "ai workflow", "pipeline")):
-            return "Workflow Implementation Evidence"
-
-        if any(marker in corpus for marker in ("fastapi", "backend", "api")):
-            return "Backend/API Implementation Evidence"
-
-        if any(marker in corpus for marker in ("analytics", "data pipeline", "аналит")):
-            return "Analytics Evidence"
-
-        return "Project Evidence"
-
-    def _project_bullets_from_achievement(
-        self,
-        achievement: dict[str, Any],
-    ) -> list[str]:
-        # Legacy marker: existing domain-specific synthesis must not be extended.
-        corpus = self._achievement_semantic_corpus(achievement)
-        bullets: list[str] = []
-
-        if "computer vision" in corpus or "мониторинг" in corpus or "quality control" in corpus:
-            bullets.append(self._computer_vision_impact_bullet(corpus))
-        if "analytics" in corpus or "аналит" in corpus:
-            bullets.append(
-                "Построил аналитический pipeline для выявления прикладных сигналов "
-                "и поддержки решений"
-            )
-        if "workflow orchestration" in corpus or "ai workflow" in corpus:
-            bullets.append("Зафиксированы workflow/orchestration implementation signals")
-        if "fastapi" in corpus or "backend" in corpus:
-            bullets.append("Зафиксированы backend/API implementation signals")
-        if any(marker in corpus for marker in ("evidence review", "review flow", "evidence-review")):
-            bullets.append("Зафиксированы evidence-review implementation signals")
-        if any(marker in corpus for marker in ("postgresql", "sqlalchemy", "persistence layer")):
-            bullets.append("Зафиксированы persistence-layer implementation signals")
-        if any(marker in corpus for marker in ("docker", "redis", "infrastructure")):
-            bullets.append("Зафиксированы infrastructure implementation signals")
-
-        narrative = str(achievement.get("narrative") or "").strip()
-        if narrative and not bullets:
-            bullets.append(self._sentence_to_project_bullet(narrative))
-
-        action = str(achievement.get("action") or "").strip()
-        if action and not bullets:
-            bullets.append(self._sentence_to_project_bullet(action))
-
-        result = str(achievement.get("metric_text") or achievement.get("result") or "").strip()
-        if result:
-            bullets.append(f"Зафиксировал результат: {result}")
-
-        return self._dedupe_preserve_order(bullets)[:5]
-
-    def _computer_vision_impact_bullet(self, corpus: str) -> str:
-        if any(
-            marker in corpus
-            for marker in (
-                "computer vision",
-                "cv",
-                "изображен",
-                "video",
-                "видео",
-            )
-        ):
-            return (
-                "Реализовал обработку изображений и видео "
-                "для прикладных задач мониторинга и контроля"
-            )
-
-        if any(marker in corpus for marker in ("безопас", "safety", "security")):
-            return (
-                "Реализовал pipeline прикладного мониторинга "
-                "с использованием AI/CV компонентов"
-            )
-
-        return (
-            "Реализовал AI/CV pipeline "
-            "для обработки визуальных данных"
-        )
-
-    def _achievement_semantic_corpus(self, achievement: dict[str, Any]) -> str:
-        return " ".join(
-            [
-                str(achievement.get("title") or ""),
-                str(achievement.get("task") or ""),
-                str(achievement.get("action") or ""),
-                str(achievement.get("result") or ""),
-                str(achievement.get("metric_text") or ""),
-                str(achievement.get("narrative") or ""),
-                str(achievement.get("reason") or ""),
-                " ".join(str(skill) for skill in (achievement.get("skills") or [])),
-            ]
-        ).lower()
-
-    def _sentence_to_project_bullet(self, text: str) -> str:
-        cleaned = re.sub(r"\s+", " ", text).strip(" .;-–—•")
-        if not cleaned:
-            return "Описал проектный вклад на основе подтверждённых фактов"
-
-        first_word = cleaned.split(" ", 1)[0].lower()
-        if first_word in {"разработал", "реализовал", "спроектировал", "интегрировал", "построил"}:
-            return cleaned
-        return f"Реализовал {cleaned}"
-
     def _balance_ranked_evidence_selection(
         self,
         *,
@@ -1690,7 +1630,7 @@ class ResumeGenerationService:
 
         if matched_keywords:
             bullets.append(
-                f"Подтверждённые пересечения с вакансией {clean_title}: "
+                f"Опыт, релевантный позиции {clean_title}: "
                 f"{', '.join(matched_keywords[:6])}."
             )
 
@@ -1701,7 +1641,7 @@ class ResumeGenerationService:
 
         if selected_achievements:
             bullets.append(
-                "Подтверждённый профессиональный опыт для возможного использования в отклике: "
+                "Профессиональный результат для отклика: "
                 f"{ensure_selected_achievement(selected_achievements[0]).title}."
             )
 
@@ -1880,7 +1820,7 @@ class ResumeGenerationService:
                 requirement=requirement,
                 evidence=user_facing_evidence or requirement,
             )
-            summary_phrase = polish_summary_evidence_phrase(summary_phrase)
+            summary_phrase = humanize_experience_phrase(summary_phrase)
             if make_user_facing_evidence_phrase(summary_phrase) is None:
                 continue
 
@@ -1932,7 +1872,7 @@ class ResumeGenerationService:
         leading_action_pattern = r"^(Сократил|Сократила|Снизил|Снизила|Ускорил|Ускорила|Улучшил|Улучшила|Внедрил|Внедрила|Создал|Создала|Разработал|Разработала|Участвовал|Участвовала|Провёл|Провел|Провела|Перевёл|Перевел|Перевела|Настроил|Настроила|Оптимизировал|Оптимизировала|Автоматизировал|Автоматизировала|Мигрировал|Мигрировала|Рефакторил|Модернизировал)\s+"
         stripped = re.sub(leading_action_pattern, "", text, flags=re.IGNORECASE)
         stripped = re.sub(r"^(по|для|на)\s+", "", stripped, flags=re.IGNORECASE)
-        polished = polish_summary_evidence_phrase(stripped or self._display_relevance_label(requirement))
+        polished = humanize_experience_phrase(stripped or self._display_relevance_label(requirement))
         return polished or self._display_relevance_label(requirement)
 
     def _dedupe_top_alignment_evidence(
@@ -1985,25 +1925,71 @@ class ResumeGenerationService:
 
         return False
 
-    def _format_summary_focus_phrases(
-        self,
-        phrases: list[str],
-    ) -> str:
-        cleaned = [
-            re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
-            for value in phrases
-            if str(value or "").strip()
-        ]
-        cleaned = dedupe_subsumed_phrases(
-            self._dedupe_preserve_order([item for item in cleaned if item])
+    def _calculate_total_experience_years(self, experience_items: list[dict[str, Any]]) -> int:
+        """
+        PR-38: Считает общий стаж работы в годах на основе experience_items.
+        Возвращает целое число лет.
+        """
+        from datetime import date
+
+        total_days = 0
+        today = date.today()
+
+        for item in experience_items:
+            start = item.get("start_date")
+            end = item.get("end_date")
+            if not start and item.get("period"):
+                start, end = self._parse_experience_period_dates(str(item.get("period") or ""))
+
+            # Пропускаем если нет даты начала
+            if not start:
+                continue
+
+            # Если нет даты окончания — считаем до сегодняшнего дня
+            if not end:
+                end = today
+
+            # Считаем разницу в днях
+            delta = end - start
+            if delta.days > 0:
+                total_days += delta.days
+
+        # Конвертируем дни в годы (приблизительно 365.25 дней в году)
+        return int(total_days / 365.25)
+
+    def _parse_experience_period_dates(self, period: str):
+        from datetime import date
+
+        cleaned = re.sub(r"\s+", " ", str(period or "")).strip()
+        match = re.match(
+            r"^(?P<start_month>\d{2})\.(?P<start_year>\d{4})\s*-\s*(?P<end>н\.в\.|(?P<end_month>\d{2})\.(?P<end_year>\d{4}))$",
+            cleaned,
+            flags=re.IGNORECASE,
         )
-        if not cleaned:
-            return "релевантных профессиональных задач"
-        if len(cleaned) == 1:
-            return cleaned[0]
-        if len(cleaned) == 2:
-            return " и ".join(cleaned)
-        return f"{', '.join(cleaned[:-1])} и {cleaned[-1]}"
+        if not match:
+            return None, None
+
+        start = date(int(match.group("start_year")), int(match.group("start_month")), 1)
+        if match.group("end").casefold() == "н.в.":
+            return start, None
+        return start, date(int(match.group("end_year")), int(match.group("end_month")), 1)
+
+    def _split_resume_focus_source(self, value: str) -> list[str]:
+        return self.narrative_builder.split_resume_focus_source(
+            value,
+            responsibility_boundaries=EXPERIENCE_RESPONSIBILITY_BOUNDARIES,
+        )
+
+    def _build_resume_achievement_sentence(
+        self,
+        selected_achievements: list[dict[str, Any]],
+        *,
+        role: str = "",
+    ) -> str | None:
+        return self.achievement_verbalizer.build_resume_achievement_sentence(
+            selected_achievements,
+            role=role,
+        )
 
     def _render_alignment_evidence_label(
         self,
@@ -2051,7 +2037,7 @@ class ResumeGenerationService:
         vacancy_evidence_alignment: list[dict[str, Any]] | None = None,
         top_alignment_evidence: list[dict[str, Any]] | None = None,
     ) -> str:
-        role = clean_vacancy_title(vacancy_title) or "кандидат"
+        role = humanize_resume_role(vacancy_title)
 
         focus_phrases = [
             str(item.get("summary_phrase") or "").strip()
@@ -2072,28 +2058,54 @@ class ResumeGenerationService:
 
                 description_raw = str(item.get("description_raw") or "").strip()
                 if description_raw and not responsibility_items:
-                    responsibility_items.append(description_raw)
+                    responsibility_items.extend(
+                        self._split_resume_focus_source(description_raw)
+                    )
 
             focus_phrases = self._dedupe_preserve_order(responsibility_items)
 
         if not focus_phrases:
             focus_phrases = selected_skills[:3]
 
-        focus = self._format_summary_focus_phrases(focus_phrases[:3])
-        achievement_titles = [
-            str(item.get("title") or "").strip()
-            for item in selected_achievements[:3]
-            if str(item.get("title") or "").strip()
-        ]
+        focus_phrases = self.narrative_builder.specialize_resume_summary_focus_phrases(
+            role=role,
+            focus_phrases=focus_phrases,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+        )
+        summary_role = self.narrative_builder.specialize_resume_summary_role(
+            role=role,
+            focus_phrases=focus_phrases,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+        )
+        focus_limit = 4 if self.narrative_builder.is_resume_supply_management_context(
+            role=summary_role,
+            focus_phrases=focus_phrases,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+        ) else 3
+        focus = format_summary_focus_phrases(focus_phrases[:focus_limit])
 
-        summary = f"{role} с опытом {focus}."
-        if achievement_titles:
-            summary += (
-                " Среди подтверждённых результатов: "
-                + "; ".join(achievement_titles)
-                + "."
-            )
-        return summary
+        # PR-38: Универсальный шаблон summary на основе стажа
+        total_years = self._calculate_total_experience_years(experience_items)
+        if total_years >= 1:
+            years_text = f"{total_years} лет"
+            if total_years % 10 == 1 and total_years % 100 != 11:
+                years_text = f"{total_years} год"
+            elif total_years % 10 in [2, 3, 4] and total_years % 100 not in [12, 13, 14]:
+                years_text = f"{total_years} года"
+            summary_start = f"{summary_role} с опытом более {years_text} в сфере {focus}."
+        else:
+            summary_start = f"{summary_role} с опытом {focus}."
+
+        achievement_sentence = self._build_resume_achievement_sentence(
+            selected_achievements,
+            role=summary_role,
+        )
+        if achievement_sentence:
+            summary_start += f" {achievement_sentence}"
+        return summary_start
 
     def _filter_document_usable_evidence(
         self,
@@ -2469,8 +2481,9 @@ class ResumeGenerationService:
 
     def _build_experience_items(self, profile) -> list[dict]:
         items: list[dict] = []
+        raw_experiences = list(getattr(profile, "experiences", []) or [])
 
-        for exp in profile.experiences[:5]:
+        for exp in raw_experiences[:5]:
             item = {
                 "company": exp.company,
                 "role": exp.role,
@@ -2485,7 +2498,23 @@ class ResumeGenerationService:
 
             items.append(item)
 
-        return items
+        if items or not raw_experiences:
+            return items
+
+        fallback_items: list[dict] = []
+        for exp in raw_experiences[:5]:
+            fallback_items.append(
+                {
+                    "company": exp.company,
+                    "role": exp.role,
+                    "period": self._format_period(exp.start_date, exp.end_date),
+                    "description_raw": self._normalize_experience_description(
+                        exp.description_raw
+                    ),
+                }
+            )
+
+        return fallback_items
 
     def _normalize_experience_description(self, value: str | None) -> str | None:
         if not value:

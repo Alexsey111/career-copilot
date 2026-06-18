@@ -6,12 +6,17 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from app.domain.requirement_normalization import normalize_requirement_phrase
+from app.domain.evidence_alignment import humanize_experience_phrase
+from app.domain.requirement_normalization import (
+    classify_requirement_phrase,
+    normalize_requirement_phrase,
+)
 
 
 @dataclass(frozen=True)
 class VacancyFitItem:
     label: str
+    classification: str = "competency"
     evidence: str | None = None
     source: str = "deterministic"
 
@@ -34,6 +39,14 @@ class VacancyFitNarrativeService:
 
     No LLM, no DB, no profession-specific blocks.
     """
+
+    SOFT_COMPETENCIES = {
+        "аккуратность",
+        "внимательность",
+        "ответственность",
+        "исполнительность",
+        "коммуникабельность",
+    }
 
     TRANSFERABLE_MARKERS = {
         "management": (
@@ -165,6 +178,7 @@ class VacancyFitNarrativeService:
             items.append(
                 VacancyFitItem(
                     label=requirement,
+                    classification=classify_requirement_phrase(requirement),
                     evidence=evidence or None,
                     source="vacancy_evidence_alignment",
                 )
@@ -182,7 +196,13 @@ class VacancyFitNarrativeService:
         for keyword in matched_keywords:
             label = self._clean_label(keyword)
             if label:
-                items.append(VacancyFitItem(label=label, source="matched_keyword"))
+                items.append(
+                    VacancyFitItem(
+                        label=label,
+                        classification=classify_requirement_phrase(label),
+                        source="matched_keyword",
+                    )
+                )
 
         return self._dedupe_items(items)[:6]
 
@@ -212,6 +232,7 @@ class VacancyFitNarrativeService:
                     items.append(
                         VacancyFitItem(
                             label=self._humanize_transferable_group(group),
+                            classification="competency",
                             evidence=text,
                             source=source,
                         )
@@ -232,13 +253,22 @@ class VacancyFitNarrativeService:
             if not label:
                 continue
 
+            if label.lower() in self.SOFT_COMPETENCIES:
+                continue
+
             lowered = f"{raw_label} {label}".lower()
             source = (
                 "critical_domain_gap"
                 if any(marker in lowered for marker in self.DOMAIN_GAP_MARKERS)
                 else "missing_keyword"
             )
-            items.append(VacancyFitItem(label=label, source=source))
+            items.append(
+                VacancyFitItem(
+                    label=label,
+                    classification=classify_requirement_phrase(label),
+                    source=source,
+                )
+            )
 
         return self._dedupe_items(items)[:6]
 
@@ -255,8 +285,12 @@ class VacancyFitNarrativeService:
         if not focus:
             return "Сделать акцент на подтверждённом опыте без добавления неподтверждённых фактов."
 
-        if critical_gaps:
-            gaps = self._join_labels([item.label for item in critical_gaps[:3]])
+        non_soft_gaps = [
+            item for item in critical_gaps[:3]
+            if item.label.lower() not in self.SOFT_COMPETENCIES
+        ]
+        if non_soft_gaps:
+            gaps = self._join_labels([item.label for item in non_soft_gaps])
             return (
                 f"Сделать акцент на подтверждённых совпадениях: {focus}. "
                 f"Не заявлять неподтверждённый опыт по зонам: {gaps}."
@@ -274,22 +308,27 @@ class VacancyFitNarrativeService:
         matched = self._join_labels([item.label for item in matched_strengths[:3]])
         transferable = self._join_labels([item.label for item in transferable_strengths[:2]])
 
+        non_soft_gaps = [
+            item for item in critical_gaps
+            if item.label.lower() not in self.SOFT_COMPETENCIES
+        ]
+
         if matched and transferable:
             return (
-                f"В письме связать прямые совпадения ({matched}) "
-                f"с переносимым опытом ({transferable}), без утверждений о неподтверждённых доменных навыках."
+                f"В письме связать опыт по направлениям {matched} "
+                f"с близкими рабочими задачами: {transferable}."
             )
 
         if matched:
-            return f"В письме кратко подчеркнуть прямые совпадения: {matched}."
+            return f"В письме кратко подчеркнуть опыт по направлениям: {matched}."
 
         if transferable:
             return (
-                f"В письме объяснить переносимый опыт: {transferable}, "
-                "и аккуратно обозначить готовность закрыть доменные пробелы."
+                f"В письме показать близкий рабочий опыт: {transferable}, "
+                "и готовность быстро разобраться в специфике роли."
             )
 
-        return "В письме не усиливать неподтверждённые факты; использовать осторожную мотивационную формулировку."
+        return "В письме использовать спокойную мотивационную формулировку без неподтверждённых фактов."
 
     def _humanize_transferable_group(self, group: str) -> str:
         mapping = {
@@ -319,7 +358,11 @@ class VacancyFitNarrativeService:
         return result
 
     def _join_labels(self, values: list[str]) -> str:
-        cleaned = [self._clean_label(value) for value in values if self._clean_label(value)]
+        cleaned = [
+            humanize_experience_phrase(cleaned_value)
+            for value in values
+            if (cleaned_value := self._clean_label(value))
+        ]
         if not cleaned:
             return ""
         if len(cleaned) == 1:

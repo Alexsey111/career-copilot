@@ -9,7 +9,10 @@ from app.services.cover_letter_generation_service import (
     CoverLetterGenerationService,
     PROJECT_DISPLAY_HINTS,
 )
+from app.services.text_polish.achievement_verbalizer import AchievementVerbalizer
 from app.services.resume_renderer import render_cover_letter
+from app.services.text_polish.humanizer import CoverLetterHumanizer
+from app.services.text_polish.narrative_builder import NarrativeBuilder
 from app.services.vacancy_fit_context_service import VacancyFitContextService
 from app.services.vacancy_fit_narrative_service import VacancyFitNarrativeService
 
@@ -60,9 +63,15 @@ def test_cover_letter_build_draft_includes_strengths_and_gaps() -> None:
     assert "Docker" in draft
     assert "FastAPI" in draft
     assert "Redis" in draft
-    assert "Built AI system" in draft
-    assert "still developing experience" in draft.lower()
-    assert "I would welcome the opportunity" in draft
+    assert "built ai system" in draft.lower()
+    assert "Откликаюсь на позицию" in draft
+    assert "Особенно близки задачи" in draft
+    assert "Практический результат моей работы" in draft
+    assert "В своей работе мне удалось показать результат через" not in draft
+    assert "built ai system" in draft.lower()
+    assert "Со своей стороны могу дать компании" in draft
+    assert "Считаю себя релевантным кандидатом" not in draft
+    assert "still developing experience" not in draft.lower()
 
 
 def test_cover_letter_build_draft_handles_empty_gaps() -> None:
@@ -78,7 +87,8 @@ def test_cover_letter_build_draft_handles_empty_gaps() -> None:
 
     assert "Backend Developer" in draft
     assert "Python" in draft
-    assert "while I am still developing" not in draft.lower()
+    assert "план быстрого погружения" not in draft.lower()
+    assert "Со своей стороны могу дать компании" in draft
 
 
 @pytest.mark.asyncio
@@ -213,15 +223,15 @@ def test_cover_letter_relevance_paragraph_uses_extracted_evidence() -> None:
     )
 
     assert "автоматизации workflow" in paragraph
-    assert "подтверждённый контекст обработки визуальных данных" in paragraph
+    assert "опыт обработки визуальных данных" in paragraph
     assert "извлечённые факты из резюме" not in paragraph
     assert "computer vision" not in paragraph
 
 
 def test_cover_letter_project_context_is_domain_neutral_for_visual_monitoring() -> None:
-    service = CoverLetterGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    context = service._cover_letter_project_phrase(
+    context = narrative_builder.cover_letter_project_phrase(
         title="Computer vision monitoring",
         body="Image and video workflow for quality control",
         skills=["computer vision", "python"],
@@ -230,7 +240,7 @@ def test_cover_letter_project_context_is_domain_neutral_for_visual_monitoring() 
         requires_confirmation=False,
     )
 
-    assert context == "подтверждённый контекст обработки визуальных данных"
+    assert context == "опыт обработки визуальных данных"
     assert "пвх" not in context.lower()
     assert "пансионат" not in context.lower()
     assert "career copilot" not in context.lower()
@@ -262,8 +272,10 @@ def test_cover_letter_relevance_paragraph_avoids_buzzword_list_and_fabricated_ro
     assert "LLM, ChatGPT, Automation" not in paragraph
     assert "AI-assisted процессов" in paragraph
     assert "backend-системы" not in paragraph
-    assert "подтверждённый проектный контекст" in paragraph
-    assert "Из подтверждённого опыта особенно релевантно" in paragraph
+    assert "проектный опыт без расширения роли" in paragraph
+    assert "Среди реализованных проектов и инициатив" in paragraph
+    assert "В своей работе мне удалось показать результат через" not in paragraph
+    assert "Из подтверждённого опыта особенно релевантно" not in paragraph
 
 
 def test_cover_letter_blocks_unconfirmed_evidence_from_strong_project_phrase() -> None:
@@ -288,7 +300,8 @@ def test_cover_letter_blocks_unconfirmed_evidence_from_strong_project_phrase() -
 
     assert "опыт проектирования backend/API" not in paragraph
     assert "backend-системы" not in paragraph
-    assert "подтверждаемый проектный контекст" in paragraph
+    assert "проектный опыт" in paragraph
+    assert "подтверждаемый проектный контекст" not in paragraph
 
 
 def test_cover_letter_evidence_phrases_render_human_readable_project_context() -> None:
@@ -319,9 +332,9 @@ def test_cover_letter_evidence_phrases_render_human_readable_project_context() -
 
 
 def test_cover_letter_project_value_prefers_safe_evidence_phrases() -> None:
-    service = CoverLetterGenerationService()
+    narrative_builder = NarrativeBuilder()
 
-    phrase = service._cover_letter_project_value(
+    phrase = narrative_builder.cover_letter_project_value(
         selected_achievements=[
             {
                 "title": "Сократил время ответа API на 35%",
@@ -349,6 +362,32 @@ def test_cover_letter_project_value_prefers_safe_evidence_phrases() -> None:
     assert phrase.startswith("настройки автоматического тестирования")
     assert "разработки REST API на FastAPI" in phrase
     assert "implementation signals" not in phrase
+
+
+def test_cover_letter_relevance_paragraph_does_not_use_ai_project_result_template() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=["Python", "FastAPI"],
+        selected_achievements=[],
+        selected_evidence=[
+            {
+                "evidence_id": "ev-1",
+                "title": "Разработка REST API",
+                "snippet_text": "FastAPI backend",
+                "skills": ["FastAPI", "API"],
+                "source_type": "resume_structured",
+                "fact_status": "confirmed",
+                "evidence_strength": "high",
+            },
+        ],
+        missing_keywords=[],
+        profile_skills=[],
+        vacancy_title="Backend Developer",
+    )
+
+    assert "В своей работе мне удалось показать результат через" not in paragraph
+    assert "Среди реализованных проектов и инициатив" in paragraph
 
 
 def test_cover_letter_relevance_paragraph_leads_with_testing_evidence() -> None:
@@ -382,9 +421,69 @@ def test_cover_letter_relevance_paragraph_leads_with_testing_evidence() -> None:
         vacancy_title="Backend Developer",
     )
 
-    assert paragraph.startswith("Из подтверждённого опыта особенно релевантно:")
+    assert paragraph.startswith("Среди реализованных проектов и инициатив")
     assert "настройки автоматического тестирования" in paragraph
     assert "разработки REST API на FastAPI" in paragraph
+    assert "В своей работе мне удалось показать результат через" not in paragraph
+
+
+def test_cover_letter_relevance_paragraph_uses_experience_story_tone_for_accountant() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=["первичная документация", "сверка взаиморасчётов"],
+        selected_achievements=[
+            {
+                "title": "Сократила количество ошибок в первичных документах",
+                "fact_status": "confirmed",
+            },
+            {
+                "title": "Оптимизировала процесс сверки с контрагентами",
+                "fact_status": "confirmed",
+            },
+        ],
+        selected_evidence=[],
+        missing_keywords=[],
+        profile_skills=[],
+        vacancy_title="бухгалтер",
+        candidate_experiences=[
+            SimpleNamespace(
+                description_raw=(
+                    "Ведение первичной бухгалтерской документации "
+                    "Сверка взаиморасчётов с контрагентами "
+                    "Подготовка платёжных поручений"
+                )
+            )
+        ],
+    )
+
+    assert (
+        "За время работы бухгалтером я занималась ведением первичной бухгалтерской документации, "
+        "сверкой взаиморасчётов с контрагентами и подготовкой платёжных поручений."
+    ) in paragraph
+    assert (
+        "Среди результатов, которыми особенно горжусь, — "
+        "сокращение количества ошибок в первичных документах и "
+        "оптимизация процесса сверки с контрагентами."
+    ) in paragraph
+    assert "Считаю себя релевантным кандидатом" not in paragraph
+    assert "В моём опыте ближе всего" not in paragraph
+
+
+def test_achievement_verbalizer_nominalizes_achievement_titles() -> None:
+    verbalizer = AchievementVerbalizer()
+
+    result = verbalizer.cover_letter_result_value(
+        selected_achievements=[
+            {"title": "Внедрил систему контроля закупок", "fact_status": "confirmed"},
+            {"title": "Сократил сроки согласования договоров", "fact_status": "confirmed"},
+        ]
+    )
+
+    assert "внедрение системы контроля закупок" in result
+    assert "сокращение сроков согласования договоров" in result
+    assert "внедрил" not in result
+    assert "сократил" not in result
 
 
 def test_cover_letter_evidence_phrases_drop_subsumed_generic_variants() -> None:
@@ -427,7 +526,7 @@ def test_cover_letter_gap_mitigation_dedupes_internal_automation_labels() -> Non
     )
 
     assert paragraph is not None
-    assert "автоматизации тестирования" in paragraph
+    assert "автоматизация тестирования" in paragraph
     assert "Automation" not in paragraph
     assert "Automation Tooling" not in paragraph
 
@@ -449,7 +548,7 @@ def test_cover_letter_gap_mitigation_uses_single_short_sentence() -> None:
 
     assert (
         paragraph
-        == "При этом понимаю, что для роли важно усилить доменную практику в BIM-процессах и взаимодействии с экспертизой."
+        == "Отдельно готов обсудить план быстрого погружения: BIM-процессы и взаимодействие с экспертизой."
     )
     assert paragraph.count(".") == 1
     assert ";" not in paragraph
@@ -476,10 +575,56 @@ def test_cover_letter_gap_mitigation_filters_direct_matches() -> None:
     )
 
     assert paragraph == (
-        "При этом понимаю, что для роли важно усилить доменную практику в BIM-процессах и взаимодействии с экспертизой."
+        "Отдельно готов обсудить план быстрого погружения: BIM-процессы и взаимодействие с экспертизой."
     )
     assert "деловой коммуникации" not in paragraph
     assert "деловой коммуникации" not in paragraph
+
+
+def test_cover_letter_gap_mitigation_skips_education_and_certification_gaps() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {"label": "Высшее образование", "classification": "education"},
+                {"label": "сертификат специалиста", "classification": "certification"},
+                {"label": "мерчандайзинг", "classification": "skill"},
+            ]
+        },
+        profile_skills=[],
+        vacancy_title="Retail Supervisor",
+    )
+
+    assert paragraph == (
+        "Отдельно готов обсудить план быстрого погружения: мерчандайзинг."
+    )
+    assert "образование" not in paragraph.lower()
+    assert "сертификат" not in paragraph.lower()
+
+
+def test_cover_letter_gap_focus_uses_requested_cases() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {"label": "мерчандайзинг"},
+                {"label": "полевой аудит торговых точек"},
+                {"label": "профильное законодательство"},
+                {"label": "нормотворческая деятельность"},
+            ]
+        },
+        profile_skills=[],
+        vacancy_title="Mixed role",
+    )
+
+    assert paragraph == (
+        "Отдельно готов обсудить план быстрого погружения: "
+        "мерчандайзинг и полевой аудит торговых точек."
+    )
+    assert "профильном законодательстве" not in paragraph
+    assert "нормотворческой деятельности" not in paragraph
 
 
 def test_cover_letter_alignment_sections_are_evidence_grounded() -> None:
@@ -533,6 +678,72 @@ def test_cover_letter_warnings_keep_missing_keywords_out_of_rendered_letter() ->
     assert "PostgreSQL" not in rendered
 
 
+def test_cover_letter_closing_uses_business_management_context() -> None:
+    service = CoverLetterGenerationService()
+
+    closing = service._build_closing(
+        vacancy_title="Заместитель начальника отдела снабжения",
+        company="Test Company",
+        candidate_experiences=[
+            SimpleNamespace(
+                description_raw=(
+                    "Организация закупочной деятельности\n"
+                    "Контроль поставок\n"
+                    "Ведение переговоров с поставщиками"
+                )
+            )
+        ],
+        selected_skills=["Материально-техническое обеспечение", "Бюджетирование"],
+    )
+
+    lowered = closing.lower()
+    assert "организации закупок" in lowered
+    assert "контроле поставок" in lowered
+    assert "работе с поставщиками" in lowered
+    assert "снижении затрат на снабжение" in lowered
+    assert "ответственность за результат" not in lowered
+
+
+def test_cover_letter_uses_business_value_closing_for_supply_management_role() -> None:
+    service = CoverLetterGenerationService()
+
+    closing = service._build_closing(
+        vacancy_title="Руководитель отдела снабжения",
+        company="Test Company",
+        candidate_experiences=[
+            SimpleNamespace(
+                description_raw=(
+                    "Организация закупочной деятельности\n"
+                    "Контроль поставок\n"
+                    "Работа с поставщиками\n"
+                    "Снижение затрат на снабжение"
+                )
+            )
+        ],
+        selected_skills=["Закупочная деятельность", "Материально-техническое обеспечение"],
+    )
+
+    lowered = closing.lower()
+    assert "организации закупок" in lowered
+    assert "контроле поставок" in lowered
+    assert "работе с поставщиками" in lowered
+    assert "снижении затрат на снабжение" in lowered
+    assert "аккуратное выполнение задач" not in lowered
+    assert "ответственность за результат" not in lowered
+
+
+def test_cover_letter_scope_list_normalizes_budgeting_case() -> None:
+    humanizer = CoverLetterHumanizer()
+
+    result = humanizer.scope_list(
+        "организацию закупочной деятельности, управление складскими запасами, "
+        "ведение переговоров с поставщиками, бюджетирования"
+    )
+
+    assert "бюджетирования" not in result
+    assert "бюджетирование" in result
+
+
 def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
     service = CoverLetterGenerationService()
 
@@ -559,6 +770,8 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
     closing = service._build_closing(
         vacancy_title="Backend Developer",
         company="Test Company",
+        candidate_experiences=[],
+        selected_skills=[],
     )
 
     rendered = render_cover_letter(
@@ -574,16 +787,21 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
 
     assert "Здравствуйте" in rendered
     assert "Меня зовут Перминов Алексей" in rendered
-    assert "Хочу откликнуться на позицию Backend Developer в Test Company." in rendered
+    assert "Откликаюсь на позицию Backend Developer в Test Company" in rendered
     assert "Сейчас мой основной профессиональный фокус" in rendered
-    assert "Вижу совпадение с задачами роли в части Python" in rendered
-    assert "Из подтверждённого опыта особенно релевантно" in rendered
+    assert "Особенно близки задачи, связанные с Python" in rendered
+    assert "Среди реализованных проектов и инициатив" in rendered
+    assert "В своей работе мне удалось показать результат через" not in rendered
+    assert "Со своей стороны могу дать компании" in rendered
     assert "Буду рад обсудить" in rendered
 
     assert "Dear hiring team" not in rendered
     assert "Thank you for your consideration" not in rendered
     assert "confirmed overlap" not in rendered
     assert "needs_confirmation" not in rendered
+    assert "Из подтверждённого опыта особенно релевантно" not in rendered
+    assert "усилить доменную практику" not in rendered
+    assert "Считаю себя релевантным кандидатом" not in rendered
     assert "на пересечении профессионального опыта" not in rendered
 
 
@@ -657,3 +875,188 @@ def test_cover_letter_generic_role_framing_is_domain_neutral() -> None:
     assert "профессионального опыта" in lowered
     assert "инженерного опыта" not in lowered
     assert "автоматизации" not in lowered
+
+
+def test_cover_letter_gap_mitigation_filters_soft_skills() -> None:
+    """Soft skills не должны попадать в gap mitigation paragraph."""
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {"label": "Ответственность"},
+                {"label": "Внимательность"},
+                {"label": "Docker"},
+                {"label": "Коммуникабельность"},
+            ],
+            "matched_strengths": [],
+        },
+        profile_skills=[],
+        vacancy_title="Python Developer",
+    )
+
+    assert paragraph is not None
+    assert "ответственност" not in (paragraph or "").lower()
+    assert "внимательн" not in (paragraph or "").lower()
+    assert "коммуникабельн" not in (paragraph or "").lower()
+    assert "docker" in (paragraph or "").lower()
+
+
+def test_cover_letter_join_experience_phrases_limits_to_three_and_uses_human_format() -> None:
+    """PR-34: Проверка объединения experience phrases в человеческую фразу."""
+    humanizer = CoverLetterHumanizer()
+
+    # 1 фраза
+    assert humanizer.join_experience_phrases(["монтажа систем водоснабжения"]) == "монтажа систем водоснабжения"
+
+    # 2 фразы — через "и"
+    assert (
+        humanizer.join_experience_phrases(["монтажа систем водоснабжения", "обслуживания оборудования"])
+        == "монтажа систем водоснабжения и обслуживания оборудования"
+    )
+
+    # 3 фразы — через запятую и "и"
+    assert (
+        humanizer.join_experience_phrases([
+            "монтажа систем водоснабжения",
+            "обслуживания оборудования",
+            "замены трубопроводов",
+        ])
+        == "монтажа систем водоснабжения, обслуживания оборудования и замены трубопроводов"
+    )
+
+    # 4+ фразы — обрезаются до 3
+    assert (
+        humanizer.join_experience_phrases([
+            "разработки API",
+            "настройки CI/CD",
+            "тестирования",
+            "документирования",
+        ])
+        == "разработки API, настройки CI/CD и тестирования"
+    )
+
+    # Пустой список
+    assert humanizer.join_experience_phrases([]) == ""
+
+
+def test_cover_letter_compress_experience_phrases_groups_plumbing_activities() -> None:
+    """PR-36: Проверка группировки сантехнических активностей."""
+    narrative_builder = NarrativeBuilder()
+
+    # Группировка монтажа и обслуживания
+    assert narrative_builder.compress_experience_phrases([
+        "монтажа систем водоснабжения",
+        "обслуживания оборудования",
+    ]) == ["монтажа и обслуживания инженерных систем"]
+
+    # Группировка трубопроводов
+    assert narrative_builder.compress_experience_phrases([
+        "замены трубопроводов",
+        "ремонта труб",
+    ]) == ["ремонта трубопроводов"]
+
+    # Группировка аварий
+    assert narrative_builder.compress_experience_phrases([
+        "устранения аварийных протечек",
+        "устранения аварий",
+    ]) == ["устранения аварийных ситуаций"]
+
+    # Смешанные фразы — часть группируется, часть остаётся
+    result = narrative_builder.compress_experience_phrases([
+        "монтажа систем водоснабжения",
+        "обслуживания оборудования",
+        "замены трубопроводов",
+        "устранения аварий",
+    ])
+    assert "монтажа и обслуживания инженерных систем" in result
+    assert "ремонта трубопроводов" in result or "замены трубопроводов" in result
+    assert "устранения аварийных ситуаций" in result
+
+    # Диагностика и осмотры
+    assert narrative_builder.compress_experience_phrases([
+        "проведения профилактических осмотров",
+        "диагностики оборудования",
+    ]) == ["проведения профилактических осмотров"]
+
+    # Пустой список
+    assert narrative_builder.compress_experience_phrases([]) == []
+
+    # Одна фраза без группировки
+    assert narrative_builder.compress_experience_phrases(["разработки API"]) == ["разработки API"]
+
+
+def test_cover_letter_experience_value_uses_compression_for_plumber_resume() -> None:
+    """PR-36: Проверка что experience value использует сжатие для сантехнического резюме."""
+    import re
+    service = CoverLetterGenerationService()
+    narrative_builder = NarrativeBuilder()
+
+    experience_value = narrative_builder.cover_letter_experience_value(
+        vacancy_title="Сантехник",
+        matched_keywords=["сантехника", "инженерные системы"],
+        candidate_experiences=[
+            SimpleNamespace(
+                description_raw=(
+                    "Монтаж систем водоснабжения и канализации\n"
+                    "Обслуживание сантехнического оборудования\n"
+                    "Замена трубопроводов\n"
+                    "Устранение аварийных ситуаций\n"
+                    "Установка сантехнических приборов\n"
+                    "Проведение профилактических осмотров"
+                )
+            ),
+        ],
+        is_supply_management_context=service._is_supply_management_context,
+        compress_experience_phrases=narrative_builder.compress_experience_phrases,
+    )
+
+    # Проверяем что фразы сжаты в обобщённые категории
+    assert "монтажа и обслуживания инженерных систем" in experience_value.lower() or (
+        "монтаж" in experience_value.lower() and "обслуживани" in experience_value.lower()
+    )
+    # Не должно быть больше 3 элементов
+    parts = [p.strip() for p in re.split(r",| и ", experience_value) if p.strip()]
+    assert len(parts) <= 3
+
+
+def test_cover_letter_relevance_paragraph_uses_supply_management_experience() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=[
+            "договоры",
+            "претензионная работа",
+            "взаимодействие с заказчиком",
+            "поставщики",
+            "МТС",
+        ],
+        selected_achievements=[],
+        selected_evidence=[],
+        missing_keywords=[],
+        profile_skills=["Excel", "1С"],
+        vacancy_title="Заместитель начальника отдела снабжения",
+        candidate_experiences=[
+            SimpleNamespace(
+                description_raw=(
+                    "Организация закупочной деятельности\n"
+                    "Управление складскими запасами\n"
+                    "Ведение переговоров с поставщиками\n"
+                    "Контроль поставок\n"
+                    "Контроль исполнения договорных обязательств\n"
+                    "Претензионная работа"
+                )
+            )
+        ],
+    )
+
+    lowered = paragraph.lower()
+    assert "мой опыт включает" in lowered
+    assert "организаци" in lowered and "закуп" in lowered
+    assert "складск" in lowered and "запас" in lowered
+    assert "переговор" in lowered and "поставщик" in lowered
+    assert "контрол" in lowered and "постав" in lowered
+    assert "договор" in lowered
+    assert "аккуратное выполнение задач" not in lowered
+    assert "ответственност" not in lowered
+    assert "быстро включ" not in lowered

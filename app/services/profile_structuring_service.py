@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from calendar import monthrange
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -23,7 +24,15 @@ from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryServ
 
 
 DATE_RANGE_RE = re.compile(
-    r"(?P<start>\d{2}\.\d{2}\.\d{4}|\d{4})\s*[-–—]\s*(?P<end>по настоящее время|\d{2}\.\d{2}\.\d{4}|\d{4})",
+    r"^\d{2}\.\d{4}\s*[—–-]\s*(?:\d{2}\.\d{4}|настоящее время|н\.в\.)$",
+    re.IGNORECASE,
+)
+INLINE_DATE_RANGE_RE = re.compile(
+    r"(?P<start>\d{2}\.\d{2}\.\d{4}|\d{2}\.\d{4}|\d{4})\s*[—–-]\s*(?P<end>\d{2}\.\d{2}\.\d{4}|\d{2}\.\d{4}|\d{4}|по настоящее время|настоящее время|н\.в\.)",
+    re.IGNORECASE,
+)
+MONTH_YEAR_DATE_RANGE_RE = re.compile(
+    r"^(?P<start>\d{2}\.\d{4})\s*[—–-]\s*(?P<end>\d{2}\.\d{4}|настоящее время|н\.в\.)$",
     re.IGNORECASE,
 )
 NUMBERED_ITEM_RE = re.compile(r"^\d{1,2}\s*[.)\-–—:]\s+")
@@ -33,7 +42,9 @@ ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
 STRUCTURED_V2_SECTION_HEADINGS = {
     "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
     "НАВЫКИ",
+    "ЦЕЛЕВАЯ ДОЛЖНОСТЬ",
     "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+    "ГОРОД",
     "ОПЫТ РАБОТЫ",
     "ОПЫТ",
     "ОБРАЗОВАНИЕ",
@@ -196,7 +207,7 @@ class ProfileStructuringService:
             profile = await self.candidate_profile_repository.create_empty(
                 session,
                 user_id=user_id,
-            )
+        )
 
         if source_file_kind not in {"portfolio", "other"}:
             self._apply_profile_fields(profile, draft)
@@ -209,16 +220,19 @@ class ProfileStructuringService:
 
     def _looks_like_generated_application_document(self, text: str) -> bool:
         normalized = str(text or "").upper()
-        return any(
-            marker in normalized
-            for marker in (
-                "ЦЕЛЕВАЯ ПОЗИЦИЯ",
-                "КРАТКОЕ РЕЗЮМЕ",
-                "РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ",
-                "КАРТА КОМПЕТЕНЦИЙ",
-                "ПИСЬМО:",
-                "ЗДРАВСТВУЙТЕ!",
-            )
+        strong_markers = (
+            "РЕЛЕВАНТНО ДЛЯ ВАКАНСИИ",
+            "КАРТА КОМПЕТЕНЦИЙ",
+            "ПИСЬМО:",
+            "ЗДРАВСТВУЙТЕ!",
+        )
+        if any(marker in normalized for marker in strong_markers):
+            return True
+
+        return (
+            "ЦЕЛЕВАЯ ПОЗИЦИЯ" in normalized
+            and "КРАТКОЕ РЕЗЮМЕ" in normalized
+            and "ОПЫТ РАБОТЫ" not in normalized
         )
 
     def _build_draft(
@@ -246,6 +260,13 @@ class ProfileStructuringService:
             or (compact_headline and compact_headline.lower() in draft.full_name.lower())
         ):
             draft.full_name = compact_name
+        if not draft.full_name or self._normalize_heading(draft.full_name) in {
+            "ЦЕЛЕВАЯ ДОЛЖНОСТЬ",
+            "ГОРОД",
+            "ОПЫТ РАБОТЫ",
+            "НАВЫКИ",
+        }:
+            draft.full_name = self._extract_full_name_from_top_lines(lines)
 
         draft.location = self._extract_location(lines)
         draft.contacts = self._extract_contacts(lines)
@@ -403,7 +424,10 @@ class ProfileStructuringService:
         source_file_kind: str | None = None,
     ) -> None:
         text = "\n".join(lines)
-        project_signals = self._extract_project_like_signals(lines)
+        project_signals = [
+            *self._extract_project_like_signals(lines),
+            *self._extract_achievement_signals(lines),
+        ]
         internship_signals = self._extract_internship_signals(lines)
         portfolio_project_signals = self._extract_portfolio_project_signals(
             lines,
@@ -740,6 +764,63 @@ class ProfileStructuringService:
 
         return self._dedupe_signals(signals)
 
+    def _extract_achievement_signals(self, lines: list[str]) -> list[StructuredResumeSignal]:
+        signals: list[StructuredResumeSignal] = []
+        capture = False
+
+        for line in lines:
+            normalized = self._normalize_heading(line)
+            if normalized in {"ДОСТИЖЕНИЯ", "КЛЮЧЕВЫЕ ДОСТИЖЕНИЯ"}:
+                capture = True
+                continue
+
+            if not capture:
+                continue
+
+            if normalized in {
+                "НАВЫКИ",
+                "КЛЮЧЕВЫЕ НАВЫКИ",
+                "ОБРАЗОВАНИЕ",
+                "КУРСЫ",
+                "ПРОЕКТЫ",
+                "ОПЫТ РАБОТЫ",
+                "ОПЫТ",
+                "ОБЯЗАННОСТИ",
+            }:
+                capture = False
+                continue
+
+            cleaned = re.sub(r"\s+", " ", str(line or "")).strip(" .;-–—•")
+            if not cleaned:
+                continue
+
+            if (
+                signals
+                and (
+                    MONTH_YEAR_DATE_RANGE_RE.match(cleaned)
+                    or DATE_RANGE_RE.search(cleaned)
+                    or self._looks_like_company_line(cleaned)
+                    or self._looks_like_role_line(cleaned)
+                )
+            ):
+                capture = False
+                continue
+
+            for item in self._split_inline_achievement_items(cleaned):
+                title = self._strip_company_suffix_from_achievement_text(item)
+                if not title or not self._line_has_achievement_like_action(title):
+                    continue
+                signals.append(
+                    StructuredResumeSignal(
+                        title=title,
+                        category="achievement",
+                        skills=self._extract_signal_skills(title),
+                        snippet_text=title,
+                    )
+                )
+
+        return self._dedupe_signals(signals)
+
     def _extract_internship_signals(self, lines: list[str]) -> list[StructuredResumeSignal]:
         marker_index = self._find_internship_marker(lines)
         if marker_index is None:
@@ -837,6 +918,13 @@ class ProfileStructuringService:
             if normalized.startswith(f"{heading} "):
                 return re.sub(
                     rf"^{re.escape(heading)}\s*",
+                    "",
+                    line.strip(),
+                    flags=re.IGNORECASE,
+                ).strip()
+            if re.match(rf"^{re.escape(heading)}\s*[:：-]\s*", line.strip(), flags=re.IGNORECASE):
+                return re.sub(
+                    rf"^{re.escape(heading)}\s*[:：-]\s*",
                     "",
                     line.strip(),
                     flags=re.IGNORECASE,
@@ -1187,6 +1275,26 @@ class ProfileStructuringService:
 
         return None
 
+    def _extract_full_name_from_top_lines(self, lines: list[str]) -> str | None:
+        for line in lines[:5]:
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+
+            if self._normalize_heading(cleaned) in {
+                "ЦЕЛЕВАЯ ДОЛЖНОСТЬ",
+                "ГОРОД",
+                "ОПЫТ РАБОТЫ",
+                "НАВЫКИ",
+            }:
+                continue
+
+            parts = cleaned.split()
+            if 2 <= len(parts) <= 4 and all(part[:1].isupper() for part in parts):
+                return cleaned
+
+        return None
+
     def _is_contact_or_location_line(self, line: str) -> bool:
         normalized = line.strip().lower()
 
@@ -1265,10 +1373,20 @@ class ProfileStructuringService:
     def _extract_target_roles(self, lines: list[str]) -> list[str]:
         section_lines = self._lines_after_heading(lines, "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ", max_lines=3)
         if not section_lines:
+            section_lines = self._lines_after_heading(lines, "ЦЕЛЕВАЯ ДОЛЖНОСТЬ", max_lines=3)
+        if not section_lines:
+            section_lines = self._lines_after_heading(lines, "ЦЕЛЕВАЯ ПОЗИЦИЯ", max_lines=3)
+        if not section_lines:
             return []
 
-        raw_text = " ".join(section_lines)
-        raw_parts = [part.strip() for part in re.split(r"[,;|]", raw_text) if part.strip()]
+        raw_text = "\n".join(section_lines)
+        raw_parts = [
+            part.strip()
+            for part in re.split(r"[,;|\n]+", raw_text)
+            if part.strip()
+        ]
+        if len(raw_parts) == 1:
+            raw_parts = self._split_compact_target_roles(raw_parts[0])
 
         roles: list[str] = []
         for raw_part in raw_parts:
@@ -1277,6 +1395,34 @@ class ProfileStructuringService:
                 roles.append(role)
 
         return self._dedupe_preserve_order(roles)[:5]
+
+    def _split_compact_target_roles(self, value: str) -> list[str]:
+        cleaned = re.sub(r"\s+", " ", value).strip()
+        if not cleaned:
+            return []
+
+        role_starters = (
+            "Слесарь",
+            "Сантехник",
+            "Бухгалтер",
+            "Юрист",
+            "Врач",
+            "Инженер",
+            "Менеджер",
+            "Developer",
+            "Engineer",
+        )
+        starter_pattern = "|".join(re.escape(starter) for starter in role_starters)
+        parts = [
+            part.strip(" .;-–—•")
+            for part in re.split(
+                rf"\s+(?=(?:{starter_pattern})(?:[-\s]|$))",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+            if part.strip(" .;-–—•")
+        ]
+        return parts if len(parts) > 1 else [cleaned]
 
     def _infer_headline_role_from_top_lines(
         self,
@@ -1290,6 +1436,8 @@ class ProfileStructuringService:
             if line.strip() == full_name:
                 for candidate in lines[idx + 1 : idx + 4]:
                     normalized = self._normalize_heading(candidate)
+                    if normalized in {"ЖЕЛАЕМАЯ ДОЛЖНОСТЬ", "ЦЕЛЕВАЯ ДОЛЖНОСТЬ", "ГОРОД"}:
+                        continue
                     if normalized in STRUCTURED_V2_SECTION_HEADINGS:
                         return None
                     if self._is_contact_or_location_line(candidate):
@@ -1362,6 +1510,20 @@ class ProfileStructuringService:
         if not section:
             section = self._extract_section(
                 lines,
+                start_heading="КЛЮЧЕВЫЕ НАВЫКИ",
+                stop_headings={
+                    "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+                    "ОПЫТ РАБОТЫ",
+                    "ОБРАЗОВАНИЕ",
+                    "ПРОЕКТЫ",
+                    "СТАЖИРОВКИ",
+                    "КОНТАКТЫ",
+                },
+            )
+
+        if not section:
+            section = self._extract_section(
+                lines,
                 start_heading="НАВЫКИ",
                 stop_headings={
                     "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
@@ -1428,34 +1590,53 @@ class ProfileStructuringService:
         section = self._extract_section(
             lines,
             start_heading="ОПЫТ РАБОТЫ",
-            stop_headings={"ОБРАЗОВАНИЕ", "О СЕБЕ", "КУРСЫ", "СТАЖИРОВКИ", "НАВЫКИ", "ДОСТИЖЕНИЯ"},
+            stop_headings={
+                "ОБРАЗОВАНИЕ",
+                "О СЕБЕ",
+                "КУРСЫ",
+                "СТАЖИРОВКИ",
+                "НАВЫКИ",
+                "КЛЮЧЕВЫЕ НАВЫКИ",
+            },
         )
         if not section:
             section = self._extract_section(
                 lines,
                 start_heading="ОПЫТ",
-                stop_headings={"ОБРАЗОВАНИЕ", "О СЕБЕ", "КУРСЫ", "СТАЖИРОВКИ", "НАВЫКИ", "ДОСТИЖЕНИЯ"},
+                stop_headings={
+                    "ОБРАЗОВАНИЕ",
+                    "О СЕБЕ",
+                    "КУРСЫ",
+                    "СТАЖИРОВКИ",
+                    "НАВЫКИ",
+                    "КЛЮЧЕВЫЕ НАВЫКИ",
+                },
             )
         if not section:
             return []
+
+        section = self._normalize_experience_section_lines(section)
+        multiline_experiences = self._extract_multiline_experiences(section)
+        if multiline_experiences:
+            return multiline_experiences
 
         blocks: list[list[str]] = []
         current: list[str] = []
 
         for line in section:
             current.append(line)
-            if DATE_RANGE_RE.search(line):
+            if INLINE_DATE_RANGE_RE.search(line):
                 blocks.append(current)
                 current = []
 
         experiences: list[StructuredExperienceDraft] = []
 
         for idx, block in enumerate(blocks):
-            date_line = next((line for line in reversed(block) if DATE_RANGE_RE.search(line)), None)
+            date_line = next((line for line in reversed(block) if INLINE_DATE_RANGE_RE.search(line)), None)
             if date_line is None:
                 continue
 
-            date_match = DATE_RANGE_RE.search(date_line)
+            date_match = INLINE_DATE_RANGE_RE.search(date_line)
             date_prefix = ""
             if date_match:
                 date_prefix = date_line[: date_match.start()].strip(" -–—•")
@@ -1489,6 +1670,11 @@ class ProfileStructuringService:
 
             description_raw = "\n".join(description_parts).strip() or " ".join(info_lines).strip() or None
 
+            if self._normalize_heading(company) in {"ОБЯЗАННОСТИ", "ДОСТИЖЕНИЯ"}:
+                continue
+            if len(role) > 255:
+                continue
+
             if company and role:
                 experiences.append(
                     StructuredExperienceDraft(
@@ -1502,6 +1688,196 @@ class ProfileStructuringService:
                 )
 
         return experiences
+
+    def _extract_multiline_experiences(
+        self,
+        lines: list[str],
+    ) -> list[StructuredExperienceDraft]:
+        date_indices = [
+            idx
+            for idx, line in enumerate(lines)
+            if MONTH_YEAR_DATE_RANGE_RE.match(line.strip())
+        ]
+        if not date_indices:
+            return []
+
+        experiences: list[StructuredExperienceDraft] = []
+        stop_headings = {
+            "ДОСТИЖЕНИЯ",
+            "НАВЫКИ",
+            "КЛЮЧЕВЫЕ НАВЫКИ",
+            "ОБРАЗОВАНИЕ",
+            "ОПЫТ",
+            "ОПЫТ РАБОТЫ",
+            "КУРСЫ",
+            "СТАЖИРОВКИ",
+            "ПРОЕКТЫ",
+            "О СЕБЕ",
+        }
+        label_headings = {"КОМПАНИЯ", "ДОЛЖНОСТЬ", "ПЕРИОД", "ДАТА"}
+
+        for order_index, date_index in enumerate(date_indices):
+            company, role = self._find_company_role_before_date(lines, date_index)
+            if not company or not role:
+                continue
+
+            period_line = lines[date_index].strip()
+
+            if self._normalize_heading(company) in label_headings or self._normalize_heading(role) in label_headings:
+                continue
+            if not self._looks_like_company_line(company):
+                if self._looks_like_company_line(role) and self._looks_like_role_line(company):
+                    company, role = role, company
+                else:
+                    continue
+            if self._looks_like_company_line(role):
+                continue
+
+            start_date, end_date = self._parse_date_range(period_line)
+            if start_date is None and end_date is None:
+                continue
+
+            if order_index + 1 < len(date_indices):
+                next_date_index = date_indices[order_index + 1]
+                next_company, _ = self._find_company_role_before_date(lines, next_date_index)
+
+                stop_index = next_date_index
+                if next_company:
+                    for idx in range(date_index + 1, next_date_index):
+                        if lines[idx].strip() == next_company:
+                            stop_index = idx
+                            break
+            else:
+                stop_index = len(lines)
+            stop_index = max(date_index + 1, stop_index)
+
+            responsibility_lines: list[str] = []
+            for line in lines[date_index + 1 : stop_index]:
+                normalized = self._normalize_heading(line)
+                if any(
+                    normalized == heading or normalized.startswith(f"{heading} ")
+                    for heading in stop_headings
+                ):
+                    break
+
+                cleaned_line = self._strip_inline_heading_remainder(line, {"ОБЯЗАННОСТИ"})
+                cleaned_line = re.sub(r"\s+", " ", cleaned_line).strip(" .;-–—•")
+                if cleaned_line:
+                    responsibility_lines.append(cleaned_line)
+
+            description_parts = self._split_inline_responsibility_items(responsibility_lines)
+            description_raw = "\n".join(description_parts).strip() or " ".join(
+                part for part in (company, role) if part
+            ).strip() or None
+
+            experiences.append(
+                StructuredExperienceDraft(
+                    company=company,
+                    role=role,
+                    start_date=start_date,
+                    end_date=end_date,
+                    description_raw=description_raw,
+                    order_index=order_index,
+                )
+            )
+
+        return experiences
+
+    def _find_company_role_before_date(
+        self,
+        lines: list[str],
+        date_index: int,
+    ) -> tuple[str | None, str | None]:
+        candidates: list[str] = []
+
+        skip_headings = {
+            "ОБЯЗАННОСТИ",
+            "ДОСТИЖЕНИЯ",
+            "НАВЫКИ",
+            "КЛЮЧЕВЫЕ НАВЫКИ",
+            "ОБРАЗОВАНИЕ",
+            "ОПЫТ",
+            "ОПЫТ РАБОТЫ",
+        }
+
+        for index in range(date_index - 1, max(-1, date_index - 8), -1):
+            value = re.sub(r"\s+", " ", lines[index]).strip(" .;-–—•")
+            if not value:
+                continue
+            normalized = self._normalize_heading(value)
+            if normalized in skip_headings:
+                continue
+            if self._line_has_contribution_signal(value):
+                continue
+            candidates.append(value)
+
+            if len(candidates) >= 4:
+                break
+
+        candidates = list(reversed(candidates))
+
+        for candidate in candidates:
+            inline_company, inline_role = self._split_inline_company_role(candidate)
+            if inline_company and inline_role:
+                return inline_company, inline_role
+
+        for idx in range(len(candidates) - 1):
+            company_candidate = candidates[idx]
+            role_candidate = candidates[idx + 1]
+
+            if (
+                self._looks_like_company_line(company_candidate)
+                and self._looks_like_role_line(role_candidate)
+                and not self._looks_like_company_line(role_candidate)
+            ):
+                return company_candidate, role_candidate
+
+        return None, None
+
+    def _normalize_experience_section_lines(self, lines: list[str]) -> list[str]:
+        normalized_lines: list[str] = []
+
+        for line in lines:
+            value = re.sub(r"\s+", " ", str(line or "")).strip()
+            if not value:
+                continue
+
+            embedded_match = re.match(
+                r"^(?P<company>(?:ООО|АО|ПАО|ЗАО|МУП|ГБУ|ИП)\s+«[^»]+»)\s+(?P<role>.+)$",
+                value,
+                flags=re.IGNORECASE,
+            )
+            if embedded_match:
+                company = embedded_match.group("company").strip()
+                role = embedded_match.group("role").strip()
+                if company:
+                    normalized_lines.append(company)
+                if role:
+                    normalized_lines.append(role)
+                continue
+
+            normalized_lines.append(value)
+
+        return normalized_lines
+
+    def _split_inline_company_role(self, value: str) -> tuple[str | None, str | None]:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        if not text:
+            return None, None
+
+        legal_form_pattern = r"(?:ООО|ОАО|АО|ЗАО|ПАО|ИП|МУП|ГУП|ФГБУ|ГБУ|МКУ|МБУ)"
+        match = re.match(
+            rf"^(?P<company>{legal_form_pattern}\s+[«\"A-ZА-ЯЁ0-9][^,;]*?)\s+"
+            r"(?P<role>(?:слесарь[-\s])?сантехник|бухгалтер|старший бухгалтер|юрист|врач[-\s]\w+|[A-Za-z ]+developer|[A-Za-z ]+engineer)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None, None
+
+        company = match.group("company").strip(" .;-–—•")
+        role = match.group("role").strip(" .;-–—•")
+        return company, role
 
     def _clean_experience_info_lines(self, info_lines: list[str]) -> list[str]:
         has_numbered_layout_noise = any(NUMBERED_ITEM_RE.match(line) for line in info_lines)
@@ -1707,7 +2083,22 @@ class ProfileStructuringService:
         return company, role
 
     def _parse_date_range(self, value: str) -> tuple[date | None, date | None]:
-        match = DATE_RANGE_RE.search(value)
+        month_year_match = MONTH_YEAR_DATE_RANGE_RE.search(value)
+        if month_year_match:
+            start_raw = month_year_match.group("start")
+            end_raw = month_year_match.group("end")
+            start_month, start_year = start_raw.split(".")
+            start_date = date(int(start_year), int(start_month), 1)
+
+            if end_raw.lower() in {"настоящее время", "н.в."}:
+                return start_date, None
+
+            end_month, end_year = end_raw.split(".")
+            last_day = monthrange(int(end_year), int(end_month))[1]
+            end_date = date(int(end_year), int(end_month), last_day)
+            return start_date, end_date
+
+        match = INLINE_DATE_RANGE_RE.search(value)
         if not match:
             return None, None
 
@@ -1716,14 +2107,23 @@ class ProfileStructuringService:
 
         if len(start_raw) == 4 and start_raw.isdigit():
             start_date = date(int(start_raw), 1, 1)
+        elif len(start_raw) == 7 and re.fullmatch(r"\d{2}\.\d{4}", start_raw):
+            start_month, start_year = start_raw.split(".")
+            start_date = date(int(start_year), int(start_month), 1)
         else:
             start_date = datetime.strptime(start_raw, "%d.%m.%Y").date()
 
-        if end_raw.lower() == "по настоящее время":
+        if end_raw.lower() in {"по настоящее время", "настоящее время", "н.в."}:
             return start_date, None
 
         if len(end_raw) == 4 and end_raw.isdigit():
             end_date = date(int(end_raw), 12, 31)
+            return start_date, end_date
+
+        if len(end_raw) == 7 and re.fullmatch(r"\d{2}\.\d{4}", end_raw):
+            end_month, end_year = end_raw.split(".")
+            last_day = monthrange(int(end_year), int(end_month))[1]
+            end_date = date(int(end_year), int(end_month), last_day)
             return start_date, end_date
 
         end_date = datetime.strptime(end_raw, "%d.%m.%Y").date()
@@ -1802,11 +2202,20 @@ class ProfileStructuringService:
             "Участие",
             "Контроль",
             "Проверка",
+            "Формирование",
             "Архивация",
             "Выполнение",
             "Взаимодействие",
             "Координация",
             "Оформление",
+            "Монтаж",
+            "Обслуживание",
+            "Замена",
+            "Устранение",
+            "Установка",
+            "Проведение",
+            "Ремонт",
+            "Профилактическое",
         )
 
         starter_pattern = "|".join(re.escape(starter) for starter in starters)
@@ -1856,10 +2265,161 @@ class ProfileStructuringService:
         cleaned = re.sub(r"\s+", " ", cleaned)
         return cleaned.upper()
 
+    def _looks_like_company_line(self, value: str) -> bool:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not text:
+            return False
+
+        return bool(re.search(
+            r"(?:^|\s)(ООО|АО|ПАО|ЗАО|МУП|ГБУ|ИП)\s+|«[^»]+»",
+            text,
+            flags=re.IGNORECASE,
+        ))
+
+    def _line_has_contribution_signal(self, value: str) -> bool:
+        lowered = re.sub(r"\s+", " ", str(value or "")).strip().lower()
+        if not lowered:
+            return False
+
+        contribution_markers = (
+            "обязанност",
+            "достижен",
+            "разработал",
+            "разработала",
+            "снизил",
+            "снизила",
+            "сократил",
+            "сократила",
+            "ускорил",
+            "ускорила",
+            "улучшил",
+            "улучшила",
+            "внедрил",
+            "внедрила",
+            "оптимизировал",
+            "оптимизировала",
+            "создал",
+            "создала",
+            "контрол",
+            "управлен",
+            "организац",
+            "переговор",
+            "закуп",
+            "поставщик",
+            "договор",
+            "бюджет",
+        )
+        return any(marker in lowered for marker in contribution_markers)
+
+    def _looks_like_role_line(self, value: str) -> bool:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        if not text or self._looks_like_company_line(text):
+            return False
+        if self._line_has_achievement_like_action(text):
+            return False
+
+        lowered = text.lower()
+        role_markers = (
+            "сантехник",
+            "слесарь",
+            "бухгалтер",
+            "юрист",
+            "врач",
+            "менеджер",
+            "developer",
+            "engineer",
+            "project manager",
+            "supervisor",
+        )
+        return any(marker in lowered for marker in role_markers) or len(text.split()) <= 4
+
+    def _line_has_achievement_like_action(self, value: str) -> bool:
+        lowered = str(value or "").strip().lower()
+        action_markers = (
+            "разработал",
+            "разработала",
+            "сократил",
+            "сократила",
+            "снизил",
+            "снизила",
+            "ускорил",
+            "ускорила",
+            "улучшил",
+            "улучшила",
+            "внедрил",
+            "внедрила",
+            "создал",
+            "создала",
+            "оптимизировал",
+            "оптимизировала",
+        )
+        return any(lowered.startswith(marker) for marker in action_markers)
+
+    def _split_inline_achievement_items(self, value: str) -> list[str]:
+        action_starters = (
+            "Снизил",
+            "Снизила",
+            "Сократил",
+            "Сократила",
+            "Разработал",
+            "Разработала",
+            "Ускорил",
+            "Ускорила",
+            "Улучшил",
+            "Улучшила",
+            "Внедрил",
+            "Внедрила",
+            "Создал",
+            "Создала",
+            "Оптимизировал",
+            "Оптимизировала",
+        )
+        starter_pattern = "|".join(re.escape(starter) for starter in action_starters)
+        cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        parts = [
+            part.strip(" .;-–—•")
+            for part in re.split(
+                rf"\s+(?=(?:{starter_pattern})(?:\s|$))",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+            if part.strip(" .;-–—•")
+        ]
+        return parts or ([cleaned] if cleaned else [])
+
+    def _strip_company_suffix_from_achievement_text(self, value: str) -> str:
+        """
+        PR-37: Отрезает суффиксы компаний (ООО, АО, ПАО, МУП, ГБУ и т.д.) из конца achievement title.
+        Обрабатывает форматы:
+        - Разработал чек-лист МУП «Горводоканал»
+        - Снизил затраты ООО «ТехКомСервис»
+        - Разработал модуль (ООО «Рога и Копыта»)
+        """
+        cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+
+        # PR-37: Паттерн для захвата company suffix в конце строки
+        # Захватывает: пробел/скобка + юр.форма + название (до закрывающей скобки или конца строки)
+        match = re.search(
+            r'[\s(]+((?:ООО|АО|ПАО|МУП|ГБУ|ОАО|ЗАО|ИП|ГУП|ФГБУ|МКУ|МБУ)\s+[^)]+)\)?$',
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            before = cleaned[: match.start()].strip(" .;-–—•")
+            return before if before else cleaned
+        
+        return cleaned
+
     def _split_inline_resume_headings(self, lines: list[str]) -> list[str]:
         result: list[str] = []
 
         heading_patterns = [
+            "Целевая должность",
+            "Целевая позиция",
+            "Краткое резюме",
+            "Ключевые навыки",
+            "Ключевые достижения",
+            "Город",
             "Опыт",
             "Опыт работы",
             "Обязанности",
@@ -1878,25 +2438,68 @@ class ProfileStructuringService:
             if not current:
                 continue
 
-            for heading in heading_patterns:
+            for heading in sorted(heading_patterns, key=len, reverse=True):
+                prefix_guard = ""
+                suffix_guard = ""
+                if heading == "Опыт":
+                    suffix_guard = r"(?!\s+работы\b)"
+                elif heading == "Навыки":
+                    prefix_guard = r"(?<!ключевые\s)(?<!профессиональные\s)"
+                elif heading == "Достижения":
+                    prefix_guard = r"(?<!ключевые\s)"
                 current = re.sub(
-                    rf"(?<!^)(?<!\n)\s*({re.escape(heading)}\s*[:：])",
+                    rf"(?<!^)(?<!\n)\s+{prefix_guard}({re.escape(heading)}){suffix_guard}(?=\s*[:：]|\s+(?-i:[A-ZА-ЯЁ0-9]))",
                     r"\n\1",
                     current,
                     flags=re.IGNORECASE,
                 )
 
-            for heading in heading_patterns:
+            for heading in sorted(heading_patterns, key=len, reverse=True):
+                prefix_guard = ""
+                suffix_guard = ""
+                if heading == "Опыт":
+                    suffix_guard = r"(?!\s+работы\b)"
+                elif heading == "Навыки":
+                    prefix_guard = r"(?<!ключевые\s)(?<!профессиональные\s)"
+                elif heading == "Достижения":
+                    prefix_guard = r"(?<!ключевые\s)"
                 current = re.sub(
-                    rf"(?im)^({re.escape(heading)}\s*[:：])\s+(.+)$",
+                    rf"(?im)^{prefix_guard}({re.escape(heading)}){suffix_guard}(?=\s*[:：]|\s+(?-i:[A-ZА-ЯЁ0-9]))(?:\s*[:：])?\s+(.+)$",
                     r"\1\n\2",
                     current,
                     flags=re.IGNORECASE,
                 )
 
-            result.extend(part.strip() for part in current.splitlines() if part.strip())
+            for part in current.splitlines():
+                cleaned_part = part.strip()
+                if not cleaned_part:
+                    continue
+                result.extend(self._split_company_suffix_from_achievement_line(cleaned_part))
 
         return result
+
+    def _split_company_suffix_from_achievement_line(self, line: str) -> list[str]:
+        cleaned = re.sub(r"\s+", " ", str(line or "")).strip()
+        if not cleaned:
+            return []
+
+        legal_form_pattern = r"(?:ООО|ОАО|АО|ЗАО|ПАО|ИП|МУП|ГУП|ФГБУ|ГБУ|МКУ|МБУ)"
+        match = re.search(
+            rf"\s+({legal_form_pattern}\s+[«\"A-ZА-ЯЁ0-9][^.!?]*)$",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return [cleaned]
+
+        before = self._strip_company_suffix_from_achievement_text(cleaned)
+        company = match.group(1).strip(" .;-–—•")
+        if not before or before == cleaned or not self._line_has_achievement_like_action(before):
+            return [cleaned]
+        if not self._looks_like_company_line(company):
+            return [cleaned]
+
+        return [before, company]
 
     def _extract_name_and_headline_from_compact_first_line(
         self,
@@ -1921,7 +2524,39 @@ class ProfileStructuringService:
         if len(rest) < 3 or len(rest) > 80:
             return None, None
 
+        if len(words) == 3 and self._looks_like_third_name_token(rest):
+            return None, None
+
         return first_two, rest
+
+    def _looks_like_third_name_token(self, value: str) -> bool:
+        cleaned = value.strip()
+        if "-" in cleaned:
+            return False
+        if not re.fullmatch(r"[А-ЯЁ][а-яё-]+", cleaned):
+            return False
+
+        known_single_word_roles = {
+            "администратор",
+            "аналитик",
+            "бухгалтер",
+            "водитель",
+            "врач",
+            "дизайнер",
+            "инженер",
+            "кассир",
+            "маркетолог",
+            "менеджер",
+            "продавец",
+            "разработчик",
+            "сантехник",
+            "слесарь",
+            "сварщик",
+            "терапевт",
+            "электрик",
+            "юрист",
+        }
+        return cleaned.casefold() not in known_single_word_roles
 
     def _looks_like_education_identity_line(self, value: str) -> bool:
         lowered = value.lower()
@@ -1965,6 +2600,16 @@ class ProfileStructuringService:
             "WMS",
             "1С",
 
+            # trades / maintenance
+            "Монтаж систем водоснабжения",
+            "Канализация",
+            "Отопление",
+            "Ремонт трубопроводов",
+            "Сантехническое оборудование",
+            "Чтение технических схем",
+            "Сварочные работы",
+            "Работа с электроинструментом",
+
             # IT / product
             "Stakeholder Management",
             "Project Management",
@@ -1988,12 +2633,14 @@ class ProfileStructuringService:
         ]
 
         text = re.sub(r"\s+", " ", value).strip()
-        found: list[str] = []
+        found_with_positions: list[tuple[int, str]] = []
 
         for skill in sorted(known_skills, key=len, reverse=True):
-            if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", text, flags=re.IGNORECASE):
-                found.append(skill)
+            match = re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", text, flags=re.IGNORECASE)
+            if match:
+                found_with_positions.append((match.start(), skill))
 
+        found = [skill for _, skill in sorted(found_with_positions, key=lambda item: item[0])]
         return self._dedupe_preserve_order(found)
 
     def _extract_inline_skills_from_lines(self, lines: list[str]) -> list[str]:
@@ -2045,6 +2692,14 @@ class ProfileStructuringService:
             "Предрейсовые осмотры",
             "Послерейсовые осмотры",
             "Медицинское освидетельствование",
+            "Монтаж систем водоснабжения",
+            "Канализация",
+            "Отопление",
+            "Ремонт трубопроводов",
+            "Сантехническое оборудование",
+            "Чтение технических схем",
+            "Сварочные работы",
+            "Работа с электроинструментом",
         ]
 
         remaining = value.strip()

@@ -125,9 +125,9 @@ def test_fallback_requirement_candidates_uses_skill_patterns_not_plain_labels() 
 
     candidates = service._fallback_requirement_candidates(lines)
 
-    assert "Работа с Postgres обязательна." in candidates
-    assert "Опыт контейнеризации будет плюсом." in candidates
-    assert "Нужно понимать языковые модели." in candidates
+    assert "Работа с Postgres обязательна" in candidates
+    assert "Опыт контейнеризации будет плюсом" in candidates
+    assert "Нужно понимать языковые модели" in candidates
 
 
 def test_scoped_requirement_matching_does_not_create_generic_api_sql_duplicates() -> None:
@@ -355,6 +355,144 @@ def test_extract_section_items_handles_heading_prefixes_without_colons() -> None
 
     assert must_have == ["Python", "FastAPI"]
     assert nice_to_have == ["опыт Redis и Docker"]
+
+
+def test_extract_section_items_normalizes_generic_requirement_phrases() -> None:
+    service = VacancyAnalysisService()
+
+    lines = service._clean_lines(
+        """
+Требования:
+- знание Конституции РФ, Устава Алтайского края, законодательства о муниципальной службе
+- наличие навыков нормотворческой деятельности
+- ведения деловых переговоров
+- владение официально-деловым стилем
+"""
+    )
+
+    must_have = service._extract_section_items(
+        lines,
+        start_headings=REQUIREMENT_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+
+    assert must_have == [
+        "знание профильного законодательства",
+        "нормотворческая деятельность",
+        "ведение переговоров",
+        "официально-деловой стиль",
+    ]
+
+
+def test_extract_section_items_drops_split_requirement_headings() -> None:
+    service = VacancyAnalysisService()
+
+    lines = service._clean_lines(
+        """
+Требования к квалификации
+Образование:
+Высшее
+Опыт:
+от 2 лет
+Профессиональные
+навыки:
+- Python
+"""
+    )
+
+    must_have = service._extract_section_items(
+        lines,
+        start_headings=REQUIREMENT_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+
+    assert "к квалификации" not in must_have
+    assert "Образование" not in must_have
+    assert "Опыт" not in must_have
+    assert "Профессиональные" not in must_have
+    assert "навыки" not in must_have
+
+
+def test_extract_section_items_expands_retail_requirement_bundle() -> None:
+    service = VacancyAnalysisService()
+
+    lines = service._clean_lines(
+        """
+Требования:
+- Опыт: от 2 лет в сфере мерчандайзинга, управление командой торговых представителей, розничные продажи FMCG
+"""
+    )
+
+    must_have = service._extract_section_items(
+        lines,
+        start_headings=REQUIREMENT_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+
+    assert must_have == [
+        "мерчандайзинг",
+        "управление полевой командой",
+        "розничные продажи",
+        "FMCG",
+    ]
+
+
+def test_extract_section_items_stops_before_employer_offer_block() -> None:
+    service = VacancyAnalysisService()
+
+    lines = service._clean_lines(
+        """
+Требования:
+- Готовность работать с инженерными коммуникациями пищевого производства Мы предлагаем
+- Официальное оформление
+- Социальный пакет
+"""
+    )
+
+    must_have = service._extract_section_items(
+        lines,
+        start_headings=REQUIREMENT_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+
+    assert must_have == [
+        "обслуживание инженерных систем",
+    ]
+    assert all("официальное оформление" not in item.casefold() for item in must_have)
+    assert all("социальный пакет" not in item.casefold() for item in must_have)
+
+
+def test_fallback_requirement_candidates_stops_before_employer_offer_block() -> None:
+    service = VacancyAnalysisService()
+
+    lines = service._clean_lines(
+        """
+Готовность работать с инженерными коммуникациями пищевого производства Мы предлагаем
+Официальное оформление
+Социальный пакет
+"""
+    )
+
+    candidates = service._fallback_requirement_candidates(lines)
+
+    assert candidates == [
+        "обслуживание инженерных систем",
+    ]
+
+
+def test_plumbing_requirement_keyword_matches_plumbing_profile_text() -> None:
+    service = VacancyAnalysisService()
+
+    keywords = service._extract_keywords(
+        "",
+        "Готовность работать с инженерными коммуникациями пищевого производства",
+    )
+
+    assert "Сантехника" in keywords
+    assert service._profile_satisfies_keyword(
+        "Сантехника",
+        "Сантехник\nОбслуживание сантехнических систем\nРемонт трубопроводов",
+    )
 
 
 def test_soft_ai_interest_is_not_scored_as_technical_must_have() -> None:

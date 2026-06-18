@@ -338,6 +338,7 @@ class AchievementExtractionService:
             and not self._looks_like_hard_achievement_stop(line)
             and not self._looks_like_resume_layout_noise(line)
         ]
+        section_lines = self._trim_lines_after_company_boundary(section_lines)
         contribution_lines = [
             line
             for line in section_lines
@@ -354,7 +355,12 @@ class AchievementExtractionService:
         if not cleaned:
             return []
 
-        starter_pattern = "|".join(re.escape(starter) for starter in CONTRIBUTION_ACTION_VERBS)
+        split_starters = [
+            starter
+            for starter in CONTRIBUTION_ACTION_VERBS
+            if starter.casefold() not in {"участвовал", "участвовала"}
+        ]
+        starter_pattern = "|".join(re.escape(starter) for starter in split_starters)
         split_by_starters = [
             part.strip(" ;-–—•")
             for part in re.split(
@@ -379,6 +385,9 @@ class AchievementExtractionService:
         ]
 
         if len(parts) <= 1:
+            return [cleaned]
+
+        if any(re.match(r"^участвовал[а]?\b", part, flags=re.IGNORECASE) for part in parts[1:]):
             return [cleaned]
 
         achievement_like_parts = [
@@ -452,7 +461,47 @@ class AchievementExtractionService:
         if len(title) > 180:
             title = title[:180].rsplit(" ", 1)[0].strip()
 
-        return title
+        return self._strip_inline_company_tail(title)
+
+    def _strip_inline_company_tail(self, title: str) -> str:
+        cleaned = re.sub(r"\s+", " ", str(title or "")).strip(" -–—•")
+        if not cleaned:
+            return cleaned
+
+        legal_forms = (
+            "ООО",
+            "ОАО",
+            "АО",
+            "ЗАО",
+            "ПАО",
+            "ИП",
+            "МУП",
+            "ГУП",
+            "ФГБУ",
+            "ГБУ",
+            "МКУ",
+            "МБУ",
+            "НКО",
+            "АНО",
+            "LLC",
+            "LTD",
+            "INC",
+            "CORP",
+        )
+        legal_form_pattern = "|".join(re.escape(value) for value in legal_forms)
+        match = re.search(
+            rf"\s+(?P<form>{legal_form_pattern})\s+[«\"A-Za-zА-Яа-яЁё].*$",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return cleaned
+
+        prefix = cleaned[: match.start()].rstrip(" -–—•")
+        previous_word = prefix.rsplit(" ", 1)[-1].casefold() if prefix else ""
+        if previous_word in {"для", "в", "во", "на", "у"}:
+            return cleaned
+        return prefix or cleaned
 
     def _strip_inline_noise(self, line: str) -> str:
         text = line.strip()
@@ -612,12 +661,30 @@ class AchievementExtractionService:
                 break
 
             if current:
+                if self._looks_like_company_line(line):
+                    blocks.append(current)
+                    current = []
+                    break
                 current.append(line)
 
         if current:
             blocks.append(current)
 
         return blocks
+
+    def _trim_lines_after_company_boundary(self, lines: list[str]) -> list[str]:
+        result: list[str] = []
+        seen_contribution = False
+
+        for line in lines:
+            if seen_contribution and self._looks_like_company_line(line):
+                break
+
+            result.append(line)
+            if self._line_has_contribution_signal(line):
+                seen_contribution = True
+
+        return result
 
     def _looks_like_noise_title(self, title: str) -> bool:
         normalized = self._normalize(title)
@@ -680,6 +747,26 @@ class AchievementExtractionService:
             return True
 
         if normalized.startswith("ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ"):
+            return True
+
+        return False
+
+    def _looks_like_company_line(self, line: str) -> bool:
+        cleaned = re.sub(r"\s+", " ", str(line or "")).strip(" .;-–—•")
+        if not cleaned:
+            return False
+
+        if self._line_has_contribution_signal(cleaned):
+            return False
+
+        legal_form_pattern = (
+            r"(?:ООО|ОАО|АО|ЗАО|ПАО|ИП|МУП|ГУП|ФГБУ|ГБУ|"
+            r"МКУ|МБУ|НКО|АНО|LLC|LTD|INC|CORP)\b"
+        )
+        if re.match(rf"^{legal_form_pattern}", cleaned, flags=re.IGNORECASE):
+            return True
+
+        if re.search(r"[«\"].{2,80}[»\"]", cleaned) and len(cleaned.split()) <= 6:
             return True
 
         return False

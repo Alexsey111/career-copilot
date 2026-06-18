@@ -37,11 +37,14 @@ from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.vacancy_fit_context_service import VacancyFitContextService
 from app.domain.evidence_alignment import (
-    polish_summary_evidence_phrase,
+    humanize_experience_phrase,
     score_alignment_item,
 )
-from app.domain.requirement_normalization import normalize_requirement_phrase
-from app.domain.requirement_normalization import requirement_match_key
+from app.domain.requirement_normalization import (
+    classify_requirement_phrase,
+    normalize_requirement_phrase,
+    requirement_match_key,
+)
 from app.domain.text_normalization import (
     clean_vacancy_title,
     dedupe_subsumed_phrases,
@@ -49,6 +52,11 @@ from app.domain.text_normalization import (
 )
 from app.services.resume_renderer import render_cover_letter
 from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
+from app.services.text_polish.achievement_verbalizer import AchievementVerbalizer
+from app.services.text_polish.humanizer import (
+    CoverLetterHumanizer,
+)
+from app.services.text_polish.narrative_builder import NarrativeBuilder
 
 logger = logging.getLogger(__name__)
 LEGACY_DOMAIN_SPECIFIC_SYNTHESIS = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
@@ -63,6 +71,25 @@ LOW_SIGNAL_SKILLS = {
 PROJECT_DISPLAY_HINTS = {
     "content-factory": "automation workflow evidence",
     "career-copilot": "backend workflow evidence",
+}
+
+SOFT_COMPETENCIES = {
+    "аккуратность",
+    "внимательность",
+    "ответственность",
+    "исполнительность",
+    "коммуникабельность",
+}
+
+BUSINESS_MANAGEMENT_MARKERS = {
+    "закуп",
+    "снабжен",
+    "снабжени",
+    "мто",
+    "поставщик",
+    "договор",
+    "бюджет",
+    "логист",
 }
 
 
@@ -105,6 +132,9 @@ class CoverLetterGenerationService:
             repository=self.evidence_snippet_repository,
             extraction_service=self.evidence_extraction_service,
         )
+        self.cover_letter_humanizer = CoverLetterHumanizer()
+        self.achievement_verbalizer = AchievementVerbalizer()
+        self.narrative_builder = NarrativeBuilder()
 
     async def generate_cover_letter(
         self,
@@ -298,7 +328,17 @@ class CoverLetterGenerationService:
         closing = self._build_closing(
             vacancy_title=vacancy_title,
             company=vacancy.company,
+            candidate_experiences=profile.experiences,
+            selected_skills=profile_skills,
         )
+        polished_sections = self.cover_letter_humanizer.polish_sections(
+            opening=opening,
+            relevance_paragraph=relevance_paragraph,
+            closing=closing,
+        )
+        opening = polished_sections["opening"]
+        relevance_paragraph = polished_sections["relevance_paragraph"]
+        closing = polished_sections["closing"]
         claims_needing_confirmation = self._build_claims_needing_confirmation(
             selected_achievements=selected_achievements,
         )
@@ -693,7 +733,9 @@ class CoverLetterGenerationService:
 
         return (
             "Здравствуйте!\n\n"
-            f"{name_sentence}Хочу откликнуться на позицию {vacancy_title}{company_phrase}."
+            f"{name_sentence}Откликаюсь на позицию {vacancy_title}{company_phrase}, "
+            "потому что мне интересны задачи роли и возможность приносить "
+            "практическую пользу команде."
             f"{headline_phrase}"
         )
 
@@ -714,58 +756,101 @@ class CoverLetterGenerationService:
         selected_evidence = selected_evidence or []
         vacancy_fit_narrative = vacancy_fit_narrative or {"critical_gaps": []}
 
-        requirement_focus = self._cover_letter_requirement_focus(
+        requirement_focus = self.narrative_builder.cover_letter_requirement_focus(
             matched_keywords=matched_keywords,
             vacancy_title=vacancy_title,
         )
-        project_value = self._cover_letter_project_value(
+        project_value = self.narrative_builder.cover_letter_project_value(
             selected_achievements=selected_achievements,
             selected_evidence=selected_evidence,
         )
-        experience_value = self._cover_letter_experience_value(
+        experience_value = self.narrative_builder.cover_letter_experience_value(
             vacancy_title=vacancy_title,
             matched_keywords=matched_keywords,
             candidate_experiences=candidate_experiences,
+            is_supply_management_context=self._is_supply_management_context,
+            compress_experience_phrases=self.narrative_builder.compress_experience_phrases,
+        )
+        supply_management_context = self._is_supply_management_context(
+            vacancy_title=vacancy_title,
+            matched_keywords=matched_keywords,
+            phrases=[experience_value] if experience_value else [],
         )
 
-        if requirement_focus and (experience_value or project_value):
-            lead_project = self._project_value_should_lead(project_value)
+        if supply_management_context and experience_value:
+            parts.append(
+                self._build_cover_letter_experience_sentence(
+                    vacancy_title=vacancy_title,
+                    experience_value=experience_value,
+                    candidate_experiences=candidate_experiences,
+                    selected_achievements=selected_achievements,
+                )
+            )
+            if project_value:
+                parts.append(
+                    self.cover_letter_humanizer.project_result_sentence(project_value)
+                )
+        elif requirement_focus and (experience_value or project_value):
+            lead_project = self.narrative_builder.project_value_should_lead(project_value)
             if lead_project:
                 if project_value:
                     parts.append(
-                        f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                        self.cover_letter_humanizer.project_result_sentence(project_value)
                     )
                 if experience_value:
                     parts.append(
-                        f"Из опыта работы особенно релевантно: {experience_value}."
+                        self._build_cover_letter_experience_sentence(
+                            vacancy_title=vacancy_title,
+                            experience_value=experience_value,
+                            candidate_experiences=candidate_experiences,
+                            selected_achievements=selected_achievements,
+                        )
                     )
                 parts.append(
-                    f"Вижу совпадение с задачами роли в части {requirement_focus}."
+                    f"Особенно близки задачи, связанные с {requirement_focus}."
                 )
             else:
                 parts.append(
-                    f"Вижу совпадение с задачами роли в части {requirement_focus}."
+                    f"Особенно близки задачи, связанные с {requirement_focus}."
                 )
                 if experience_value:
                     parts.append(
-                        f"Из опыта работы особенно релевантно: {experience_value}."
+                        self._build_cover_letter_experience_sentence(
+                            vacancy_title=vacancy_title,
+                            experience_value=experience_value,
+                            candidate_experiences=candidate_experiences,
+                            selected_achievements=selected_achievements,
+                        )
                     )
                 if project_value:
                     parts.append(
-                        f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                        self.cover_letter_humanizer.project_result_sentence(project_value)
                     )
         elif requirement_focus:
             parts.append(
-                f"Вижу совпадение с задачами роли в части {requirement_focus}. "
-                "Готов обсудить, какие задачи команды лучше всего ложатся на этот опыт."
+                f"Особенно близки задачи, связанные с {requirement_focus}. "
+                "Буду рад обсудить, какие направления команды лучше всего ложатся на мой опыт."
             )
         elif experience_value:
             parts.append(
-                f"Из опыта работы особенно релевантно: {experience_value}."
+                self._build_cover_letter_experience_sentence(
+                    vacancy_title=vacancy_title,
+                    experience_value=experience_value,
+                    candidate_experiences=candidate_experiences,
+                    selected_achievements=selected_achievements,
+                )
             )
         elif project_value:
             parts.append(
-                f"Из подтверждённого опыта особенно релевантно: {project_value}."
+                self.cover_letter_humanizer.project_result_sentence(project_value)
+            )
+
+        result_value = self._cover_letter_result_value(
+            selected_achievements=selected_achievements
+        )
+        if result_value:
+            parts.append(
+                f"Среди результатов, которыми особенно горжусь, — {result_value}."
             )
 
         gap_paragraph = self._build_gap_mitigation_paragraph(
@@ -779,25 +864,39 @@ class CoverLetterGenerationService:
         # Fallback, если ничего не добавилось
         if not parts:
             parts.append(
-                "Мне интересна эта роль, и я буду рад обсудить, какие задачи команды "
-                "могут быть релевантны моему текущему опыту."
+                "Эта роль мне интересна, и я буду рад обсудить, какие задачи команды "
+                "могут лучше всего лечь на мой текущий опыт."
             )
 
         return " ".join(parts)
 
-    def _project_value_should_lead(self, project_value: str) -> bool:
-        lowered = str(project_value or "").lower()
-        return any(
-            marker in lowered
-            for marker in (
-                "pytest",
-                "автотест",
-                "автоматическ",
-                "тестирован",
-                "ci/cd",
-                "pipeline",
-                "пайплайн",
-            )
+    def _build_cover_letter_experience_sentence(
+        self,
+        *,
+        vacancy_title: str,
+        experience_value: str,
+        candidate_experiences: list[Any] | None,
+        selected_achievements: list[dict],
+    ) -> str:
+        return self.cover_letter_humanizer.experience_sentence(
+            vacancy_title=vacancy_title,
+            experience_value=experience_value,
+            candidate_experiences=candidate_experiences,
+            selected_achievements=selected_achievements,
+            is_supply_management_context=self._is_supply_management_context(
+                vacancy_title=vacancy_title,
+                matched_keywords=[],
+                phrases=[experience_value],
+            ),
+        )
+
+    def _cover_letter_result_value(
+        self,
+        *,
+        selected_achievements: list[dict],
+    ) -> str:
+        return self.achievement_verbalizer.cover_letter_result_value(
+            selected_achievements=selected_achievements,
         )
 
     def _cover_letter_focus_from_headline(self, headline: str | None) -> str:
@@ -815,225 +914,21 @@ class CoverLetterGenerationService:
             return "аналитики данных, автоматизации и прикладной разработки"
         return "профессионального опыта, ответственности и задач роли"
 
-    def _cover_letter_requirement_focus(
-        self,
-        *,
-        matched_keywords: list[str],
-        vacancy_title: str,
-    ) -> str:
-        vacancy_title = clean_vacancy_title(vacancy_title)
-        labels: list[str] = []
-        corpus = " ".join([vacancy_title, *matched_keywords]).lower()
-
-        if "python" in corpus:
-            labels.append("Python и backend/API-разработки")
-        elif any(marker in corpus for marker in ("fastapi", "backend", "api")):
-            labels.append("backend/API-разработки")
-        if any(marker in corpus for marker in ("automation", "workflow", "no-code", "nocode")):
-            labels.append("автоматизации workflow")
-        if any(marker in corpus for marker in ("prompt", "llm", "chatgpt", "openai")):
-            labels.append("AI-assisted процессов")
-        if any(marker in corpus for marker in ("computer vision", "monitoring", "quality control")):
-            labels.append("прикладного AI/CV мониторинга")
-
-        return ", ".join(self._dedupe_preserve_order(labels)[:2])
-
-    def _cover_letter_project_value(
-        self,
-        *,
-        selected_achievements: list[dict],
-        selected_evidence: list[dict[str, Any]],
-    ) -> str:
-        candidates: list[tuple[str, int, str]] = []
-
-        for item in selected_evidence:
-            phrase = self._cover_letter_project_phrase(
-                title=str(item.get("title") or ""),
-                body=str(item.get("snippet_text") or ""),
-                skills=[str(skill) for skill in item.get("skills") or []],
-                fact_status=str(item.get("fact_status") or ""),
-                ownership_confidence=str(
-                    item.get("ownership_confidence")
-                    or item.get("candidate_ownership_confidence")
-                    or ""
-                ),
-                requires_confirmation=bool(item.get("requires_confirmation") is True),
-            )
-            if phrase:
-                phrase = polish_summary_evidence_phrase(phrase)
-                candidates.append(
-                    (
-                        phrase,
-                        score_alignment_item(
-                            {
-                                "requirement": str(item.get("title") or ""),
-                                "evidence": phrase,
-                                "confidence": "high"
-                                if str(item.get("fact_status") or "").strip().lower()
-                                in {"confirmed", "user_provided"}
-                                else "medium",
-                            }
-                        ),
-                        phrase,
-                    )
-                )
-
-        for item in selected_achievements:
-            phrase = self._cover_letter_project_phrase(
-                title=str(item.get("title") or ""),
-                body=" ".join(
-                    str(item.get(field) or "")
-                    for field in ("situation", "task", "action", "result", "metric_text")
-                ),
-                skills=[],
-                fact_status=str(item.get("fact_status") or ""),
-                ownership_confidence=str(
-                    item.get("ownership_confidence")
-                    or item.get("candidate_ownership_confidence")
-                    or ""
-                ),
-                requires_confirmation=bool(item.get("requires_confirmation") is True),
-            )
-            if phrase:
-                phrase = polish_summary_evidence_phrase(phrase)
-                candidates.append(
-                    (
-                        phrase,
-                        score_alignment_item(
-                            {
-                                "requirement": str(item.get("title") or ""),
-                                "evidence": phrase,
-                                "confidence": "high"
-                                if str(item.get("fact_status") or "").strip().lower()
-                                in {"confirmed", "user_provided"}
-                                else "medium",
-                            }
-                        ),
-                        phrase,
-                    )
-                )
-
-        if not candidates:
-            return ""
-
-        kept_bases = dedupe_subsumed_phrases(
-            self._dedupe_preserve_order([base for base, _, _ in candidates])
-        )
-        kept_base_keys = {str(base).casefold() for base in kept_bases}
-        project_phrases = [
-            (score, phrase)
-            for base, score, phrase in candidates
-            if str(base).casefold() in kept_base_keys
-        ]
-        project_phrases = [
-            phrase
-            for score, phrase in sorted(project_phrases, key=lambda pair: pair[0], reverse=True)
-        ]
-        project_phrases = dedupe_subsumed_phrases(
-            self._dedupe_preserve_order(project_phrases)
-        )
-        return "; ".join(project_phrases[:2]) if project_phrases else ""
-
-    def _cover_letter_experience_value(
+    def _is_supply_management_context(
         self,
         *,
         vacancy_title: str,
         matched_keywords: list[str],
-        candidate_experiences: list[Any] | None,
-    ) -> str:
-        if not candidate_experiences:
-            return ""
-
-        vacancy_title = clean_vacancy_title(vacancy_title)
-        corpus = " ".join([vacancy_title, *matched_keywords]).lower()
-
-        priority_markers = (
-            "команд",
-            "управлен",
-            "обуч",
-            "контрол",
-            "отчет",
-            "отчёт",
-            "мерчандайз",
-            "супервайзер",
-            "маршрут",
-            "аудит",
+        phrases: list[str],
+    ) -> bool:
+        corpus = " ".join([vacancy_title, *matched_keywords, *phrases]).casefold()
+        has_supply_domain = bool(
+            re.search(r"(?<!водо)снабжен|закуп|мтс|поставщик|склад|логист", corpus)
         )
-
-        bullets: list[str] = []
-
-        for exp in candidate_experiences[:3]:
-            description = str(getattr(exp, "description_raw", "") or "")
-            for part in re.split(r"\s+-\s+|[\n;•]+", description):
-                cleaned = re.sub(r"\s+", " ", part).strip(" .;-–—•")
-                if not cleaned:
-                    continue
-
-                normalized = cleaned.lower()
-                if any(marker in corpus and marker in normalized for marker in priority_markers):
-                    bullets.append(cleaned)
-
-        bullets = self._dedupe_preserve_order(bullets)
-        if not bullets:
-            return ""
-
-        return "; ".join(bullets[:2])
-
-    def _cover_letter_project_phrase(
-        self,
-        *,
-        title: str,
-        body: str,
-        skills: list[str],
-        fact_status: str = "",
-        ownership_confidence: str = "",
-        requires_confirmation: bool = False,
-    ) -> str:
-        # Legacy marker: existing domain-specific synthesis must not be extended.
-        corpus = " ".join([title, body, " ".join(skills)]).lower()
-        confirmed = str(fact_status or "").strip().lower() in {"confirmed", "user_provided"}
-        low_ownership = str(ownership_confidence or "").strip().lower() in {
-            "low",
-            "unknown",
-            "needs_review",
-        }
-        if requires_confirmation or low_ownership or not confirmed:
-            cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
-            display_title = make_user_facing_evidence_phrase(cleaned_title)
-            if display_title:
-                return f"подтверждаемый проектный контекст: {display_title}"
-            return "подтверждаемый проектный контекст"
-
-        if any(marker in corpus for marker in ("computer vision", "image", "изображ", "video", "видео")):
-            return "подтверждённый контекст обработки визуальных данных"
-
-        if any(marker in corpus for marker in ("quality control", "контроль качества", "safety", "безопас")):
-            return "подтверждённый контекст прикладного мониторинга и контроля"
-
-        if any(marker in corpus for marker in ("vacancy", "резюме", "document", "review")):
-            return "подтверждённый проектный контекст без расширения роли"
-        if any(
-            marker in corpus
-            for marker in ("pytest", "test", "testing", "автотест", "автоматическ", "тестирован")
-        ):
-            return "настройки автоматического тестирования"
-        if any(marker in corpus for marker in ("fastapi", "backend", "api")):
-            if "fastapi" in corpus:
-                return "разработка REST API на FastAPI"
-            return "разработка REST API"
-        if any(marker in corpus for marker in ("automation", "workflow", "openai", "telegram")):
-            return "опыт автоматизации рабочих процессов с интеграциями"
-        if any(marker in corpus for marker in ("analytics", "analysis", "аналит")):
-            return "опыт аналитического pipeline для извлечения прикладных сигналов"
-
-        cleaned_title = re.sub(r"\s+", " ", title).strip(" .;-–—•")
-        display_title = make_user_facing_evidence_phrase(cleaned_title)
-        if display_title and display_title.lower() not in {
-            "technology stack from resume",
-            "technologies from resume",
-        }:
-            return display_title
-        return ""
+        has_management_signal = bool(
+            re.search(r"начальник|руковод|управлен|бюджет|переговор|договор|претензи|контрол", corpus)
+        )
+        return has_supply_domain and has_management_signal
 
     def _select_cover_letter_evidence(
         self,
@@ -1084,7 +979,7 @@ class CoverLetterGenerationService:
             if display_title is None and not skills:
                 continue
             if display_title is None:
-                phrase = polish_summary_evidence_phrase(", ".join(skills[:4]))
+                phrase = humanize_experience_phrase(", ".join(skills[:4]))
                 candidates.append(
                     (
                         phrase,
@@ -1104,7 +999,7 @@ class CoverLetterGenerationService:
             else:
                 phrase = display_title
 
-            phrase = polish_summary_evidence_phrase(phrase)
+            phrase = humanize_experience_phrase(phrase)
             candidates.append(
                 (
                     display_title,
@@ -1255,13 +1150,42 @@ class CoverLetterGenerationService:
         *,
         vacancy_title: str,
         company: str | None,
+        candidate_experiences: list[Any] | None = None,
+        selected_skills: list[str] | None = None,
     ) -> str:
         vacancy_title = clean_vacancy_title(vacancy_title)
         company_phrase = f" в {company}" if company else ""
+        if self._is_business_management_context(
+            vacancy_title=vacancy_title,
+            candidate_experiences=candidate_experiences,
+            selected_skills=selected_skills,
+        ):
+            return (
+                "Со своей стороны могу быть полезен в организации закупок, "
+                "контроле поставок, работе с поставщиками и снижении затрат на снабжение. "
+                f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
+                f"{vacancy_title}{company_phrase}."
+            )
         return (
+            "Со своей стороны могу дать компании аккуратное выполнение задач, "
+            "ответственность за результат и готовность быстро включаться в процессы. "
             f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
-            f"{vacancy_title}{company_phrase}. Спасибо за внимание к моей кандидатуре."
+            f"{vacancy_title}{company_phrase}."
         )
+
+    def _is_business_management_context(
+        self,
+        *,
+        vacancy_title: str,
+        candidate_experiences: list[Any] | None,
+        selected_skills: list[str] | None,
+    ) -> bool:
+        corpus_parts = [vacancy_title]
+        for exp in candidate_experiences or []:
+            corpus_parts.append(str(getattr(exp, "description_raw", "") or ""))
+        corpus_parts.extend(selected_skills or [])
+        corpus = " ".join(corpus_parts).casefold()
+        return any(marker in corpus for marker in BUSINESS_MANAGEMENT_MARKERS)
 
     def _build_gap_mitigation_paragraph(
         self,
@@ -1270,48 +1194,10 @@ class CoverLetterGenerationService:
         profile_skills: list[str],
         vacancy_title: str,
     ) -> str | None:
-        """
-        Генерирует абзац, который проактивно закрывает критичные пробелы.
-        Возвращает None, если пробелов нет или они не критичны.
-        """
-        vacancy_title = clean_vacancy_title(vacancy_title)
-        gap_items = vacancy_fit_narrative.get("critical_gaps") or []
-        if not gap_items:
-            return None
-
-        matched_labels = {
-            requirement_match_key(str(item.get("label") or ""))
-            for item in (vacancy_fit_narrative.get("matched_strengths") or [])
-            if requirement_match_key(str(item.get("label") or ""))
-        }
-
-        # Берём не больше двух gap'ов, чтобы абзац оставался коротким и не звучал оборонительно.
-        gap_items = self._dedupe_gap_keywords(
-            [
-                str(item.get("label") or "").strip()
-                for item in gap_items
-                if str(item.get("label") or "").strip()
-                and requirement_match_key(str(item.get("label") or ""))
-                not in matched_labels
-            ]
-        )
-        gap_items = sorted(
-            gap_items,
-            key=self._score_gap_for_cover_letter,
-            reverse=True,
-        )
-        critical_gaps = gap_items[:2]
-
-        if not critical_gaps:
-            return None
-
-        gap_focus = self._render_gap_focus(critical_gaps)
-        if not gap_focus:
-            return None
-
-        return (
-            "При этом понимаю, что для роли важно "
-            f"усилить доменную практику в {gap_focus}."
+        return self.narrative_builder.build_gap_mitigation_paragraph(
+            vacancy_fit_narrative=vacancy_fit_narrative,
+            profile_skills=profile_skills,
+            vacancy_title=vacancy_title,
         )
 
     def _build_gap_mitigations(
@@ -1372,7 +1258,7 @@ class CoverLetterGenerationService:
 
         rendered_gaps: list[str] = []
         for gap in critical_gaps[:2]:
-            rendered_gaps.append(self._to_gap_case(gap))
+            rendered_gaps.append(self.narrative_builder.to_gap_case(gap))
 
         rendered_gaps = [gap for gap in rendered_gaps if gap]
         if not rendered_gaps:
@@ -1380,53 +1266,6 @@ class CoverLetterGenerationService:
         if len(rendered_gaps) == 1:
             return rendered_gaps[0]
         return f"{rendered_gaps[0]} и {rendered_gaps[1]}"
-
-    def _score_gap_for_cover_letter(self, label: str) -> int:
-        lowered = str(label or "").lower()
-        if "bim" in lowered:
-            return 100
-        if "экспертиз" in lowered:
-            return 90
-        if "объект" in lowered:
-            return 70
-        if "деловая коммуникация" in lowered:
-            return 10
-        return 30
-
-    def _to_gap_case(self, gap: str) -> str:
-        normalized = re.sub(r"\s+", " ", str(gap or "")).strip(" .;-–—•")
-        lowered = normalized.lower()
-        if lowered in {"automation", "automation tooling"}:
-            return "автоматизации тестирования"
-        if lowered == "bim-процессы":
-            return "BIM-процессах"
-        if lowered == "взаимодействие с экспертизой":
-            return "взаимодействии с экспертизой"
-        if lowered == "ведение проектной документации":
-            return "ведении проектной документации"
-        if lowered == "деловая коммуникация":
-            return "деловой коммуникации"
-        return normalized
-
-    def _dedupe_gap_keywords(self, keywords: list[str]) -> list[str]:
-        result: list[str] = []
-        seen: set[str] = set()
-        for keyword in keywords:
-            display = make_user_facing_evidence_phrase(keyword)
-            if display is None:
-                continue
-            key = re.sub(
-                r"\b(tooling|tools|инструменты|инструментов)\b",
-                "",
-                display,
-                flags=re.IGNORECASE,
-            )
-            key = re.sub(r"\s+", " ", key).strip().casefold()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            result.append(display)
-        return dedupe_subsumed_phrases(result)
 
     def _build_claims_needing_confirmation(
         self,
@@ -1676,35 +1515,34 @@ class CoverLetterGenerationService:
         vacancy_title = clean_vacancy_title(vacancy_title)
         parts = []
 
-        # Intro
         parts.append(
-            f"I am applying for the {vacancy_title} role at {company}."
+            f"Откликаюсь на позицию {vacancy_title} в {company}, потому что мне интересны задачи роли "
+            "и возможность приносить практическую пользу команде."
         )
 
-        # Strengths
         if strengths:
             parts.append(
-                "My experience aligns well with your requirements, including: "
+                "Особенно близки задачи, связанные с "
                 + ", ".join(strengths[:3])
+                + "."
             )
 
-        # Achievements
         if achievements:
             parts.append(
-                "Relevant accomplishments include: "
-                + "; ".join(achievements[:2])
+                self.achievement_verbalizer.achievement_result_sentence(achievements)
             )
 
-        # Gaps (ключевой блок)
         if gaps:
             parts.append(
-                "While I am still developing experience in "
+                "Отдельно готов обсудить план быстрого погружения: "
                 + ", ".join(gaps[:2])
-                + ", I have been actively working to strengthen these areas."
+                + "."
             )
 
-        # Closing
-        parts.append("I would welcome the opportunity to contribute to your team.")
+        parts.append(
+            "Со своей стороны могу дать компании аккуратное выполнение задач, ответственность за результат "
+            "и готовность быстро включаться в процессы."
+        )
 
         return "\n\n".join(parts)
 
