@@ -421,6 +421,7 @@ async def get_document_review_summary(
         is_active=document.is_active,
         version_label=document.version_label,
         readiness=DocumentReadinessResponse.model_validate(summary["readiness"]),
+        quality=summary["quality"],
         provenance=summary["provenance"],
         claims_needing_confirmation=summary["claims_needing_confirmation"],
         warnings=summary["warnings"],

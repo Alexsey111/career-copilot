@@ -66,6 +66,7 @@ LOW_SIGNAL_SKILLS = {
     "mako",
     "dockerfile",
     "powershell",
+    "пользователь пк",
 }
 
 KNOWN_PROFILE_SKILLS = (
@@ -90,11 +91,9 @@ SOFT_COMPETENCIES = {
 
 BUSINESS_MANAGEMENT_MARKERS = {
     "закуп",
-    "снабжен",
-    "снабжени",
+    r"(?<!водо)снабжен",
     "мто",
     "поставщик",
-    "договор",
     "бюджет",
     "логист",
 }
@@ -337,6 +336,7 @@ class CoverLetterGenerationService:
             company=vacancy.company,
             candidate_experiences=profile.experiences,
             selected_skills=profile_skills,
+            matched_keywords=matched_keywords,
         )
         polished_sections = self.cover_letter_humanizer.polish_sections(
             opening=opening,
@@ -1199,17 +1199,32 @@ class CoverLetterGenerationService:
         company: str | None,
         candidate_experiences: list[Any] | None = None,
         selected_skills: list[str] | None = None,
+        matched_keywords: list[str] | None = None,
     ) -> str:
         vacancy_title = clean_vacancy_title(vacancy_title)
         company_phrase = f" в {company}" if company else ""
-        if self._is_business_management_context(
+        if self._is_supply_management_context(
             vacancy_title=vacancy_title,
-            candidate_experiences=candidate_experiences,
-            selected_skills=selected_skills,
+            matched_keywords=matched_keywords or [],
+            phrases=[
+                *[str(getattr(exp, "description_raw", "") or "") for exp in candidate_experiences or []],
+                *(selected_skills or []),
+            ],
         ):
             return (
                 "Готов применять накопленный опыт в организации закупок, контроле поставок, "
                 "работе с поставщиками и снижении затрат на снабжение. "
+                f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
+                f"{vacancy_title}{company_phrase}."
+            )
+        focus = self._closing_focus_from_requirements(
+            vacancy_title=vacancy_title,
+            matched_keywords=matched_keywords or [],
+            selected_skills=selected_skills or [],
+        )
+        if focus:
+            return (
+                f"Готов применять накопленный опыт в области {focus}. "
                 f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
                 f"{vacancy_title}{company_phrase}."
             )
@@ -1219,6 +1234,60 @@ class CoverLetterGenerationService:
             f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
             f"{vacancy_title}{company_phrase}."
         )
+
+    def _closing_focus_from_requirements(
+        self,
+        *,
+        vacancy_title: str,
+        matched_keywords: list[str],
+        selected_skills: list[str],
+    ) -> str:
+        vacancy_key = self._closing_noise_key(vacancy_title)
+        candidates = [
+            self._normalize_display_skill(str(value or ""))
+            for value in [*matched_keywords, *selected_skills]
+        ]
+        useful = [
+            value
+            for value in candidates
+            if value
+            and value.lower() not in LOW_SIGNAL_SKILLS
+            and not self._looks_like_closing_noise(value, vacancy_key=vacancy_key)
+        ]
+        phrases = [
+            humanize_experience_phrase(value)
+            for value in self._dedupe_preserve_order(useful)[:2]
+        ]
+        return self.cover_letter_humanizer.join_experience_phrases(phrases)
+
+    def _looks_like_closing_noise(self, value: str, *, vacancy_key: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        if not normalized:
+            return True
+        lowered = normalized.casefold()
+        key = self._closing_noise_key(normalized)
+        if key and vacancy_key and (key == vacancy_key or key in vacancy_key or vacancy_key in key):
+            return True
+        if re.match(
+            r"^(подготовил|подготовила|сократил|сократила|ускорил|ускорила|навел|навела|"
+            r"внедрил|внедрила|разработал|разработала|создал|создала|участвовал|участвовала)\b",
+            lowered,
+        ):
+            return True
+        if re.fullmatch(
+            r"(юрист|врач(?:[-\s].*)?|сантехник|слесарь[-\s]сантехник|бухгалтер|"
+            r"legal research|документооборот|сантехника)",
+            lowered,
+        ):
+            return True
+        return not re.search(
+            r"работ|подготов|сопровожд|консульт|ведени|документац|диагност|"
+            r"монтаж|обслужив|ремонт|договор|претензи|сверк",
+            lowered,
+        )
+
+    def _closing_noise_key(self, value: str) -> str:
+        return re.sub(r"[^0-9a-zа-яё]+", "", str(value or "").casefold())
 
     def _is_business_management_context(
         self,
@@ -1232,7 +1301,7 @@ class CoverLetterGenerationService:
             corpus_parts.append(str(getattr(exp, "description_raw", "") or ""))
         corpus_parts.extend(selected_skills or [])
         corpus = " ".join(corpus_parts).casefold()
-        return any(marker in corpus for marker in BUSINESS_MANAGEMENT_MARKERS)
+        return any(re.search(marker, corpus) for marker in BUSINESS_MANAGEMENT_MARKERS)
 
     def _build_gap_mitigation_paragraph(
         self,

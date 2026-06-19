@@ -6,6 +6,7 @@
 - Made `render_document_approval_step` in `frontend/streamlit/flows/document_application_flow.py` a thin wrapper over the workspace.
 - Preserved `approved_resume` and `approved_cover_letter` session state updates after approval.
 - Added structured document diff and review summary flows for pre-approve review.
+- Polished the quality panel and confidence/risk labels so the review workspace reads as a coherent user-facing surface.
 - Kept application tracking and interview preparation as explicit human-in-the-loop steps.
 
 ## Added endpoints

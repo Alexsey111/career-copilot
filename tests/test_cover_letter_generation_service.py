@@ -567,6 +567,17 @@ def test_achievement_verbalizer_declines_designer_nominal_tail() -> None:
     assert "разработка новый" not in result
 
 
+def test_achievement_verbalizer_declines_medical_waiting_time_tail() -> None:
+    verbalizer = AchievementVerbalizer()
+
+    result = verbalizer.nounize_achievement_phrase(
+        "Сократил среднее время ожидания приёма"
+    )
+
+    assert result == "сокращение среднего времени ожидания приёма"
+    assert "сокращение среднее время" not in result
+
+
 def test_achievement_verbalizer_keeps_action_style_for_resume_summary() -> None:
     verbalizer = AchievementVerbalizer()
 
@@ -654,6 +665,45 @@ def test_cover_letter_gap_mitigation_uses_single_short_sentence() -> None:
     )
     assert paragraph.count(".") == 1
     assert ";" not in paragraph
+
+
+def test_cover_letter_gap_mitigation_filters_low_signal_pc_user_gap() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {"label": "Пользователь ПК", "classification": "hard_skill"},
+            ],
+            "matched_strengths": [],
+        },
+        profile_skills=[],
+        vacancy_title="Врач",
+    )
+
+    assert paragraph is None
+
+
+def test_cover_letter_gap_mitigation_filters_low_value_legal_and_accounting_gaps() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {"label": "профильного законодательства"},
+                {"label": "нормотворческая деятельность"},
+                {"label": "Скорость"},
+                {"label": "Внимательность"},
+                {"label": "Коммуникабельность"},
+                {"label": "Компетентность"},
+            ],
+            "matched_strengths": [],
+        },
+        profile_skills=[],
+        vacancy_title="Бухгалтер",
+    )
+
+    assert paragraph is None
 
 
 def test_cover_letter_gap_mitigation_filters_direct_matches() -> None:
@@ -888,6 +938,88 @@ def test_cover_letter_uses_business_value_closing_for_supply_management_role() -
     assert "снижении затрат на снабжение" in lowered
     assert "аккуратное выполнение задач" not in lowered
     assert "ответственность за результат" not in lowered
+
+
+def test_cover_letter_closing_does_not_use_supply_template_for_lawyer() -> None:
+    service = CoverLetterGenerationService()
+
+    closing = service._build_closing(
+        vacancy_title="Юрист",
+        company="Test Company",
+        candidate_experiences=[
+            SimpleNamespace(
+                description_raw=(
+                    "Подготовка договоров\n"
+                    "Судебное сопровождение\n"
+                    "Консультирование клиентов"
+                )
+            )
+        ],
+        selected_skills=["Договорная работа", "Гражданское право", "Арбитраж"],
+        matched_keywords=["Договорная работа", "Претензионная работа"],
+    )
+
+    lowered = closing.lower()
+    assert "организации закупок" not in lowered
+    assert "контроле поставок" not in lowered
+    assert "работе с поставщиками" not in lowered
+    assert "снижении затрат на снабжение" not in lowered
+    assert "юрист," not in lowered
+    assert "подготовила более 250 договоров" not in lowered
+    assert "договор" in lowered
+
+
+def test_cover_letter_closing_does_not_use_supply_template_for_plumber() -> None:
+    service = CoverLetterGenerationService()
+
+    closing = service._build_closing(
+        vacancy_title="Сантехник",
+        company="Test Company",
+        candidate_experiences=[
+            SimpleNamespace(
+                description_raw=(
+                    "Монтаж систем водоснабжения и канализации\n"
+                    "Обслуживание сантехнического оборудования\n"
+                    "Замена трубопроводов"
+                )
+            )
+        ],
+        selected_skills=["Монтаж систем водоснабжения", "Ремонт трубопроводов"],
+        matched_keywords=["Монтаж систем водоснабжения", "Обслуживание оборудования"],
+    )
+
+    lowered = closing.lower()
+    assert "организации закупок" not in lowered
+    assert "снижении затрат на снабжение" not in lowered
+    assert "сантехника," not in lowered
+    assert "слесарь-сантехник" not in lowered
+    assert "водоснаб" in lowered or "трубопровод" in lowered
+
+
+def test_cover_letter_closing_filters_role_and_achievement_noise() -> None:
+    service = CoverLetterGenerationService()
+
+    closing = service._build_closing(
+        vacancy_title="Юрист",
+        company="Test Company",
+        candidate_experiences=[],
+        selected_skills=[
+            "Юрист",
+            "Гражданское право",
+            "Договорное право",
+            "Арбитраж",
+            "Legal Research",
+            "Документооборот",
+            "Подготовила более 250 договоров",
+        ],
+        matched_keywords=[],
+    )
+
+    lowered = closing.lower()
+    assert "юрист," not in lowered
+    assert "legal research" not in lowered
+    assert "подготовила более 250 договоров" not in lowered
+    assert "готов применять накопленный опыт в юрист" not in lowered
 
 
 def test_cover_letter_scope_list_normalizes_budgeting_case() -> None:

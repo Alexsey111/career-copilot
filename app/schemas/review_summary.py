@@ -16,6 +16,7 @@ class ReviewSummaryResponse(StrictBaseModel):
     ready: bool
     requires_human_review: bool = True
     risk_level: Literal["low", "medium", "high"]
+    quality: dict[str, Any] = Field(default_factory=dict)
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     claims_requiring_confirmation: list[dict[str, Any]] = Field(default_factory=list)

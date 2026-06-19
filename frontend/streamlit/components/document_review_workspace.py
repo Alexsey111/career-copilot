@@ -280,6 +280,32 @@ def _find_rationale_for_item(
     return None
 
 
+def _humanize_readiness_message(message: Any) -> str:
+    text = str(message or "").strip()
+    lowered = text.casefold()
+    if not text:
+        return "—"
+
+    translations = (
+        ("document review_status is not approved", "Статус документа ещё не утверждён"),
+        ("document has unresolved claims requiring confirmation", "Есть утверждения, требующие подтверждения"),
+        ("document has unresolved critical evaluation failures", "Есть критичные ошибки в оценке"),
+        ("document is not active", "Документ неактивен"),
+        ("document has coverage gaps", "Есть пробелы в покрытии требований вакансии"),
+        ("document has low ats score", "Низкий ATS score документа"),
+        ("document has achievements with missing metrics", "В достижениях не хватает метрик"),
+        ("this fact is not confirmed yet", "Факт ещё не подтверждён"),
+        ("keep it out of strong evidence paths until reviewed", "Не использовать в сильных доказательствах до проверки"),
+    )
+    for needle, label in translations:
+        if needle in lowered:
+            return label
+
+    if lowered.startswith("document "):
+        return text.replace("document ", "Документ ", 1)
+    return text
+
+
 def _render_readiness_panel(summary: dict[str, Any]) -> None:
     readiness = summary.get("readiness") or {}
     blockers = readiness.get("blockers") or []
@@ -310,12 +336,116 @@ def _render_readiness_panel(summary: dict[str, Any]) -> None:
     if blockers:
         st.markdown("**Блокеры**")
         for blocker in blockers:
-            st.markdown(f"- {blocker}")
+            st.markdown(f"- {_humanize_readiness_message(blocker)}")
 
     if warnings:
         st.markdown("**Предупреждения**")
         for warning in warnings:
-            st.markdown(f"- {warning}")
+            st.markdown(f"- {_humanize_readiness_message(warning)}")
+
+
+def _quality_grade_label(grade: str | None) -> str:
+    return {
+        "excellent": "Отлично",
+        "good": "Хорошо",
+        "needs_work": "Требует доработки",
+        "weak": "Слабый документ",
+    }.get(str(grade or ""), grade or "—")
+
+
+QUALITY_METRIC_LABELS = {
+    "vacancy_alignment": "Соответствие вакансии",
+    "relevance": "Соответствие вакансии",
+    "summary_quality": "Качество summary",
+    "skills_quality": "Качество навыков",
+    "ats_quality": "ATS качество",
+    "evidence_density": "Доказательная база",
+    "evidence_usage": "Доказательная база",
+    "achievement_quality": "Качество достижений",
+    "specificity": "Конкретика письма",
+    "ai_phrase_density": "Естественность текста",
+    "duplication": "Отличие от резюме",
+}
+
+
+def _render_quality_grade_status(grade: str | None) -> None:
+    normalized = str(grade or "").strip().lower()
+    label = _quality_grade_label(normalized)
+    if normalized == "excellent":
+        st.success(label)
+    elif normalized == "good":
+        st.info(label)
+    elif normalized == "needs_work":
+        st.warning(label)
+    elif normalized == "weak":
+        st.error(label)
+    else:
+        st.caption(label)
+
+
+def _quality_score_value(score: Any) -> int | None:
+    try:
+        return int(float(score))
+    except (TypeError, ValueError):
+        return None
+
+
+def _render_document_quality_panel(summary: dict[str, Any]) -> None:
+    quality = summary.get("quality") or {}
+
+    if not quality:
+        st.caption("Оценка качества документа пока недоступна.")
+        return
+
+    score = quality.get("score")
+    grade = quality.get("grade")
+    strengths = quality.get("strengths") or []
+    improvements = list(quality.get("improvements") or [])
+    score_value = _quality_score_value(score)
+    if score_value is not None and score_value < 70 and not improvements:
+        improvements.append("Усилить покрытие требований вакансии и доказательную базу")
+
+    st.markdown("### Качество документа")
+
+    col_score, col_grade = st.columns(2)
+
+    with col_score:
+        st.metric("Quality Score", score)
+
+    with col_grade:
+        st.markdown("**Оценка**")
+        _render_quality_grade_status(grade)
+
+    col_strengths, col_improvements = st.columns(2)
+
+    with col_strengths:
+        st.markdown("#### Сильные стороны")
+
+        if strengths:
+            for item in strengths:
+                st.markdown(f"✓ {item}")
+        else:
+            st.caption("Сильных сторон пока не найдено.")
+
+    with col_improvements:
+        st.markdown("#### Что улучшить")
+
+        if improvements:
+            for item in improvements:
+                st.markdown(f"• {item}")
+        else:
+            st.success("Критичных замечаний нет.")
+
+    metrics = quality.get("metrics") or {}
+
+    if metrics:
+        with st.expander("Детальные метрики", expanded=False):
+            for key, value in metrics.items():
+                label = QUALITY_METRIC_LABELS.get(
+                    str(key),
+                    str(key).replace("_", " ").title(),
+                )
+                st.metric(label, value)
 
 
 def _confidence_label(score: int) -> str:
@@ -333,16 +463,16 @@ def _confidence_item_label(value: Any) -> str:
         return ""
 
     if "fastapi" in lowered or "backend" in lowered or "api" in lowered:
-        return "backend/API опыт подтверждён"
+        return "Опыт backend и API подтверждён"
     if any(token in lowered for token in ("workflow", "automation", "orchestration", "openai", "telegram")):
-        return "AI workflow automation подтверждён"
+        return "Опыт автоматизации AI workflow подтверждён"
     if any(token in lowered for token in ("computer vision", "cv", "monitoring", "изображ", "video")):
-        return "AI/CV monitoring опыт подтверждён"
+        return "Опыт AI и CV monitoring подтверждён"
     if any(token in lowered for token in ("postgresql", "redis", "sqlalchemy", "database")):
-        return "опыт работы с backend data layer подтверждён"
+        return "Опыт работы с backend data layer подтверждён"
     if any(token in lowered for token in ("docker", "github", "repository", "git")):
-        return "инженерные project artifacts подтверждены"
-    return f"{text} подтверждён"
+        return "Инженерные артефакты проекта подтверждены"
+    return f"Подтверждено: {text}"
 
 
 def _risk_item_label(value: Any) -> str:
@@ -351,15 +481,47 @@ def _risk_item_label(value: Any) -> str:
     if not text:
         return ""
 
+    translations = (
+        ("document has coverage gaps", "Есть пробелы в покрытии требований вакансии"),
+        ("document has low ats score", "Низкий ATS score документа"),
+        ("document has achievements with missing metrics", "В достижениях не хватает метрик"),
+        ("document review_status is not approved", "Статус документа ещё не утверждён"),
+        ("document has unresolved claims requiring confirmation", "Есть утверждения, требующие подтверждения"),
+        ("document has unresolved critical evaluation failures", "Есть критичные ошибки в оценке"),
+        ("document is not active", "Документ неактивен"),
+        (
+            "vacancy match score is currently low because structured profile coverage is still limited",
+            "Оценка соответствия вакансии сейчас низкая, потому что структурированное покрытие профиля пока ограничено",
+        ),
+        (
+            "missing or weakly represented vacancy keywords",
+            "Ключевые слова вакансии представлены слабо или отсутствуют",
+        ),
+        (
+            "resume draft is ats-safe plaintext-oriented and not final formatted output",
+            "Черновик резюме подготовлен в ATS-совместимом текстовом виде и пока не является финально оформленной версией",
+        ),
+        (
+            "selected evidence includes snippets that still require human confirmation",
+            "Выбранные доказательства содержат фрагменты, которые ещё требуют подтверждения",
+        ),
+        ("this fact is not confirmed yet", "Факт ещё не подтверждён"),
+        ("keep it out of strong evidence paths until reviewed", "Не использовать в сильных доказательствах до проверки"),
+        ("not confirmed", "Не подтверждено"),
+    )
+    for needle, label in translations:
+        if needle in lowered:
+            return label
+
     if any(token in lowered for token in ("kubernetes", "aws", "cloud", "docker", "deployment", "production")):
-        return "production-scale infrastructure не подтверждена"
+        return "Инфраструктура production-scale не подтверждена"
     if any(token in lowered for token in ("commercial", "enterprise", "prod", "production", "deployment")):
-        return "commercial AI deployment experience не подтверждён"
+        return "Опыт коммерческого AI deployment не подтверждён"
     if any(token in lowered for token in ("leadership", "team lead", "management")):
-        return "leadership/team ownership не подтверждён"
+        return "Leadership и ownership команды не подтверждены"
     if any(token in lowered for token in ("postgresql", "redis", "database")):
-        return "глубина database/infra опыта требует проверки"
-    return f"{text} не подтверждён"
+        return "Глубина database и infra опыта требует проверки"
+    return f"Требует проверки: {text}"
 
 
 def _render_confidence_risk_panel(summary: dict[str, Any]) -> None:
@@ -1043,6 +1205,9 @@ def render_document_review_workspace(
     readiness = summary.get("readiness") or {}
     st.markdown("### Панель готовности")
     _render_readiness_panel(summary)
+
+    st.divider()
+    _render_document_quality_panel(summary)
 
     st.divider()
     _render_confidence_risk_panel(summary)

@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from app.domain.evidence_confidence import aggregate_evidence_confidence
+from app.services.document_quality_service import DocumentQualityService
 from app.services.readiness_gate_service import ReadinessGateService
 
 
 class DocumentReviewSummaryService:
-    def __init__(self, readiness_gate_service: ReadinessGateService | None = None) -> None:
+    def __init__(
+        self,
+        readiness_gate_service: ReadinessGateService | None = None,
+        quality_service: DocumentQualityService | None = None,
+    ) -> None:
         self.readiness_gate_service = readiness_gate_service or ReadinessGateService()
+        self.quality_service = quality_service or DocumentQualityService()
 
     def build_summary(self, document) -> dict:
         content = document.content_json or {}
@@ -16,6 +22,9 @@ class DocumentReviewSummaryService:
         meta = content.get("meta", {})
         provenance = dict(content.get("provenance") or meta.get("provenance") or {})
         readiness = self.readiness_gate_service.evaluate_document_readiness(document)
+        raw_document_kind = getattr(document, "document_kind", "") or ""
+        document_kind = str(getattr(raw_document_kind, "value", raw_document_kind))
+        quality = self._build_quality(document_kind=document_kind, document=document)
 
         selected_achievements = sections.get("selected_achievements", [])
         selected_achievement_ids = self._extract_selected_achievement_ids(
@@ -66,6 +75,7 @@ class DocumentReviewSummaryService:
             "missing_keywords": sections.get("missing_keywords", []),
             "selection_rationale": sections.get("selection_rationale", []),
             "provenance": provenance,
+            "quality": quality,
             "readiness": {
                 "ready": readiness.ready,
                 "blockers": readiness.blockers,
@@ -73,6 +83,25 @@ class DocumentReviewSummaryService:
                 "score": readiness.score,
             },
         }
+
+    def _build_quality(self, *, document_kind: str, document) -> dict:
+        document_kind = str(document_kind or "").strip().lower()
+        content_json = document.content_json or {}
+        rendered_text = getattr(document, "rendered_text", None)
+
+        if document_kind == "resume":
+            return self.quality_service.evaluate_resume(
+                content_json=content_json,
+                rendered_text=rendered_text,
+            ).as_dict()
+
+        if document_kind == "cover_letter":
+            return self.quality_service.evaluate_cover_letter(
+                content_json=content_json,
+                rendered_text=rendered_text,
+            ).as_dict()
+
+        return {}
 
     def _extract_selected_evidence_ids(
         self,

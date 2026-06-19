@@ -666,6 +666,8 @@ async def test_get_document_review_summary_returns_sections_and_readiness(client
     assert isinstance(payload["evidence_selection_reason"], list)
     assert payload["provenance"]["requires_human_review"] is True
     assert payload["provenance"]["selected_evidence_ids"]
+    assert "quality" in payload
+    assert isinstance(payload["quality"], dict)
     assert payload["matched_keywords"] == ["Python", "FastAPI"]
     assert payload["missing_keywords"] == ["Redis"]
     assert payload["selection_rationale"][0]["reason"] == "vacancy_overlap"

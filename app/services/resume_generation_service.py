@@ -165,8 +165,7 @@ CAPABILITY_PHRASES = [
 CAPABILITY_PHRASE_MARKERS = {
     "Закупочная деятельность": (
         r"закуп",
-        r"снабжен",
-        r"снабжени",
+        r"(?<!водо)снабжен",
         r"мто",
     ),
     "Материально-техническое обеспечение": (
@@ -2247,7 +2246,7 @@ class ResumeGenerationService:
     def _build_supply_management_focus_value(self, focus_phrases: list[str]) -> str:
         corpus = " ".join(str(value or "").casefold() for value in focus_phrases)
         values: list[str] = []
-        if any(marker in corpus for marker in ("закуп", "снабжен", "мто")):
+        if re.search(r"закуп|(?<!водо)снабжен|\bмто\b", corpus):
             values.append("организацией снабжения")
         if "поставщик" in corpus:
             values.append("управлением поставщиками")
@@ -2770,11 +2769,11 @@ class ResumeGenerationService:
             return value
 
         corpus = " ".join(lines).casefold()
-        if not any(marker in corpus for marker in ("закуп", "снабжен", "поставщик", "склад")):
+        if not re.search(r"закуп|(?<!водо)снабжен|поставщик|склад", corpus):
             return value
 
         sentences: list[str] = []
-        if any(marker in corpus for marker in ("закуп", "снабжен", "поставщик")):
+        if re.search(r"закуп|(?<!водо)снабжен|поставщик", corpus):
             if "поставщик" in corpus:
                 sentences.append(
                     "Отвечал за организацию закупочной деятельности и управление поставщиками."
@@ -2909,8 +2908,8 @@ class ResumeGenerationService:
                 build_warning(
                     code="low_match_score",
                     message=(
-                        "vacancy match score is currently low because structured "
-                        "profile coverage is still limited"
+                        "Оценка соответствия вакансии сейчас низкая, потому что "
+                        "структурированное покрытие профиля пока ограничено"
                     ),
                     severity="warning",
                 )
@@ -2921,7 +2920,7 @@ class ResumeGenerationService:
                 build_warning(
                     code="missing_vacancy_keywords",
                     message=(
-                        "missing or weakly represented vacancy keywords: "
+                        "Ключевые слова вакансии представлены слабо или отсутствуют: "
                         f"{', '.join(missing_keywords[:6])}"
                     ),
                     severity="warning",
@@ -2932,8 +2931,8 @@ class ResumeGenerationService:
             build_warning(
                 code="ats_plaintext_draft",
                 message=(
-                    "resume draft is ATS-safe plaintext-oriented and not final "
-                    "formatted output"
+                    "Черновик резюме подготовлен в ATS-совместимом текстовом виде "
+                    "и пока не является финально оформленной версией"
                 ),
                 severity="info",
             )

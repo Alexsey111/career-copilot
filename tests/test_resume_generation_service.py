@@ -822,6 +822,32 @@ def test_resume_skill_cleanup_splits_known_multiword_skills() -> None:
     ]
 
 
+def test_resume_generation_warnings_are_russian() -> None:
+    service = ResumeGenerationService()
+
+    warnings = service._build_warnings(
+        profile=SimpleNamespace(),
+        selected_achievements=[],
+        analysis_match_score=27,
+        missing_keywords=["FastAPI"],
+    )
+
+    messages = [item.message for item in warnings]
+
+    assert any(
+        "Оценка соответствия вакансии сейчас низкая" in message
+        for message in messages
+    )
+    assert any(
+        "Ключевые слова вакансии представлены слабо или отсутствуют" in message
+        for message in messages
+    )
+    assert any(
+        "Черновик резюме подготовлен в ATS-совместимом текстовом виде" in message
+        for message in messages
+    )
+
+
 def test_resume_skills_prefer_profile_summary_over_raw_text_section() -> None:
     service = ResumeGenerationService()
 
@@ -1206,6 +1232,35 @@ def test_relevant_to_vacancy_does_not_infer_ai_tooling_from_plain_ai_noise() -> 
     )
 
     assert "AI/LLM tooling" not in relevant
+
+
+def test_plumber_experience_humanizer_does_not_infer_supply_from_water_supply() -> None:
+    service = ResumeGenerationService()
+
+    result = service._humanize_supply_experience_description(
+        (
+            "Монтаж систем водоснабжения и канализации\n"
+            "Обслуживание сантехнического оборудования\n"
+            "Замена трубопроводов\n"
+            "Устранение аварийных ситуаций"
+        )
+    )
+
+    lowered = result.lower()
+    assert "закуп" not in lowered
+    assert "снабжения" not in lowered.replace("водоснабжения", "")
+    assert "водоснабжения" in lowered
+
+
+def test_plumber_skills_do_not_gain_procurement_from_water_supply() -> None:
+    service = ResumeGenerationService()
+
+    selected = service._select_resume_skills(
+        raw_skills=["Монтаж систем водоснабжения", "Ремонт трубопроводов"],
+        matched_keywords=["Монтаж систем водоснабжения"],
+    )
+
+    assert "Закупочная деятельность" not in selected
 
 
 def test_resume_project_sections_ground_computer_vision_and_analytics() -> None:

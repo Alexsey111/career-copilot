@@ -196,7 +196,14 @@ def test_achievement_extraction_ignores_pdf_bullet_layout_noise() -> None:
 
     assert "1" not in titles
     assert signals
-    assert any("Сократила количество ошибок" in title for title in titles)
+    assert titles == [
+        "Сократила количество ошибок в первичных документах",
+        "Навела порядок в архиве закрывающих документов",
+        "Ускорила процесс сверки с контрагентами",
+        "Подготовила шаблоны для регулярных бухгалтерских операций",
+    ]
+    assert all(" Навела " not in title for title in titles)
+    assert all(" Подготовила " not in title for title in titles)
     assert warnings == [
         "normalized contribution signals were extracted; candidate ownership requires review"
     ]
@@ -261,7 +268,8 @@ def test_real_doctor_achievement_does_not_keep_inline_skills_heading() -> None:
     )
 
     assert [draft.title for draft in drafts] == [
-        "Сократил среднее время ожидания приёма - Участвовал во внедрении электронной медкарты",
+        "Сократил среднее время ожидания приёма",
+        "Участвовал во внедрении электронной медкарты",
         "Провёл более 5000 консультаций",
     ]
 

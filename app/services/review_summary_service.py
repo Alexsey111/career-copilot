@@ -76,6 +76,7 @@ class ReviewSummaryService:
 
     def _build_document_summary(self, *, document, entity_id: UUID) -> dict[str, Any]:
         summary = self.document_summary_service.build_summary(document)
+        quality = dict(summary.get("quality") or {})
         readiness = summary["readiness"]
         provenance_summary = self._normalize_provenance_confidence(
             dict(summary.get("provenance") or {}),
@@ -110,6 +111,7 @@ class ReviewSummaryService:
             gap_risk_items=gap_risk_items,
             selected_evidence=selected_evidence,
             provenance_summary=provenance_summary,
+            quality=quality,
             recommended_actions=self._recommended_actions(
                 entity_type="document",
                 ready=bool(readiness["ready"]),
@@ -161,6 +163,7 @@ class ReviewSummaryService:
             gap_risk_items=gap_risk_items,
             selected_evidence=selected_evidence,
             provenance_summary=provenance_summary,
+            quality={},
             recommended_actions=self._recommended_actions(
                 entity_type="interview_prep",
                 ready=bool(readiness.get("ready")),
@@ -185,6 +188,7 @@ class ReviewSummaryService:
         gap_risk_items: list[dict[str, Any]],
         selected_evidence: list[dict[str, Any]],
         provenance_summary: dict[str, Any],
+        quality: dict[str, Any],
         recommended_actions: list[dict[str, Any]],
     ) -> dict[str, Any]:
         return {
@@ -205,6 +209,7 @@ class ReviewSummaryService:
             "gap_risk_items": gap_risk_items,
             "selected_evidence": selected_evidence,
             "provenance_summary": provenance_summary,
+            "quality": quality,
             "recommended_actions": recommended_actions,
         }
 

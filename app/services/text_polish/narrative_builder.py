@@ -29,6 +29,16 @@ SOFT_COMPETENCIES = {
     "коммуникабельность",
 }
 
+LOW_SIGNAL_GAP_TOPICS = {
+    "пользователь пк",
+    "скорость",
+    "компетентность",
+    "профильное законодательство",
+    "профильного законодательства",
+    "знание профильного законодательства",
+    "нормотворческая деятельность",
+}
+
 
 def build_gap_mitigation_paragraph(
     *,
@@ -65,6 +75,7 @@ def build_gap_mitigation_paragraph(
             )
             and gap_mitigation_allowed(item)
             and str(item.get("label") or "").strip().lower() not in SOFT_COMPETENCIES
+            and str(item.get("label") or "").strip().lower() not in LOW_SIGNAL_GAP_TOPICS
         ]
     )
     gap_items = sorted(
