@@ -355,11 +355,13 @@ class AchievementExtractionService:
         if not cleaned:
             return []
 
-        split_starters = [
-            starter
-            for starter in CONTRIBUTION_ACTION_VERBS
-            if starter.casefold() not in {"участвовал", "участвовала"}
-        ]
+        split_starters = list(CONTRIBUTION_ACTION_VERBS)
+        if re.search(r"\s+-\s+участвовал[а]?\b", cleaned, flags=re.IGNORECASE):
+            split_starters = [
+                starter
+                for starter in split_starters
+                if starter.casefold() not in {"участвовал", "участвовала"}
+            ]
         starter_pattern = "|".join(re.escape(starter) for starter in split_starters)
         split_by_starters = [
             part.strip(" ;-–—•")

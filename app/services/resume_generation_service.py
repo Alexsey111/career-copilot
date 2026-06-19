@@ -101,6 +101,15 @@ KNOWN_MULTIWORD_SKILLS = [
     "Складская логистика",
     "Управление персоналом",
     "Контроль качества",
+    "Adobe Photoshop",
+    "Adobe Illustrator",
+    "Figma",
+    "CorelDRAW",
+    "Полиграфический дизайн",
+    "Брендинг",
+    "Подготовка макетов к печати",
+    "Визуальная коммуникация",
+    "Типографика",
 ]
 
 GENERIC_MULTIWORD_SKILLS = [
@@ -133,6 +142,11 @@ EXPERIENCE_RESPONSIBILITY_BOUNDARIES = [
     "Ведение медицинской документации",
     "Координация маршрутизации пациентов",
     "Претензионная работа",
+    "Разработка рекламных материалов",
+    "Создание фирменного стиля",
+    "Разработка визуальных концепций",
+    "Создание контента для социальных сетей",
+    "Подготовка макетов к печати",
 ]
 
 CAPABILITY_PHRASES = [
@@ -953,12 +967,70 @@ class ResumeGenerationService:
         normalized = self._dedupe_preserve_order(normalized)
         if "Складская логистика" in normalized and "Логистика" in normalized:
             normalized = [skill for skill in normalized if skill != "Логистика"]
+        if self._has_design_context(normalized, matched_keywords):
+            normalized = self._rank_design_skills(
+                normalized,
+                matched_keywords=matched_keywords,
+            )
         if any(skill in CAPABILITY_PHRASES for skill in normalized):
             normalized = self._rank_business_capability_skills(
                 normalized,
                 matched_keywords=matched_keywords,
             )
         return normalized[:10]
+
+    def _has_design_context(self, skills: list[str], matched_keywords: list[str]) -> bool:
+        corpus = " ".join([*skills, *matched_keywords]).casefold()
+        return any(
+            marker in corpus
+            for marker in (
+                "photoshop",
+                "illustrator",
+                "figma",
+                "coreldraw",
+                "брендинг",
+                "дизайн",
+                "типограф",
+                "макет",
+            )
+        )
+
+    def _rank_design_skills(
+        self,
+        skills: list[str],
+        *,
+        matched_keywords: list[str],
+    ) -> list[str]:
+        matched_keys = {
+            self._normalize_display_skill(keyword).strip().casefold()
+            for keyword in matched_keywords
+            if str(keyword).strip()
+        }
+        priority = {
+            "adobe photoshop": 0,
+            "adobe illustrator": 1,
+            "figma": 2,
+            "coreldraw": 3,
+            "полиграфический дизайн": 4,
+            "брендинг": 5,
+            "подготовка макетов к печати": 6,
+            "визуальная коммуникация": 7,
+            "типографика": 8,
+        }
+
+        def rank_key(item: tuple[int, str]) -> tuple[int, int, int]:
+            index, skill = item
+            normalized = self._normalize_display_skill(skill).strip().casefold()
+            if normalized in priority:
+                return (0, priority[normalized], index)
+            if normalized in matched_keys:
+                return (1, 0, index)
+            return (2, 0, index)
+
+        return [
+            skill
+            for _, skill in sorted(enumerate(skills), key=rank_key)
+        ]
 
     def _rank_business_capability_skills(
         self,
@@ -1034,6 +1106,9 @@ class ResumeGenerationService:
             "prompt engineering": {"ai interaction", "llm tooling"},
             "chatgpt": {"llm", "llm tooling"},
         }
+
+        if key in {"графические редакторы", "графических редакторов"}:
+            return raw in {"adobe photoshop", "adobe illustrator", "coreldraw", "figma"}
 
         return (
             raw in generic_satisfied_by_specific.get(key, set())
@@ -2043,6 +2118,9 @@ class ResumeGenerationService:
             str(item.get("summary_phrase") or "").strip()
             for item in (top_alignment_evidence or [])
             if str(item.get("summary_phrase") or "").strip()
+            and not self._looks_like_achievement_focus_phrase(
+                str(item.get("summary_phrase") or "")
+            )
         ]
 
         if not focus_phrases:
@@ -2079,16 +2157,24 @@ class ResumeGenerationService:
             selected_skills=selected_skills,
             selected_achievements=selected_achievements,
         )
-        focus_limit = 4 if self.narrative_builder.is_resume_supply_management_context(
+        is_supply_management_context = self.narrative_builder.is_resume_supply_management_context(
             role=summary_role,
             focus_phrases=focus_phrases,
             selected_skills=selected_skills,
             selected_achievements=selected_achievements,
-        ) else 3
+        )
+        focus_limit = 4 if is_supply_management_context else 3
         focus = format_summary_focus_phrases(focus_phrases[:focus_limit])
 
         # PR-38: Универсальный шаблон summary на основе стажа
         total_years = self._calculate_total_experience_years(experience_items)
+        if is_supply_management_context:
+            return self._build_supply_management_summary(
+                total_years=total_years,
+                focus_phrases=focus_phrases[:focus_limit],
+                selected_achievements=selected_achievements,
+            )
+
         if total_years >= 1:
             years_text = f"{total_years} лет"
             if total_years % 10 == 1 and total_years % 100 != 11:
@@ -2106,6 +2192,126 @@ class ResumeGenerationService:
         if achievement_sentence:
             summary_start += f" {achievement_sentence}"
         return summary_start
+
+    def _looks_like_achievement_focus_phrase(self, value: str) -> bool:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        lowered = text.casefold()
+        if "%" in text or re.search(r"\b\d+\b", text):
+            return True
+        return lowered.startswith(
+            (
+                "сокращение ",
+                "снижение ",
+                "увеличение ",
+                "оптимизация ",
+                "ускорение ",
+            )
+        )
+
+    def _build_supply_management_summary(
+        self,
+        *,
+        total_years: int,
+        focus_phrases: list[str],
+        selected_achievements: list[dict[str, Any]],
+    ) -> str:
+        if total_years >= 1:
+            years_text = f"{total_years} лет"
+            if total_years % 10 == 1 and total_years % 100 != 11:
+                years_text = f"{total_years} год"
+            elif total_years % 10 in [2, 3, 4] and total_years % 100 not in [12, 13, 14]:
+                years_text = f"{total_years} года"
+            first_sentence = (
+                f"Более {years_text} работаю в сфере "
+                "материально-технического обеспечения и закупок."
+            )
+        else:
+            first_sentence = (
+                "Работаю в сфере материально-технического обеспечения и закупок."
+            )
+
+        focus = self._build_supply_management_focus_value(focus_phrases)
+        sentences = [
+            first_sentence,
+            f"Основной опыт связан с {focus}.",
+        ]
+
+        achievement_value = self._build_supply_management_achievement_value(
+            selected_achievements,
+        )
+        if achievement_value:
+            sentences.append(f"За время работы реализовал проекты по {achievement_value}.")
+
+        return " ".join(sentences)
+
+    def _build_supply_management_focus_value(self, focus_phrases: list[str]) -> str:
+        corpus = " ".join(str(value or "").casefold() for value in focus_phrases)
+        values: list[str] = []
+        if any(marker in corpus for marker in ("закуп", "снабжен", "мто")):
+            values.append("организацией снабжения")
+        if "поставщик" in corpus:
+            values.append("управлением поставщиками")
+        if any(marker in corpus for marker in ("бюджет", "затрат")):
+            values.append("бюджетированием")
+        if any(marker in corpus for marker in ("логист", "поставк", "склад")):
+            values.append("контролем логистических процессов")
+
+        if not values:
+            return format_summary_focus_phrases(focus_phrases)
+        return format_summary_focus_phrases(values[:4])
+
+    def _build_supply_management_achievement_value(
+        self,
+        selected_achievements: list[dict[str, Any]],
+    ) -> str:
+        phrases = [
+            self._to_project_po_case(
+                self.achievement_verbalizer.nounize_achievement_phrase(
+                    str(item.get("title") or "")
+                )
+            )
+            for item in selected_achievements[:3]
+            if str(item.get("title") or "").strip()
+        ]
+        phrases = self._dedupe_preserve_order([phrase for phrase in phrases if phrase])
+        if not phrases:
+            return ""
+        if len(phrases) == 1:
+            return phrases[0]
+        if len(phrases) == 2:
+            return " и ".join(phrases)
+        return f"{', '.join(phrases[:-1])} и {phrases[-1]}"
+
+    def _to_project_po_case(self, value: str) -> str:
+        replacements = {
+            "автоматизация": "автоматизации",
+            "ведение": "ведению",
+            "внедрение": "внедрению",
+            "координация": "координации",
+            "настройка": "настройке",
+            "оптимизация": "оптимизации",
+            "организация": "организации",
+            "подготовка": "подготовке",
+            "построение": "построению",
+            "проведение": "проведению",
+            "разработка": "разработке",
+            "реализация": "реализации",
+            "снижение": "снижению",
+            "сокращение": "сокращению",
+            "создание": "созданию",
+            "сопровождение": "сопровождению",
+            "увеличение": "увеличению",
+            "улучшение": "улучшению",
+            "управление": "управлению",
+        }
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        if not text:
+            return ""
+        first, _, rest = text.partition(" ")
+        replacement = replacements.get(first.casefold())
+        if not replacement:
+            return text
+        return f"{replacement} {rest}".strip()
 
     def _filter_document_usable_evidence(
         self,
@@ -2488,8 +2694,8 @@ class ResumeGenerationService:
                 "company": exp.company,
                 "role": exp.role,
                 "period": self._format_period(exp.start_date, exp.end_date),
-                "description_raw": self._normalize_experience_description(
-                    exp.description_raw
+                "description_raw": self._humanize_supply_experience_description(
+                    self._normalize_experience_description(exp.description_raw)
                 ),
             }
 
@@ -2508,8 +2714,8 @@ class ResumeGenerationService:
                     "company": exp.company,
                     "role": exp.role,
                     "period": self._format_period(exp.start_date, exp.end_date),
-                    "description_raw": self._normalize_experience_description(
-                        exp.description_raw
+                    "description_raw": self._humanize_supply_experience_description(
+                        self._normalize_experience_description(exp.description_raw)
                     ),
                 }
             )
@@ -2550,6 +2756,49 @@ class ResumeGenerationService:
             return text
 
         return "\n".join(self._dedupe_preserve_order(parts))
+
+    def _humanize_supply_experience_description(self, value: str | None) -> str | None:
+        if not value:
+            return value
+
+        lines = [
+            re.sub(r"\s+", " ", line).strip(" .;-–—•")
+            for line in str(value).splitlines()
+            if line.strip(" .;-–—•")
+        ]
+        if len(lines) < 3:
+            return value
+
+        corpus = " ".join(lines).casefold()
+        if not any(marker in corpus for marker in ("закуп", "снабжен", "поставщик", "склад")):
+            return value
+
+        sentences: list[str] = []
+        if any(marker in corpus for marker in ("закуп", "снабжен", "поставщик")):
+            if "поставщик" in corpus:
+                sentences.append(
+                    "Отвечал за организацию закупочной деятельности и управление поставщиками."
+                )
+            else:
+                sentences.append("Отвечал за организацию закупочной деятельности.")
+
+        if any(marker in corpus for marker in ("бюджет", "логист", "постав", "склад")):
+            objects: list[str] = []
+            if "бюджет" in corpus:
+                objects.append("бюджет снабжения")
+            if "склад" in corpus:
+                objects.append("складские запасы")
+            if any(marker in corpus for marker in ("логист", "постав")):
+                objects.append("логистические процессы")
+            if objects:
+                sentences.append(f"Контролировал {format_summary_focus_phrases(objects)}.")
+
+        if any(marker in corpus for marker in ("отдел", "договор", "обязательств")):
+            sentences.append(
+                "Руководил работой отдела снабжения и обеспечивал исполнение договорных обязательств."
+            )
+
+        return "\n".join(self._dedupe_preserve_order(sentences)) if sentences else value
 
     def _looks_like_low_confidence_experience_item(self, item: dict) -> bool:
         combined = " ".join(

@@ -56,7 +56,7 @@ pytest -q
 Backend должен быть запущен на:
 
 ```text
-http://localhost:8000
+http://localhost:7000
 ```
 
 Запуск:
@@ -111,7 +111,7 @@ match_score = 64
 Если backend запущен на другом URL:
 
 ```powershell
-$env:API_BASE_URL="http://localhost:8000/api/v1"
+$env:API_BASE_URL="http://localhost:7000/api/v1"
 python .\scripts\smoke_mvp_flow.py
 ```
 
@@ -241,7 +241,7 @@ nice_to_have:
 Если local parser показывает правильно, а API/latest analysis в БД неправильный - вероятно, analysis был создан старым backend-кодом. Повторить:
 
 ```powershell
-curl.exe -sS -X POST "http://localhost:8000/api/v1/vacancies/<VACANCY_ID>/analyze"
+curl.exe -sS -X POST "http://localhost:7000/api/v1/vacancies/<VACANCY_ID>/analyze"
 ```
 
 ---
@@ -305,7 +305,7 @@ python -m uvicorn app.main:app --reload
 python -m uvicorn app.main:app --reload
 ```
 
-При этом Docker API-контейнер не должен занимать порт 8000.
+При этом Docker API-контейнер не должен занимать порт 7000.
 
 Проверить контейнеры:
 
@@ -313,7 +313,7 @@ python -m uvicorn app.main:app --reload
 docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Ports}}"
 ```
 
-Если `career-copilot-api` публикует `0.0.0.0:8000->8000/tcp`, остановить его:
+Если `career-copilot-api` публикует `0.0.0.0:7000->7000/tcp`, остановить его:
 
 ```powershell
 docker stop career-copilot-api
@@ -321,19 +321,19 @@ docker stop career-copilot-api
 
 Postgres, Redis и MinIO оставлять запущенными.
 
-Проверить, кто слушает порт 8000:
+Проверить, кто слушает порт 7000:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 8000 -State Listen |
+Get-NetTCPConnection -LocalPort 7000 -State Listen |
   Select-Object LocalAddress, LocalPort, OwningProcess
 ```
 
 Проверить процесс:
 
 ```powershell
-$pid8000 = (Get-NetTCPConnection -LocalPort 8000 -State Listen).OwningProcess
-Get-Process -Id $pid8000 | Select-Object Id, ProcessName, Path, StartTime
-Get-CimInstance Win32_Process -Filter "ProcessId=$pid8000" |
+$pid7000 = (Get-NetTCPConnection -LocalPort 7000 -State Listen).OwningProcess
+Get-Process -Id $pid7000 | Select-Object Id, ProcessName, Path, StartTime
+Get-CimInstance Win32_Process -Filter "ProcessId=$pid7000" |
   Select-Object ProcessId, CommandLine
 ```
 
@@ -382,17 +382,17 @@ docker compose restart api
 Если pytest зелёный, а API ведёт себя по-старому:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 8000 -State Listen
+Get-NetTCPConnection -LocalPort 7000 -State Listen
 ```
 
-Проверить, какой процесс реально отвечает на `localhost:8000`.
+Проверить, какой процесс реально отвечает на `localhost:7000`.
 
 ### Старые analysis rows
 
 Если vacancy analysis был создан до фикса, latest analysis может содержать старую структуру. Повторить:
 
 ```powershell
-curl.exe -sS -X POST "http://localhost:8000/api/v1/vacancies/<VACANCY_ID>/analyze"
+curl.exe -sS -X POST "http://localhost:7000/api/v1/vacancies/<VACANCY_ID>/analyze"
 ```
 
 ---

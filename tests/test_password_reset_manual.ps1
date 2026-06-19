@@ -1,7 +1,7 @@
 # Password Reset Test Script
 # Run: .\tests\test_password_reset_manual.ps1
 
-$API_BASE = "http://localhost:8000/api/v1/auth"
+$API_BASE = "http://localhost:7000/api/v1/auth"
 $TEST_EMAIL = "reset-test@example.com"
 $OLD_PASSWORD = "OldPass123!"
 $NEW_PASSWORD = "NewStrongPass123"

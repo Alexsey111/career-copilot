@@ -10,7 +10,7 @@ import httpx
 import streamlit as st
 
 
-DEFAULT_API_BASE_URL = "http://localhost:8000/api/v1"
+DEFAULT_API_BASE_URL = "http://localhost:7000/api/v1"
 
 
 def _headers_cache_key(headers: dict[str, str]) -> tuple[tuple[str, str], ...]:

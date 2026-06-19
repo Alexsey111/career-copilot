@@ -34,10 +34,10 @@ def test_register_returns_json_object(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("httpx.post", fake_post)
 
-    client = CareerCopilotApiClient(api_base_url="http://localhost:8000/api/v1", timeout_seconds=7.5)
+    client = CareerCopilotApiClient(api_base_url="http://localhost:7000/api/v1", timeout_seconds=7.5)
     result = client.register("new.user@example.com", "StrongPass123!")
 
-    assert captured["url"] == "http://localhost:8000/api/v1/auth/register"
+    assert captured["url"] == "http://localhost:7000/api/v1/auth/register"
     assert captured["json"] == {
         "email": "new.user@example.com",
         "password": "StrongPass123!",
@@ -54,7 +54,7 @@ def test_register_rejects_non_object_payload(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("httpx.post", fake_post)
 
-    client = CareerCopilotApiClient(api_base_url="http://localhost:8000/api/v1")
+    client = CareerCopilotApiClient(api_base_url="http://localhost:7000/api/v1")
 
     with pytest.raises(ValueError, match="Expected JSON object from register endpoint"):
         client.register("new.user@example.com", "StrongPass123!")
@@ -78,13 +78,13 @@ def test_import_vacancy_from_url_posts_to_hh_endpoint(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr("httpx.post", fake_post)
 
-    client = CareerCopilotApiClient(api_base_url="http://localhost:8000/api/v1", timeout_seconds=4.0)
+    client = CareerCopilotApiClient(api_base_url="http://localhost:7000/api/v1", timeout_seconds=4.0)
     result = client.import_vacancy_from_url(
         source_url="https://hh.ru/vacancy/123",
         token="token-abc",
     )
 
-    assert captured["url"] == "http://localhost:8000/api/v1/vacancies/import-from-url"
+    assert captured["url"] == "http://localhost:7000/api/v1/vacancies/import-from-url"
     assert captured["json"] == {"source_url": "https://hh.ru/vacancy/123"}
     assert captured["headers"]["Authorization"] == "Bearer token-abc"
     assert captured["timeout"] == 45.0
@@ -99,7 +99,7 @@ def test_review_summary_rejects_missing_entity_id_before_request(
 
     monkeypatch.setattr("httpx.get", fake_get)
 
-    client = CareerCopilotApiClient(api_base_url="http://localhost:8000/api/v1")
+    client = CareerCopilotApiClient(api_base_url="http://localhost:7000/api/v1")
 
     with pytest.raises(ValueError, match="review summary entity_id is required"):
         client.get_document_review_summary(None)

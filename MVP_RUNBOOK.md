@@ -86,13 +86,13 @@ uvicorn app.main:app --reload
 Проверка:
 
 ```text
-http://localhost:8000/docs
+http://localhost:7000/docs
 ```
 
 API base URL:
 
 ```text
-http://localhost:8000/api/v1
+http://localhost:7000/api/v1
 ```
 
 ## Start Frontend
@@ -108,7 +108,7 @@ streamlit run .\frontend\streamlit\app.py
 Если нужен нестандартный backend URL:
 
 ```powershell
-$env:CAREER_COPILOT_API_BASE_URL = "http://localhost:8000/api/v1"
+$env:CAREER_COPILOT_API_BASE_URL = "http://localhost:7000/api/v1"
 streamlit run .\frontend\streamlit\app.py
 ```
 

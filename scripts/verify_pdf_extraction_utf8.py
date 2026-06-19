@@ -18,7 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 
-DEFAULT_API_BASE_URL = "http://localhost:8000/api/v1"
+DEFAULT_API_BASE_URL = "http://localhost:7000/api/v1"
 DEFAULT_DATABASE_URL = (
     "postgresql+psycopg://career_user:career_pass@localhost:5432/career_copilot"
 )

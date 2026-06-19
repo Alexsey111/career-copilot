@@ -791,6 +791,27 @@ def test_multiline_experience_extracts_supply_management_resume() -> None:
     assert len(draft.experiences) == 2
 
 
+def test_profile_structuring_splits_compact_designer_target_roles() -> None:
+    service = ProfileStructuringService()
+
+    draft = service._build_draft(
+        """
+Анна Петрова
+Целевая должность
+Графический дизайнер Дизайнер маркетинговых материалов
+Навыки
+Adobe Photoshop
+Figma
+"""
+    )
+
+    assert draft.target_roles == [
+        "Графический дизайнер",
+        "Дизайнер маркетинговых материалов",
+    ]
+    assert draft.headline == "Графический дизайнер, Дизайнер маркетинговых материалов"
+
+
 def test_split_inline_responsibility_items_separates_control_and_budgeting_phrases() -> None:
     service = ProfileStructuringService()
 

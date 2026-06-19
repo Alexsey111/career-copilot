@@ -15,6 +15,10 @@ from app.services.text_polish.humanizer import (
     join_cover_letter_phrases,
     join_experience_phrases,
 )
+from app.services.text_polish.achievement_verbalizer import (
+    AchievementStyle,
+    verbalize_achievement_phrase,
+)
 
 
 SOFT_COMPETENCIES = {
@@ -32,7 +36,6 @@ def build_gap_mitigation_paragraph(
     profile_skills: list[str],
     vacancy_title: str,
 ) -> str | None:
-    del profile_skills
     clean_vacancy_title(vacancy_title)
     gap_items = vacancy_fit_narrative.get("critical_gaps") or []
     if not gap_items:
@@ -43,6 +46,11 @@ def build_gap_mitigation_paragraph(
         for item in (vacancy_fit_narrative.get("matched_strengths") or [])
         if requirement_match_key(str(item.get("label") or ""))
     }
+    profile_skill_keys = {
+        requirement_match_key(str(skill or ""))
+        for skill in profile_skills
+        if requirement_match_key(str(skill or ""))
+    }
 
     gap_items = dedupe_gap_keywords(
         [
@@ -51,6 +59,10 @@ def build_gap_mitigation_paragraph(
             if str(item.get("label") or "").strip()
             and requirement_match_key(str(item.get("label") or ""))
             not in matched_labels
+            and not gap_is_supported_by_profile_skills(
+                str(item.get("label") or ""),
+                profile_skill_keys,
+            )
             and gap_mitigation_allowed(item)
             and str(item.get("label") or "").strip().lower() not in SOFT_COMPETENCIES
         ]
@@ -73,6 +85,15 @@ def build_gap_mitigation_paragraph(
         "Отдельно готов обсудить план быстрого погружения: "
         f"{gap_focus}."
     )
+
+
+def gap_is_supported_by_profile_skills(label: str, profile_skill_keys: set[str]) -> bool:
+    gap_key = requirement_match_key(label)
+    if not gap_key or not profile_skill_keys:
+        return False
+    if gap_key in profile_skill_keys:
+        return True
+    return any(skill_key and skill_key in gap_key for skill_key in profile_skill_keys)
 
 
 def cover_letter_requirement_focus(
@@ -375,7 +396,9 @@ class NarrativeBuilder:
                 requires_confirmation=bool(item.get("requires_confirmation") is True),
             )
             if phrase:
-                phrase = humanize_experience_phrase(phrase)
+                phrase = self._project_phrase_narrative_form(
+                    humanize_experience_phrase(phrase)
+                )
                 candidates.append(
                     (
                         phrase,
@@ -410,7 +433,9 @@ class NarrativeBuilder:
                 requires_confirmation=bool(item.get("requires_confirmation") is True),
             )
             if phrase:
-                phrase = humanize_experience_phrase(phrase)
+                phrase = self._project_phrase_narrative_form(
+                    humanize_experience_phrase(phrase)
+                )
                 candidates.append(
                     (
                         phrase,
@@ -447,7 +472,34 @@ class NarrativeBuilder:
         project_phrases = dedupe_subsumed_phrases(
             dedupe_preserve_order(project_phrases)
         )
-        return "; ".join(project_phrases[:2]) if project_phrases else ""
+        return self._join_project_narrative_phrases(project_phrases[:3])
+
+    def _project_phrase_narrative_form(self, phrase: str) -> str:
+        cleaned = re.sub(r"\s+", " ", str(phrase or "")).strip(" .;-–—•")
+        if not cleaned:
+            return ""
+        return verbalize_achievement_phrase(
+            cleaned,
+            style=AchievementStyle.NARRATIVE,
+        )
+
+    def _join_project_narrative_phrases(self, phrases: list[str]) -> str:
+        cleaned = dedupe_subsumed_phrases(
+            dedupe_preserve_order(
+                [
+                    re.sub(r"\s+", " ", str(phrase or "")).strip(" .;-–—•")
+                    for phrase in phrases
+                    if str(phrase or "").strip()
+                ]
+            )
+        )
+        if not cleaned:
+            return ""
+        if len(cleaned) == 1:
+            return cleaned[0]
+        if len(cleaned) == 2:
+            return f"{cleaned[0]} и {cleaned[1]}"
+        return f"{', '.join(cleaned[:-1])}, а также {cleaned[-1]}"
 
     def cover_letter_project_phrase(
         self,
@@ -473,6 +525,19 @@ class NarrativeBuilder:
                 return f"проектный опыт: {display_title}"
             return "проектный опыт"
 
+        if any(
+            marker in corpus
+            for marker in (
+                "дизайн",
+                "макет",
+                "брендинг",
+                "photoshop",
+                "illustrator",
+                "figma",
+                "coreldraw",
+            )
+        ):
+            return "разработка визуальных материалов"
         if any(marker in corpus for marker in ("computer vision", "image", "изображ", "video", "видео")):
             return "опыт обработки визуальных данных"
         if any(marker in corpus for marker in ("quality control", "контроль качества", "safety", "безопас")):
@@ -697,6 +762,27 @@ class NarrativeBuilder:
                 specialized.append("договорная работа")
             return specialized or focus_phrases
 
+        if self.is_resume_design_context(
+            role=role,
+            focus_phrases=focus_phrases,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+        ):
+            corpus = self.resume_summary_context_corpus(
+                role=role,
+                focus_phrases=focus_phrases,
+                selected_skills=selected_skills,
+                selected_achievements=selected_achievements,
+            )
+            specialized: list[str] = []
+            if re.search(r"графическ|дизайн|визуальн|брендинг", corpus):
+                specialized.append("графического дизайна")
+            if re.search(r"макет|полиграф|печать", corpus):
+                specialized.append("подготовки макетов к печати")
+            if re.search(r"figma|photoshop|illustrator|coreldraw|типограф", corpus):
+                specialized.append("работы с графическими редакторами")
+            return specialized or focus_phrases
+
         if "сантехник" not in role.casefold():
             return focus_phrases
 
@@ -755,6 +841,27 @@ class NarrativeBuilder:
             re.search(r"начальник|руковод|управлен|бюджет|переговор|договор|контрол", corpus)
         )
         return has_supply_domain and has_management_signal
+
+    def is_resume_design_context(
+        self,
+        *,
+        role: str,
+        focus_phrases: list[str],
+        selected_skills: list[str],
+        selected_achievements: list[dict[str, Any]],
+    ) -> bool:
+        corpus = self.resume_summary_context_corpus(
+            role=role,
+            focus_phrases=focus_phrases,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+        )
+        return bool(
+            re.search(
+                r"дизайн|графическ|photoshop|illustrator|figma|coreldraw|брендинг|типограф|макет",
+                corpus,
+            )
+        )
 
     def resume_summary_context_corpus(
         self,

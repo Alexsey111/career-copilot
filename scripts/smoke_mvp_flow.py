@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:7000/api/v1")
 SMOKE_EMAIL = os.getenv("SMOKE_EMAIL") or f"smoke-{uuid4().hex[:12]}@career-copilot.local"
 SMOKE_PASSWORD = os.getenv("SMOKE_PASSWORD", "SmokePilot!123")
 

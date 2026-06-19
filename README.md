@@ -52,7 +52,7 @@ python -m alembic upgrade head
 Backend API по умолчанию:
 
 ```text
-http://localhost:8000/api/v1
+http://localhost:7000/api/v1
 ```
 
 Примеры новых API путей:
@@ -64,7 +64,7 @@ http://localhost:8000/api/v1
 OpenAPI:
 
 ```text
-http://localhost:8000/docs
+http://localhost:7000/docs
 ```
 
 ### 5. Запустите Streamlit frontend
@@ -92,7 +92,7 @@ python scripts/reset_demo_environment.py
 Если backend запущен не на стандартном адресе, можно указать API URL через переменную окружения:
 
 ```powershell
-$env:CAREER_COPILOT_API_BASE_URL = "http://localhost:8000/api/v1"
+$env:CAREER_COPILOT_API_BASE_URL = "http://localhost:7000/api/v1"
 streamlit run .\frontend\streamlit\app.py
 ```
 

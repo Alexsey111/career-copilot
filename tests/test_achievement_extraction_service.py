@@ -154,6 +154,27 @@ def test_splits_multiple_dash_separated_achievements() -> None:
     assert "Внедрила систему проектной отчётности" in titles
 
 
+def test_achievement_extraction_splits_designer_inline_participation_result() -> None:
+    service = AchievementExtractionService()
+
+    signals, warnings = service.extract_contribution_signals_for_review(
+        """
+        Достижения:
+        Подготовила более 200 рекламных материалов для федеральных кампаний Участвовала в ребрендинге продуктовой линейки
+        """
+    )
+
+    titles = [item.title for item in signals]
+
+    assert titles == [
+        "Подготовила более 200 рекламных материалов для федеральных кампаний",
+        "Участвовала в ребрендинге продуктовой линейки",
+    ]
+    assert warnings == [
+        "normalized contribution signals were extracted; candidate ownership requires review"
+    ]
+
+
 def test_achievement_extraction_ignores_pdf_bullet_layout_noise() -> None:
     service = AchievementExtractionService()
 

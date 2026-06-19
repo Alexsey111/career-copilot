@@ -69,7 +69,8 @@ def test_cover_letter_build_draft_includes_strengths_and_gaps() -> None:
     assert "Практический результат моей работы" in draft
     assert "В своей работе мне удалось показать результат через" not in draft
     assert "built ai system" in draft.lower()
-    assert "Со своей стороны могу дать компании" in draft
+    assert "Готов применять свой опыт" in draft
+    assert "Со своей стороны" not in draft
     assert "Считаю себя релевантным кандидатом" not in draft
     assert "still developing experience" not in draft.lower()
 
@@ -88,7 +89,8 @@ def test_cover_letter_build_draft_handles_empty_gaps() -> None:
     assert "Backend Developer" in draft
     assert "Python" in draft
     assert "план быстрого погружения" not in draft.lower()
-    assert "Со своей стороны могу дать компании" in draft
+    assert "Готов применять свой опыт" in draft
+    assert "Со своей стороны" not in draft
 
 
 @pytest.mark.asyncio
@@ -246,6 +248,22 @@ def test_cover_letter_project_context_is_domain_neutral_for_visual_monitoring() 
     assert "career copilot" not in context.lower()
 
 
+def test_cover_letter_project_context_uses_design_language_for_designer() -> None:
+    narrative_builder = NarrativeBuilder()
+
+    context = narrative_builder.cover_letter_project_phrase(
+        title="Разработка визуальных материалов",
+        body="Обработка изображений, подготовка макетов, брендинг",
+        skills=["Adobe Photoshop", "Figma", "CorelDRAW"],
+        fact_status="confirmed",
+        ownership_confidence="high",
+        requires_confirmation=False,
+    )
+
+    assert context == "разработка визуальных материалов"
+    assert "визуальных данных" not in context
+
+
 def test_cover_letter_project_display_hints_are_neutral() -> None:
     assert PROJECT_DISPLAY_HINTS["career-copilot"] == "backend workflow evidence"
     assert PROJECT_DISPLAY_HINTS["content-factory"] == "automation workflow evidence"
@@ -364,6 +382,31 @@ def test_cover_letter_project_value_prefers_safe_evidence_phrases() -> None:
     assert "implementation signals" not in phrase
 
 
+def test_cover_letter_project_value_verbalizes_achievements_as_connected_narrative() -> None:
+    narrative_builder = NarrativeBuilder()
+
+    phrase = narrative_builder.cover_letter_project_value(
+        selected_achievements=[
+            {
+                "title": "Внедрил систему контроля закупок и согласования договоров",
+                "fact_status": "confirmed",
+            },
+            {
+                "title": "Сократил сроки поставок материалов на 18%",
+                "fact_status": "confirmed",
+            },
+        ],
+        selected_evidence=[],
+    )
+
+    assert phrase == (
+        "внедрение системы контроля закупок и согласования договоров "
+        "и сокращение сроков поставок материалов на 18%"
+    )
+    assert "Внедрил" not in phrase
+    assert "Сократил" not in phrase
+
+
 def test_cover_letter_relevance_paragraph_does_not_use_ai_project_result_template() -> None:
     service = CoverLetterGenerationService()
 
@@ -388,6 +431,33 @@ def test_cover_letter_relevance_paragraph_does_not_use_ai_project_result_templat
 
     assert "В своей работе мне удалось показать результат через" not in paragraph
     assert "Среди реализованных проектов и инициатив" in paragraph
+
+
+def test_cover_letter_does_not_repeat_project_achievement_in_result_block() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_relevance_paragraph(
+        matched_keywords=["закупки", "поставки"],
+        selected_achievements=[
+            {
+                "title": "Снизил затраты на закупки на 15%",
+                "fact_status": "confirmed",
+            },
+            {
+                "title": "Оптимизировал складские остатки на 25%",
+                "fact_status": "confirmed",
+            },
+        ],
+        selected_evidence=[],
+        missing_keywords=[],
+        profile_skills=[],
+        vacancy_title="Руководитель отдела снабжения",
+    )
+
+    assert paragraph.count("снижен") <= 1
+    assert paragraph.count("снижение затрат на закупки на 15%") <= 1
+    assert "Среди реализованных проектов и инициатив" in paragraph
+    assert "Среди результатов, которыми особенно горжусь" not in paragraph
 
 
 def test_cover_letter_relevance_paragraph_leads_with_testing_evidence() -> None:
@@ -486,6 +556,38 @@ def test_achievement_verbalizer_nominalizes_achievement_titles() -> None:
     assert "сократил" not in result
 
 
+def test_achievement_verbalizer_declines_designer_nominal_tail() -> None:
+    verbalizer = AchievementVerbalizer()
+
+    result = verbalizer.nounize_achievement_phrase(
+        "Разработала новый фирменный стиль компании"
+    )
+
+    assert result == "разработка нового фирменного стиля компании"
+    assert "разработка новый" not in result
+
+
+def test_achievement_verbalizer_keeps_action_style_for_resume_summary() -> None:
+    verbalizer = AchievementVerbalizer()
+
+    result = verbalizer.build_resume_achievement_sentence(
+        [
+            {"title": "Снизил затраты на закупки на 15%"},
+            {"title": "Оптимизировал складские остатки на 25%"},
+            {"title": "Сократил сроки поставок материалов на 18%"},
+        ]
+    )
+
+    assert result == (
+        "За время работы снизил затраты на закупки на 15%; "
+        "также оптимизировал складские остатки на 25%; "
+        "сократил сроки поставок материалов на 18%."
+    )
+    assert "снижение затрат" not in result
+    assert "оптимизация складских" not in result
+    assert "сокращение сроков" not in result
+
+
 def test_cover_letter_evidence_phrases_drop_subsumed_generic_variants() -> None:
     service = CoverLetterGenerationService()
 
@@ -579,6 +681,62 @@ def test_cover_letter_gap_mitigation_filters_direct_matches() -> None:
     )
     assert "деловой коммуникации" not in paragraph
     assert "деловой коммуникации" not in paragraph
+
+
+def test_cover_letter_gap_mitigation_filters_designer_tools_confirmed_in_profile() -> None:
+    service = CoverLetterGenerationService()
+
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {
+                    "label": "отличное знание графических редакторов (Adobe Photoshop, CorelDRAW)",
+                    "classification": "hard_skill",
+                }
+            ],
+            "matched_strengths": [],
+        },
+        profile_skills=["Adobe Photoshop", "CorelDRAW", "Figma"],
+        vacancy_title="Графический дизайнер",
+    )
+
+    assert paragraph is None
+
+
+def test_cover_letter_gap_mitigation_uses_designer_skills_from_achievements() -> None:
+    service = CoverLetterGenerationService()
+    profile = SimpleNamespace(
+        headline="Графический дизайнер",
+        summary="",
+        experiences=[],
+        achievements=[
+            SimpleNamespace(
+                title="Подготовила макеты в Adobe Photoshop и CorelDRAW",
+                action="",
+                result="",
+                skills_json=["Adobe Photoshop", "CorelDRAW"],
+            )
+        ],
+    )
+
+    profile_skills = service._extract_skills_from_profile(profile)
+    paragraph = service._build_gap_mitigation_paragraph(
+        vacancy_fit_narrative={
+            "critical_gaps": [
+                {
+                    "label": "отличное знание графических редакторов (Adobe Photoshop, CorelDRAW)",
+                    "classification": "hard_skill",
+                }
+            ],
+            "matched_strengths": [],
+        },
+        profile_skills=profile_skills,
+        vacancy_title="Графический дизайнер",
+    )
+
+    assert "Adobe Photoshop" in profile_skills
+    assert "CorelDRAW" in profile_skills
+    assert paragraph is None
 
 
 def test_cover_letter_gap_mitigation_skips_education_and_certification_gaps() -> None:
@@ -792,7 +950,8 @@ def test_cover_letter_rendered_text_is_russian_and_not_internal_copy() -> None:
     assert "Особенно близки задачи, связанные с Python" in rendered
     assert "Среди реализованных проектов и инициатив" in rendered
     assert "В своей работе мне удалось показать результат через" not in rendered
-    assert "Со своей стороны могу дать компании" in rendered
+    assert "Готов применять свой опыт" in rendered
+    assert "Со своей стороны" not in rendered
     assert "Буду рад обсудить" in rendered
 
     assert "Dear hiring team" not in rendered

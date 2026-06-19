@@ -539,6 +539,13 @@ def test_rendered_resume_skills_include_experience_derived_business_capabilities
     assert "- Договорная работа" in rendered
     assert "- Ведение переговоров" in rendered
     assert rendered.index("- Закупочная деятельность") < rendered.index("- Excel")
+    assert "- Отвечал за организацию закупочной деятельности и управление поставщиками." in rendered
+    assert "- Контролировал бюджет снабжения, складские запасы и логистические процессы." in rendered
+    assert (
+        "- Руководил работой отдела снабжения и обеспечивал исполнение договорных обязательств."
+        in rendered
+    )
+    assert "- Организация закупочной деятельности" not in rendered
 
 
 def test_resume_generation_prioritizes_capability_skills_before_tools() -> None:
@@ -587,6 +594,86 @@ def test_resume_generation_prioritizes_capability_skills_before_tools() -> None:
         "Претензионная работа",
         "Складская логистика",
     ]
+
+
+def test_resume_generation_preserves_designer_tool_skills_and_summary_domain() -> None:
+    service = ResumeGenerationService()
+
+    raw_skills = service._split_skill_text(
+        """
+Adobe Photoshop
+Adobe Illustrator
+Figma
+CorelDRAW
+Полиграфический дизайн
+Брендинг
+Подготовка макетов к печати
+Визуальная коммуникация
+Типографика
+"""
+    )
+    selected_skills = service._select_resume_skills(
+        raw_skills=raw_skills,
+        matched_keywords=[
+            "Adobe Photoshop",
+            "CorelDRAW",
+            "подготовка макетов к печати",
+        ],
+    )
+    summary = service._build_vacancy_aligned_summary(
+        vacancy_title="Графический дизайнер",
+        selected_skills=selected_skills,
+        selected_achievements=[
+            {"title": "Сократила сроки подготовки макетов на 30%"},
+        ],
+        experience_items=[
+            {
+                "period": "01.2018 - 01.2024",
+                "description_raw": (
+                    "Разработка рекламных материалов\n"
+                    "Создание фирменного стиля\n"
+                    "Подготовка макетов к печати"
+                ),
+            }
+        ],
+        top_alignment_evidence=[
+            {
+                "summary_phrase": "сроки подготовки макетов на 30%",
+                "confidence": "high",
+            }
+        ],
+    )
+
+    assert selected_skills[:6] == [
+        "Adobe Photoshop",
+        "Adobe Illustrator",
+        "Figma",
+        "CorelDRAW",
+        "Полиграфический дизайн",
+        "Брендинг",
+    ]
+    assert summary.startswith(
+        "Графический дизайнер с опытом более 5 лет в сфере "
+        "графического дизайна, подготовки макетов к печати "
+        "и работы с графическими редакторами."
+    )
+    assert "в сфере сроки подготовки макетов" not in summary
+
+
+def test_resume_generation_splits_designer_experience_boundaries() -> None:
+    service = ResumeGenerationService()
+
+    normalized = service._normalize_experience_description(
+        "Разработка рекламных материалов Создание фирменного стиля "
+        "Разработка визуальных концепций Создание контента для социальных сетей"
+    )
+
+    assert normalized == (
+        "Разработка рекламных материалов\n"
+        "Создание фирменного стиля\n"
+        "Разработка визуальных концепций\n"
+        "Создание контента для социальных сетей"
+    )
 
 
 def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
@@ -2369,14 +2456,14 @@ def test_resume_vacancy_summary_builds_human_narrative_for_legal_and_medical_rol
     assert legal_summary.startswith(
         "Юрист с опытом подготовки договоров, судебного сопровождения и консультирования клиентов."
     )
-    assert "За время работы - подготовка более 250 договоров." in legal_summary
+    assert "За время работы подготовила более 250 договоров." in legal_summary
     assert "Подготовка договоров Судебное сопровождение" not in legal_summary
     assert "Среди подтверждённых результатов" not in legal_summary
 
     assert medical_summary.startswith(
         "Врач-терапевт с опытом диагностики пациентов, назначения лечения и ведения медицинской документации."
     )
-    assert "За время работы - проведение более 5000 консультаций." in medical_summary
+    assert "За время работы провёл более 5000 консультаций." in medical_summary
     assert "Диагностика пациентов Назначение лечения" not in medical_summary
 
 
@@ -2406,12 +2493,15 @@ def test_resume_summary_prioritizes_management_supply_signals_over_tools() -> No
     )
 
     assert summary.startswith(
-        "Руководитель в сфере материально-технического обеспечения "
-        "с опытом более 9 лет в сфере закупок, управления поставщиками, "
-        "складской логистики и бюджетирования."
+        "Более 9 лет работаю в сфере материально-технического обеспечения и закупок."
     )
-    assert "снижение затрат на закупки на 15%" in summary
-    assert "оптимизация складских остатков на 25%" in summary
+    assert (
+        "Основной опыт связан с организацией снабжения, управлением поставщиками, "
+        "бюджетированием и контролем логистических процессов."
+    ) in summary
+    assert "За время работы реализовал проекты по снижению затрат на закупки на 15%" in summary
+    assert "оптимизации складских остатков на 25%" in summary
+    assert "Руководитель в сфере материально-технического обеспечения с опытом" not in summary
     assert "с опытом Excel" not in summary
 
 

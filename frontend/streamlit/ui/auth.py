@@ -14,7 +14,7 @@ def render_sidebar() -> tuple[str, CareerCopilotApiClient, str | None]:
     api_base_url = st.sidebar.text_input(
         "Базовый URL API",
         value=os.getenv("CAREER_COPILOT_API_BASE_URL", DEFAULT_API_BASE_URL),
-        help="Например: http://localhost:8000/api/v1",
+        help="Например: http://localhost:7000/api/v1",
     ).strip()
 
     client = CareerCopilotApiClient(api_base_url=api_base_url)

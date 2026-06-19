@@ -135,7 +135,7 @@ These expose immutable execution events for a single run.
 Resume a failed execution by creating a child execution:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/executions/{id}/resume \
+curl -X POST http://localhost:7000/api/v1/executions/{id}/resume \
   -H "Content-Type: application/json" \
   -d '{"reason":"manual retry","resume_from_phase":"document_generation"}'
 ```
@@ -143,13 +143,13 @@ curl -X POST http://localhost:8000/api/v1/executions/{id}/resume \
 List direct child executions for an execution:
 
 ```bash
-curl http://localhost:8000/api/v1/executions/{id}/children
+curl http://localhost:7000/api/v1/executions/{id}/children
 ```
 
 Inspect the execution family envelope for UI/debugging:
 
 ```bash
-curl http://localhost:8000/api/v1/executions/{id}/family
+curl http://localhost:7000/api/v1/executions/{id}/family
 ```
 
 The family response returns:

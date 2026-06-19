@@ -8,7 +8,7 @@ import sys
 import httpx
 
 
-API_BASE_URL = "http://localhost:8000/api/v1"
+API_BASE_URL = "http://localhost:7000/api/v1"
 
 
 def configure_stdout() -> None:

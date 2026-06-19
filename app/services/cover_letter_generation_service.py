@@ -68,6 +68,13 @@ LOW_SIGNAL_SKILLS = {
     "powershell",
 }
 
+KNOWN_PROFILE_SKILLS = (
+    "Adobe Photoshop",
+    "Adobe Illustrator",
+    "Figma",
+    "CorelDRAW",
+)
+
 PROJECT_DISPLAY_HINTS = {
     "content-factory": "automation workflow evidence",
     "career-copilot": "backend workflow evidence",
@@ -517,13 +524,18 @@ class CoverLetterGenerationService:
     def _split_skill_text(self, text: str) -> list[str]:
         if not text:
             return []
+        extracted = [
+            skill
+            for skill in KNOWN_PROFILE_SKILLS
+            if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", text, re.IGNORECASE)
+        ]
         parts = re.split(r"[,\n;]+", text)
         cleaned = [
             re.sub(r"\s+", " ", part.strip(" .;-–—•"))
             for part in parts
             if part.strip(" .;-–—•")
         ]
-        return self._dedupe_preserve_order(cleaned)
+        return self._dedupe_preserve_order([*extracted, *cleaned])
 
     def _extract_skills_from_profile(self, profile) -> list[str]:
         """Извлекает список навыков из профиля для контекста gap-mitigation"""
@@ -539,10 +551,14 @@ class CoverLetterGenerationService:
                 skills.extend(self._extract_skills_from_raw_text(exp.description_raw))
         # Из достижений
         for ach in profile.achievements or []:
+            if getattr(ach, "title", None):
+                skills.extend(self._split_skill_text(ach.title))
             if ach.action:
                 skills.extend(self._split_skill_text(ach.action))
             if ach.result:
                 skills.extend(self._split_skill_text(ach.result))
+            for skill in getattr(ach, "skills_json", None) or []:
+                skills.extend(self._split_skill_text(str(skill)))
         return self._dedupe_preserve_order(skills)
 
     def _get_confirmed_achievements(self, achievements) -> list[dict]:
@@ -776,6 +792,7 @@ class CoverLetterGenerationService:
             matched_keywords=matched_keywords,
             phrases=[experience_value] if experience_value else [],
         )
+        used_project_value = ""
 
         if supply_management_context and experience_value:
             parts.append(
@@ -787,6 +804,7 @@ class CoverLetterGenerationService:
                 )
             )
             if project_value:
+                used_project_value = project_value
                 parts.append(
                     self.cover_letter_humanizer.project_result_sentence(project_value)
                 )
@@ -794,6 +812,7 @@ class CoverLetterGenerationService:
             lead_project = self.narrative_builder.project_value_should_lead(project_value)
             if lead_project:
                 if project_value:
+                    used_project_value = project_value
                     parts.append(
                         self.cover_letter_humanizer.project_result_sentence(project_value)
                     )
@@ -823,6 +842,7 @@ class CoverLetterGenerationService:
                         )
                     )
                 if project_value:
+                    used_project_value = project_value
                     parts.append(
                         self.cover_letter_humanizer.project_result_sentence(project_value)
                     )
@@ -841,12 +861,16 @@ class CoverLetterGenerationService:
                 )
             )
         elif project_value:
+            used_project_value = project_value
             parts.append(
                 self.cover_letter_humanizer.project_result_sentence(project_value)
             )
 
         result_value = self._cover_letter_result_value(
-            selected_achievements=selected_achievements
+            selected_achievements=self._filter_result_achievements_not_in_project_block(
+                selected_achievements=selected_achievements,
+                project_value=used_project_value,
+            )
         )
         if result_value:
             parts.append(
@@ -898,6 +922,29 @@ class CoverLetterGenerationService:
         return self.achievement_verbalizer.cover_letter_result_value(
             selected_achievements=selected_achievements,
         )
+
+    def _filter_result_achievements_not_in_project_block(
+        self,
+        *,
+        selected_achievements: list[dict],
+        project_value: str,
+    ) -> list[dict]:
+        if not project_value:
+            return selected_achievements
+
+        project_key = self._composition_overlap_key(project_value)
+        result: list[dict] = []
+        for item in selected_achievements:
+            title = str(item.get("title") or "").strip()
+            narrative_title = self.achievement_verbalizer.nounize_achievement_phrase(title)
+            title_key = self._composition_overlap_key(narrative_title or title)
+            if title_key and title_key in project_key:
+                continue
+            result.append(item)
+        return result
+
+    def _composition_overlap_key(self, value: str) -> str:
+        return re.sub(r"[^0-9a-zа-яё]+", "", str(value or "").casefold())
 
     def _cover_letter_focus_from_headline(self, headline: str | None) -> str:
         if not headline:
@@ -1161,14 +1208,14 @@ class CoverLetterGenerationService:
             selected_skills=selected_skills,
         ):
             return (
-                "Со своей стороны могу быть полезен в организации закупок, "
-                "контроле поставок, работе с поставщиками и снижении затрат на снабжение. "
+                "Готов применять накопленный опыт в организации закупок, контроле поставок, "
+                "работе с поставщиками и снижении затрат на снабжение. "
                 f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
                 f"{vacancy_title}{company_phrase}."
             )
         return (
-            "Со своей стороны могу дать компании аккуратное выполнение задач, "
-            "ответственность за результат и готовность быстро включаться в процессы. "
+            "Готов применять свой опыт для аккуратного выполнения задач, "
+            "ответственности за результат и быстрого включения в процессы. "
             f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
             f"{vacancy_title}{company_phrase}."
         )
@@ -1540,8 +1587,8 @@ class CoverLetterGenerationService:
             )
 
         parts.append(
-            "Со своей стороны могу дать компании аккуратное выполнение задач, ответственность за результат "
-            "и готовность быстро включаться в процессы."
+            "Готов применять свой опыт для аккуратного выполнения задач, ответственности за результат "
+            "и быстрого включения в процессы."
         )
 
         return "\n\n".join(parts)

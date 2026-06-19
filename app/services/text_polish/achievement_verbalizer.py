@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 import re
 from typing import Any
 
@@ -44,7 +45,15 @@ ACHIEVEMENT_NOMINAL_TAIL_REPLACEMENTS = (
     (r"\bошибки\b", "ошибок"),
     (r"\bсогласования\b", "согласования"),
     (r"\bчек-лист\b", "чек-листа"),
+    (r"\bновый\b", "нового"),
+    (r"\bфирменный\b", "фирменного"),
+    (r"\bстиль\b", "стиля"),
 )
+
+
+class AchievementStyle(str, Enum):
+    ACTION = "action"
+    NARRATIVE = "narrative"
 
 
 def cover_letter_result_value(*, selected_achievements: list[dict]) -> str:
@@ -56,7 +65,7 @@ def cover_letter_result_value(*, selected_achievements: list[dict]) -> str:
         title = " ".join(str(item.get("title") or "").strip(" .;-–—•").split())
         if not title:
             continue
-        results.append(nounize_achievement_phrase(title))
+        results.append(verbalize_achievement_phrase(title, style=AchievementStyle.NARRATIVE))
 
     results = _dedupe_preserve_order(results)
     if not results:
@@ -81,18 +90,18 @@ def build_resume_achievement_sentence(
     if not achievement_titles:
         return None
 
-    first = nounize_achievement_phrase(achievement_titles[0])
+    first = verbalize_achievement_phrase(achievement_titles[0], style=AchievementStyle.ACTION)
     if len(achievement_titles) == 1:
-        return f"За время работы - {first}."
+        return f"За время работы {first}."
 
     other = "; ".join(
-        nounize_achievement_phrase(title)
+        verbalize_achievement_phrase(title, style=AchievementStyle.ACTION)
         for title in achievement_titles[1:]
         if title
     )
     if not other:
-        return f"За время работы - {first}."
-    return f"За время работы - {first}; также {other}."
+        return f"За время работы {first}."
+    return f"За время работы {first}; также {other}."
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:
@@ -124,9 +133,34 @@ def nounize_achievement_phrase(value: str) -> str:
     return _nounize_achievement_clause(cleaned)
 
 
+def actionize_achievement_phrase(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+    if not cleaned:
+        return ""
+
+    cleaned = _strip_role_subject_preface(cleaned)
+    return lowercase_sentence_start(cleaned)
+
+
+def verbalize_achievement_phrase(
+    value: str,
+    *,
+    style: AchievementStyle = AchievementStyle.ACTION,
+) -> str:
+    if style == AchievementStyle.NARRATIVE:
+        return nounize_achievement_phrase(value)
+    return actionize_achievement_phrase(value)
+
+
 def _strip_role_preface(value: str) -> str:
     text = re.sub(r"^\s*(?:[А-Яа-яЁё-]+\s+){0,4}я\s+занимал(?:ся|ась)\s+", "", value, flags=re.IGNORECASE)
     text = re.sub(r"^\s*я\s+занимал(?:ся|ась)\s+", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _strip_role_subject_preface(value: str) -> str:
+    text = re.sub(r"^\s*(?:[А-Яа-яЁё-]+\s+){0,4}я\s+", "", value, flags=re.IGNORECASE)
+    text = re.sub(r"^\s*я\s+", "", text, flags=re.IGNORECASE)
     return text.strip()
 
 
@@ -184,9 +218,20 @@ class AchievementVerbalizer:
     def nounize_achievement_phrase(self, value: str) -> str:
         return nounize_achievement_phrase(value)
 
+    def actionize_achievement_phrase(self, value: str) -> str:
+        return actionize_achievement_phrase(value)
+
+    def verbalize_achievement_phrase(
+        self,
+        value: str,
+        *,
+        style: AchievementStyle = AchievementStyle.ACTION,
+    ) -> str:
+        return verbalize_achievement_phrase(value, style=style)
+
     def achievement_result_sentence(self, achievements: list[str]) -> str:
         nounized = [
-            nounize_achievement_phrase(value)
+            verbalize_achievement_phrase(value, style=AchievementStyle.NARRATIVE)
             for value in achievements
             if str(value or "").strip()
         ]

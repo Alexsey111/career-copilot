@@ -1409,6 +1409,7 @@ class ProfileStructuringService:
             "Врач",
             "Инженер",
             "Менеджер",
+            "Дизайнер маркетинговых",
             "Developer",
             "Engineer",
         )

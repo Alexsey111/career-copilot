@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
 
     backend_host: str = Field(default="0.0.0.0", alias="BACKEND_HOST")
-    backend_port: int = Field(default=8000, alias="BACKEND_PORT")
+    backend_port: int = Field(default=7000, alias="BACKEND_PORT")
 
     database_url: str = Field(alias="DATABASE_URL")
     sync_database_url: str = Field(alias="SYNC_DATABASE_URL")

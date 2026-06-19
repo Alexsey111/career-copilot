@@ -115,7 +115,7 @@ make local-health
 Пример проверки health:
 
 ```powershell
-Invoke-RestMethod http://localhost:8000/health
+Invoke-RestMethod http://localhost:7000/health
 ```
 
 Если нужен более формальный smoke, можно заменить ручной шаг на тесты:
