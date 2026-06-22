@@ -22,7 +22,7 @@ backend:
 	$(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port 7000
 
 streamlit:
-	$(PYTHON) -m streamlit run frontend/streamlit/app.py
+	$(PYTHON) scripts/start_streamlit.py
 
 test:
 	$(PYTHON) -m pytest -q

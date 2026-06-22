@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from app.services.interview_preparation_service import InterviewPreparationService
 
@@ -559,12 +561,12 @@ def test_build_attempt_insight_null_scores() -> None:
 
 def test_attempt_diff() -> None:
     """Тест build_attempt_diff на простом примере."""
-    
+
     prev = "I built API"
     curr = "I built scalable API with Python"
-    
+
     diff = InterviewPreparationService.build_attempt_diff(prev, curr)
-    
+
     assert "scalable" in diff["added_keywords"]
     assert "python" in diff["added_keywords"]
     assert "built" not in diff["added_keywords"]  # общее слово

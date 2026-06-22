@@ -102,14 +102,14 @@ http://localhost:7000/api/v1
 ```powershell
 cd "D:\python projects\career-copilot"
 .\.venv\Scripts\Activate.ps1
-streamlit run .\frontend\streamlit\app.py
+make streamlit
 ```
 
 Если нужен нестандартный backend URL:
 
 ```powershell
 $env:CAREER_COPILOT_API_BASE_URL = "http://localhost:7000/api/v1"
-streamlit run .\frontend\streamlit\app.py
+make streamlit
 ```
 
 ## Smoke Checks

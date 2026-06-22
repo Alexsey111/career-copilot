@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -117,13 +119,13 @@ def _project_fit_bullets(
             break
 
     if any(token in blob for token in ("fastapi", "backend", "api", "sqlalchemy")):
-        bullets.append("показывает backend/API опыт")
+        bullets.append("показывает опыт бэкенда и API")
     if any(token in blob for token in ("workflow", "automation", "orchestration", "openai", "telegram")):
-        bullets.append("показывает AI workflow automation")
+        bullets.append("показывает опыт AI-автоматизации рабочих процессов")
     if any(token in blob for token in ("computer vision", "cv", "изображ", "video", "monitoring", "качества")):
-        bullets.append("показывает проектный опыт с AI/CV monitoring")
+        bullets.append("показывает проектный опыт с AI и компьютерным зрением")
     if any(token in blob for token in ("postgresql", "redis", "docker", "github", "repository")):
-        bullets.append("подтверждает инженерную реализацию через проектные артефакты")
+        bullets.append("подтверждает инженерную реализацию через артефакты проекта")
 
     if not bullets:
         bullets.append(_humanize_selection_reason(detail.get("reason")))
@@ -143,11 +145,11 @@ def _document_focus(summary: dict[str, Any], detail_rows: list[dict[str, Any]]) 
         [item.get("skills") for item in detail_rows],
     )
     if any(token in blob for token in ("workflow", "automation", "orchestration", "openai")):
-        return "вакансия сфокусирована на AI workflow automation"
+        return "вакансия сфокусирована на AI-автоматизации рабочих процессов"
     if any(token in blob for token in ("backend", "fastapi", "api")):
-        return "вакансия сфокусирована на backend/API опыте"
+        return "вакансия сфокусирована на опыте бэкенда и API"
     if "computer vision" in blob or "monitoring" in blob:
-        return "вакансия сфокусирована на AI/CV monitoring"
+        return "вакансия сфокусирована на AI и компьютерном зрении"
     return "выбранные проекты ближе покрывают требования вакансии"
 
 
@@ -165,9 +167,9 @@ def _unused_reason(item: dict[str, Any], *, focus: str) -> str:
     if fact_status == "rejected":
         return "факт отклонён и не должен попадать в документы"
     if "computer vision" in blob or "cv" in blob or "изображ" in blob or "video" in blob:
-        if "workflow" in focus.casefold() or "backend" in focus.casefold():
+        if any(token in focus.casefold() for token in ("workflow", "backend", "api", "автоматиза")):
             return focus
-    if "analytics" in blob and ("workflow" in focus.casefold() or "backend" in focus.casefold()):
+    if "analytics" in blob and any(token in focus.casefold() for token in ("workflow", "backend", "api", "автоматиза")):
         return focus
     return "менее прямо поддерживает текущую вакансию, чем выбранные проекты"
 
@@ -292,7 +294,7 @@ def _humanize_readiness_message(message: Any) -> str:
         ("document has unresolved critical evaluation failures", "Есть критичные ошибки в оценке"),
         ("document is not active", "Документ неактивен"),
         ("document has coverage gaps", "Есть пробелы в покрытии требований вакансии"),
-        ("document has low ats score", "Низкий ATS score документа"),
+        ("document has low ats score", "Низкая оценка ATS документа"),
         ("document has achievements with missing metrics", "В достижениях не хватает метрик"),
         ("this fact is not confirmed yet", "Факт ещё не подтверждён"),
         ("keep it out of strong evidence paths until reviewed", "Не использовать в сильных доказательствах до проверки"),
@@ -318,8 +320,8 @@ def _render_readiness_panel(summary: dict[str, Any]) -> None:
         st.error("Есть блокировка ❌")
     else:
         st.warning(
-            "Не финализировано / требуется review. "
-            "Критичных блокеров нет, поэтому документ можно использовать как draft."
+            "Не финализировано / требуется проверка. "
+            "Критичных блокеров нет, поэтому документ можно использовать как черновик."
         )
 
     col_ready, col_blockers, col_warnings, col_score = st.columns(4)
@@ -368,6 +370,27 @@ QUALITY_METRIC_LABELS = {
 }
 
 
+def _render_recommendation_impact(item: dict[str, Any]) -> None:
+    impact = item.get("impact") or {}
+    if not isinstance(impact, dict):
+        return
+
+    potential_gain = int(impact.get("potential_gain") or 0)
+    metric = str(impact.get("metric") or "").strip()
+
+    if potential_gain <= 0:
+        return
+
+    metric_label = QUALITY_METRIC_LABELS.get(
+        metric,
+        metric.replace("_", " ").title(),
+    )
+
+    st.info(f"Потенциальный эффект: +{potential_gain} баллов")
+    if metric_label:
+        st.caption(f"Метрика: {metric_label}")
+
+
 def _render_quality_grade_status(grade: str | None) -> None:
     normalized = str(grade or "").strip().lower()
     label = _quality_grade_label(normalized)
@@ -390,6 +413,104 @@ def _quality_score_value(score: Any) -> int | None:
         return None
 
 
+def _format_roadmap_score(score: Any) -> str:
+    try:
+        return str(round(float(score)))
+    except (TypeError, ValueError):
+        return str(score or "—")
+
+
+def _score_breakdown_caption(index: int, missing_points: int) -> str:
+    if missing_points <= 0:
+        return "✓ Почти оптимально"
+
+    if index == 0:
+        if missing_points >= 20:
+            return f"🔥 Основная причина низкой оценки (+{missing_points})"
+        return f"🔥 Самый большой резерв улучшения (+{missing_points})"
+
+    if index == 1:
+        return f"⚡ Один из основных резервов (+{missing_points})"
+
+    if index == 2:
+        return f"⚡ Дополнительный резерв (+{missing_points})"
+
+    if missing_points <= 3:
+        return "✓ Почти оптимально"
+
+    return f"⚡ Небольшой резерв улучшения (+{missing_points})"
+
+
+def _render_score_breakdown(quality: dict[str, Any]) -> None:
+    breakdown = [
+        item
+        for item in (quality.get("score_breakdown") or [])
+        if isinstance(item, dict)
+    ]
+
+    if not breakdown:
+        return
+
+    st.markdown("#### Из чего складывается оценка")
+
+    breakdown.sort(
+        key=lambda item: (
+            -int(item.get("missing_points") or 0),
+            str(item.get("label") or item.get("code") or ""),
+        )
+    )
+
+    for index, item in enumerate(breakdown):
+        label = str(item.get("label") or item.get("code") or "Метрика").strip()
+        score = int(item.get("score") or 0)
+        max_score = int(item.get("max_score") or 0)
+        missing_points = int(item.get("missing_points") or max(max_score - score, 0))
+        ratio = min(score / max_score, 1.0) if max_score > 0 else 0.0
+
+        st.markdown(f"**{label}**")
+        st.progress(ratio)
+        st.caption(f"{score} / {max_score}")
+        st.caption(_score_breakdown_caption(index, missing_points))
+
+
+def _render_improvement_roadmap(quality: dict[str, Any]) -> None:
+    roadmap = quality.get("roadmap")
+    if not isinstance(roadmap, dict):
+        return
+
+    steps = [
+        item
+        for item in (roadmap.get("steps") or [])
+        if isinstance(item, dict)
+    ]
+    if not steps:
+        return
+
+    st.markdown("#### План улучшения документа")
+    st.caption(
+        "Сначала закрываем самые сильные пробелы, чтобы быстрее поднять итоговую оценку."
+    )
+
+    for step in steps[:5]:
+        order = int(step.get("order") or 0)
+        title = str(step.get("title") or "Шаг улучшения").strip()
+        expected_gain = int(step.get("expected_gain") or 0)
+
+        with st.container(border=True):
+            st.markdown(f"**Шаг {order}**")
+            st.markdown(title)
+            st.caption(f"+{expected_gain}")
+
+    current_score = _format_roadmap_score(roadmap.get("current_score"))
+    projected_score = _format_roadmap_score(roadmap.get("projected_score"))
+
+    col_current, col_projected = st.columns(2)
+    with col_current:
+        st.metric("Текущая оценка", current_score)
+    with col_projected:
+        st.metric("После исправлений", f"~{projected_score}")
+
+
 def _render_document_quality_panel(summary: dict[str, Any]) -> None:
     quality = summary.get("quality") or {}
 
@@ -410,7 +531,7 @@ def _render_document_quality_panel(summary: dict[str, Any]) -> None:
     col_score, col_grade = st.columns(2)
 
     with col_score:
-        st.metric("Quality Score", score)
+        st.metric("Оценка качества", score)
 
     with col_grade:
         st.markdown("**Оценка**")
@@ -436,6 +557,9 @@ def _render_document_quality_panel(summary: dict[str, Any]) -> None:
         else:
             st.success("Критичных замечаний нет.")
 
+    _render_improvement_roadmap(quality)
+    _render_score_breakdown(quality)
+
     metrics = quality.get("metrics") or {}
 
     if metrics:
@@ -446,6 +570,281 @@ def _render_document_quality_panel(summary: dict[str, Any]) -> None:
                     str(key).replace("_", " ").title(),
                 )
                 st.metric(label, value)
+
+
+def _parse_achievement_diagnostics(action: str) -> dict[str, int] | None:
+    match = re.search(
+        r"всего\s+(?P<total>\d+),\s*"
+        r"без действия\s+(?P<without_action>\d+),\s*"
+        r"без результата\s+(?P<without_result>\d+),\s*"
+        r"без метрики\s+(?P<without_metric>\d+)",
+        action.casefold(),
+    )
+    if not match:
+        return None
+
+    return {
+        "total": int(match.group("total")),
+        "without_action": int(match.group("without_action")),
+        "without_result": int(match.group("without_result")),
+        "without_metric": int(match.group("without_metric")),
+    }
+
+
+def _achievement_missing_labels(missing: list[str]) -> list[str]:
+    labels = {
+        "action": "нет действия",
+        "result": "нет результата",
+        "metric": "нет метрики",
+    }
+    return [
+        labels.get(str(item), str(item))
+        for item in missing
+        if str(item).strip()
+    ]
+
+
+def _render_achievement_diagnostics(
+    action: str,
+    details: dict[str, Any] | None = None,
+) -> None:
+    diagnostics = None
+    if isinstance(details, dict):
+        diagnostics = details.get("achievement_diagnostics")
+
+    if not isinstance(diagnostics, dict):
+        diagnostics = _parse_achievement_diagnostics(action)
+
+    if not diagnostics:
+        st.info(action)
+        return
+
+    st.markdown("**Диагностика достижений**")
+
+    col_total, col_action, col_result, col_metric = st.columns(4)
+
+    with col_total:
+        st.metric("Всего", diagnostics.get("total", 0))
+    with col_action:
+        st.metric("Без действия", diagnostics.get("without_action", 0))
+    with col_result:
+        st.metric("Без результата", diagnostics.get("without_result", 0))
+    with col_metric:
+        st.metric("Без метрики", diagnostics.get("without_metric", 0))
+
+    problem_achievements = diagnostics.get("problem_achievements") or []
+    if problem_achievements:
+        st.markdown("**Проблемные достижения**")
+        for achievement in problem_achievements[:5]:
+            if not isinstance(achievement, dict):
+                continue
+
+            title = str(achievement.get("title") or "Достижение без названия").strip()
+            missing = _achievement_missing_labels(achievement.get("missing") or [])
+
+            questions = [
+                str(question).strip()
+                for question in (achievement.get("questions") or [])
+                if str(question).strip()
+            ]
+
+            with st.container(border=True):
+                severity = int(achievement.get("severity") or 0)
+                priority_label = str(achievement.get("priority_label") or "").strip()
+
+                if priority_label:
+                    if severity >= 3:
+                        st.error(priority_label)
+                    elif severity == 2:
+                        st.warning(priority_label)
+                    else:
+                        st.info(priority_label)
+
+                st.markdown(f"⚠ {title}")
+                if missing:
+                    st.caption(" / ".join(missing))
+
+                if questions:
+                    st.markdown("**Что уточнить:**")
+                    for question in questions[:4]:
+                        st.markdown(f"- {question}")
+
+                rewrite_hint = str(achievement.get("rewrite_hint") or "").strip()
+                if rewrite_hint:
+                    st.markdown("**Рекомендуемая структура:**")
+                    st.info(rewrite_hint)
+
+
+def _vacancy_gap_priority_label(priority: str) -> str:
+    normalized = str(priority or "").strip().lower()
+    if normalized == "high":
+        return "Высокий риск"
+    if normalized == "medium":
+        return "Средний риск"
+    if normalized == "low":
+        return "Низкий риск"
+    return "Риск не определён"
+
+
+def _render_vacancy_gap_diagnostics(details: dict[str, Any]) -> None:
+    diagnostics = details.get("vacancy_gap_diagnostics")
+    if not isinstance(diagnostics, dict):
+        return
+
+    missing_keywords = [
+        str(item).strip()
+        for item in (diagnostics.get("missing_keywords") or [])
+        if str(item).strip()
+    ]
+    actions = [
+        str(item).strip()
+        for item in (diagnostics.get("actions") or [])
+        if str(item).strip()
+    ]
+
+    total_missing = int(diagnostics.get("total_missing") or len(missing_keywords))
+    priority = str(diagnostics.get("priority") or "").strip().lower()
+    priority_label = _vacancy_gap_priority_label(priority)
+
+    st.markdown("**Критичные пробелы вакансии**")
+
+    col_total, col_priority = st.columns(2)
+    with col_total:
+        st.metric("Не покрыто требований", total_missing)
+    with col_priority:
+        if priority == "high":
+            st.error(priority_label)
+        elif priority == "medium":
+            st.warning(priority_label)
+        else:
+            st.info(priority_label)
+
+    gaps = [
+        item
+        for item in (diagnostics.get("gaps") or [])
+        if isinstance(item, dict)
+    ]
+    gaps.sort(
+        key=lambda x: (
+            x.get("importance") != "high",
+            x.get("keyword", ""),
+        )
+    )
+
+    if gaps:
+        st.markdown("**Не покрыты:**")
+        for gap in gaps[:10]:
+            keyword = str(gap.get("keyword") or "").strip()
+            label = str(gap.get("label") or "").strip()
+            reason = str(gap.get("reason") or "").strip()
+            safe_to_add = bool(gap.get("safe_to_add"))
+            importance = str(gap.get("importance") or "").strip().lower()
+            status = str(gap.get("status") or "").strip()
+            coverage_opportunity = int(gap.get("coverage_opportunity") or 0)
+            matched_sources = [
+                str(source).strip()
+                for source in (gap.get("matched_sources") or [])
+                if str(source).strip()
+            ]
+
+            if not keyword:
+                continue
+
+            with st.container(border=True):
+                if importance == "high":
+                    st.markdown(f"🔥 {keyword}")
+                else:
+                    st.markdown(f"⚡ {keyword}")
+
+                st.caption(f"Потенциал улучшения: +{coverage_opportunity}")
+
+                if safe_to_add:
+                    st.success(f"✓ {keyword}")
+                else:
+                    st.warning(f"⚠ {keyword}")
+
+                if label:
+                    st.caption(label)
+
+                if status == "confirmed_in_profile":
+                    st.markdown("Можно безопасно усилить документ этим требованием, если формулировка не искажает опыт.")
+                elif status == "not_confirmed":
+                    st.markdown("Не добавлять как факт без подтверждения пользователя.")
+                elif reason:
+                    st.markdown(reason)
+
+                if matched_sources:
+                    st.caption(f"Источники: {', '.join(matched_sources)}")
+    elif missing_keywords:
+        st.markdown("**Не покрыты:**")
+        for keyword in missing_keywords[:10]:
+            st.markdown(f"- {keyword}")
+
+    if actions:
+        st.markdown("**Что делать:**")
+        for action in actions:
+            st.markdown(f"- {action}")
+
+
+def _render_quality_recommendations_panel(summary: dict[str, Any]) -> None:
+    quality = summary.get("quality") or {}
+    recommendations = quality.get("recommendations") or []
+
+    if not recommendations:
+        return
+
+    st.markdown("### Как поднять оценку")
+    st.caption(
+        "Конкретные действия, которые могут улучшить качество документа без добавления неподтверждённых фактов."
+    )
+
+    for item in recommendations[:5]:
+        if not isinstance(item, dict):
+            continue
+
+        title = str(item.get("title") or "Рекомендация").strip()
+        why = str(item.get("why") or "").strip()
+        actions = [
+            str(action).strip()
+            for action in (item.get("actions") or [])
+            if str(action).strip()
+        ]
+
+        with st.container(border=True):
+            st.markdown(f"#### {title}")
+            if why:
+                st.caption(why)
+
+            _render_recommendation_impact(item)
+
+            details = item.get("details") or {}
+            has_vacancy_gap_diagnostics = (
+                isinstance(details, dict)
+                and isinstance(details.get("vacancy_gap_diagnostics"), dict)
+            )
+            if isinstance(details, dict):
+                _render_vacancy_gap_diagnostics(details)
+
+            if actions:
+                diagnostic_action = None
+                remaining_actions = []
+
+                for action in actions:
+                    if action.startswith("Диагностика достижений:"):
+                        diagnostic_action = action
+                    else:
+                        remaining_actions.append(action)
+
+                if diagnostic_action:
+                    _render_achievement_diagnostics(
+                        diagnostic_action,
+                        details=details if isinstance(details, dict) else {},
+                    )
+
+                if remaining_actions and not has_vacancy_gap_diagnostics:
+                    st.markdown("**Что сделать:**")
+                    for action in remaining_actions:
+                        st.markdown(f"- {action}")
 
 
 def _confidence_label(score: int) -> str:
@@ -465,11 +864,11 @@ def _confidence_item_label(value: Any) -> str:
     if "fastapi" in lowered or "backend" in lowered or "api" in lowered:
         return "Опыт backend и API подтверждён"
     if any(token in lowered for token in ("workflow", "automation", "orchestration", "openai", "telegram")):
-        return "Опыт автоматизации AI workflow подтверждён"
+        return "Опыт AI-автоматизации рабочих процессов подтверждён"
     if any(token in lowered for token in ("computer vision", "cv", "monitoring", "изображ", "video")):
-        return "Опыт AI и CV monitoring подтверждён"
+        return "Опыт AI и компьютерного зрения подтверждён"
     if any(token in lowered for token in ("postgresql", "redis", "sqlalchemy", "database")):
-        return "Опыт работы с backend data layer подтверждён"
+        return "Опыт работы с серверным слоем данных подтверждён"
     if any(token in lowered for token in ("docker", "github", "repository", "git")):
         return "Инженерные артефакты проекта подтверждены"
     return f"Подтверждено: {text}"
@@ -483,7 +882,7 @@ def _risk_item_label(value: Any) -> str:
 
     translations = (
         ("document has coverage gaps", "Есть пробелы в покрытии требований вакансии"),
-        ("document has low ats score", "Низкий ATS score документа"),
+        ("document has low ats score", "Низкая оценка ATS документа"),
         ("document has achievements with missing metrics", "В достижениях не хватает метрик"),
         ("document review_status is not approved", "Статус документа ещё не утверждён"),
         ("document has unresolved claims requiring confirmation", "Есть утверждения, требующие подтверждения"),
@@ -491,7 +890,7 @@ def _risk_item_label(value: Any) -> str:
         ("document is not active", "Документ неактивен"),
         (
             "vacancy match score is currently low because structured profile coverage is still limited",
-            "Оценка соответствия вакансии сейчас низкая, потому что структурированное покрытие профиля пока ограничено",
+            "Оценка соответствия вакансии сейчас низкая, потому что структурное покрытие профиля пока ограничено",
         ),
         (
             "missing or weakly represented vacancy keywords",
@@ -499,7 +898,11 @@ def _risk_item_label(value: Any) -> str:
         ),
         (
             "resume draft is ats-safe plaintext-oriented and not final formatted output",
-            "Черновик резюме подготовлен в ATS-совместимом текстовом виде и пока не является финально оформленной версией",
+            "Черновик резюме пока только в текстовом виде, без финального форматирования, и безопасен для ATS",
+        ),
+        (
+            "structured profile coverage is still limited",
+            "Структурное покрытие профиля пока ограничено",
         ),
         (
             "selected evidence includes snippets that still require human confirmation",
@@ -514,13 +917,13 @@ def _risk_item_label(value: Any) -> str:
             return label
 
     if any(token in lowered for token in ("kubernetes", "aws", "cloud", "docker", "deployment", "production")):
-        return "Инфраструктура production-scale не подтверждена"
+        return "Инфраструктура уровня production не подтверждена"
     if any(token in lowered for token in ("commercial", "enterprise", "prod", "production", "deployment")):
-        return "Опыт коммерческого AI deployment не подтверждён"
+        return "Опыт коммерческого внедрения AI не подтверждён"
     if any(token in lowered for token in ("leadership", "team lead", "management")):
-        return "Leadership и ownership команды не подтверждены"
+        return "Лидерство и управленческая ответственность не подтверждены"
     if any(token in lowered for token in ("postgresql", "redis", "database")):
-        return "Глубина database и infra опыта требует проверки"
+        return "Глубина опыта по базе данных и инфраструктуре требует проверки"
     return f"Требует проверки: {text}"
 
 
@@ -587,7 +990,7 @@ def _render_confidence_risk_panel(summary: dict[str, Any]) -> None:
 
     st.markdown("### Уверенность и риски")
     st.caption(
-        "Где система уверена в формулировках, а где лучше не делать сильные claims без проверки."
+        "Где система уверена в формулировках, а где лучше не делать сильные утверждения без проверки."
     )
 
     col_confidence, col_risk = st.columns(2)
@@ -605,7 +1008,7 @@ def _render_confidence_risk_panel(summary: dict[str, Any]) -> None:
             for item in risk_signals[:6]:
                 st.markdown(f"⚠ {item}")
         else:
-            st.success("Существенных overclaim-рисков не найдено.")
+            st.success("Существенных рисков завышения не найдено.")
 
 
 def _render_ai_changes_panel(diff: dict[str, Any]) -> None:
@@ -694,6 +1097,15 @@ def _render_selected_achievements_panel(summary: dict[str, Any]) -> None:
 
         with st.container(border=True):
             st.markdown(f"**{title}**")
+            severity = int(item.get("severity") or 0)
+            priority_label = str(item.get("priority_label") or "").strip()
+            if priority_label:
+                if severity >= 3:
+                    st.error(priority_label)
+                elif severity == 2:
+                    st.warning(priority_label)
+                else:
+                    st.info(priority_label)
             if fact_status:
                 st.caption(_fact_status_badge(str(fact_status)))
             metric_text = item.get("metric_text") or item.get("impact") or item.get("result")
@@ -952,7 +1364,7 @@ def _render_workflow_selection_status() -> None:
         missing.append("сопроводительное письмо")
 
     st.info(
-        "Для продолжения workflow ещё нужно выбрать: "
+        "Для продолжения процесса ещё нужно выбрать: "
         + ", ".join(missing)
     )
 
@@ -1014,7 +1426,7 @@ def _render_action_bar(
         return
 
     st.caption(
-        "Чтобы продолжить workflow, нужно отдельно выбрать "
+        "Чтобы продолжить процесс, нужно отдельно выбрать "
         "резюме и сопроводительное письмо."
     )
 
@@ -1030,11 +1442,11 @@ def _render_action_bar(
         )
 
         use_draft_clicked = st.button(
-            "Использовать как draft",
+            "Использовать как черновик",
             width="stretch",
             help=(
                 "Не утверждает документ как финальный. "
-                "Позволяет продолжить workflow, а отклик будет помечен как review_required."
+                "Позволяет продолжить процесс, а отклик будет помечен как требующий проверки."
             ),
             key=f"document_review_use_draft_{key_suffix}",
         )
@@ -1060,7 +1472,7 @@ def _render_action_bar(
                 f"/documents/{document_id}/review",
                 {
                     "review_status": "approved",
-                    "review_comment": "Approved via Document Review Workspace",
+                    "review_comment": "Утверждено через рабочую область проверки документов",
                     "set_active_when_approved": True,
                 },
                 token=token,
@@ -1100,7 +1512,7 @@ def _render_action_bar(
         st.session_state["interview_session"] = None
         st.session_state["interview_answers_result"] = None
 
-        st.success("Документ выбран как draft. Отклик будет создан с пометкой review_required.")
+        st.success("Документ выбран как черновик. Отклик будет создан с пометкой «требует проверки».")
         _render_workflow_selection_status()
         _return_to_document_selector(selection_state_key, document_kind)
         st.rerun()
@@ -1161,7 +1573,7 @@ def render_document_review_workspace(
     selection_state_key: str | None = None,
 ) -> None:
     if not client.has_entity_id(document_id):
-        st.warning("Документ ещё не выбран для review-summary.")
+        st.warning("Документ ещё не выбран для сводки проверки.")
         return
 
     try:
@@ -1173,7 +1585,7 @@ def render_document_review_workspace(
     try:
         summary = client.get_document_review_summary(document_id, token=token)
     except Exception as exc:
-        st.error(f"Не удалось загрузить review-summary: {exc}")
+        st.error(f"Не удалось загрузить сводку проверки: {exc}")
         summary = {}
 
     base_document_id = _resolve_document_diff_base_id(
@@ -1193,7 +1605,7 @@ def render_document_review_workspace(
                 token=token,
             )
         except Exception as exc:
-            st.caption(f"Структурный diff недоступен: {exc}")
+            st.caption(f"Структурное сравнение недоступно: {exc}")
 
     st.markdown(f"## Документ: {title}")
     st.caption(
@@ -1208,7 +1620,7 @@ def render_document_review_workspace(
 
     st.divider()
     _render_document_quality_panel(summary)
-
+    _render_quality_recommendations_panel(summary)
     st.divider()
     _render_confidence_risk_panel(summary)
 
@@ -1290,7 +1702,7 @@ def render_document_review_workspace_selector(
     )
 
     st.caption(
-        "Здесь собраны готовность, структурный diff, утверждения для подтверждения, "
+        "Здесь собраны готовность, структурное сравнение, утверждения для подтверждения, "
         "покрытие ключевых слов, предпросмотр и действия."
     )
 
@@ -1342,7 +1754,7 @@ def render_document_review_workspace_tab(
         documents.append(
             ReviewDocumentDescriptor(
                 document_id=str(generated_resume["document_id"]),
-                title="Tailored Resume",
+                title="Адаптированное резюме",
                 document_kind=str(generated_resume.get("document_kind") or "resume"),
                 vacancy_id=str(generated_resume.get("vacancy_id") or "") or None,
             )
@@ -1353,7 +1765,7 @@ def render_document_review_workspace_tab(
         documents.append(
             ReviewDocumentDescriptor(
                 document_id=str(generated_cover_letter["document_id"]),
-                title="Cover Letter",
+                title="Сопроводительное письмо",
                 document_kind=str(generated_cover_letter.get("document_kind") or "cover_letter"),
                 vacancy_id=str(generated_cover_letter.get("vacancy_id") or "") or None,
             )

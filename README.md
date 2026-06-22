@@ -73,7 +73,7 @@ http://localhost:7000/docs
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-streamlit run .\frontend\streamlit\app.py
+make streamlit
 ```
 
 В сайдбаре Streamlit теперь есть два режима авторизации:
@@ -93,7 +93,7 @@ python scripts/reset_demo_environment.py
 
 ```powershell
 $env:CAREER_COPILOT_API_BASE_URL = "http://localhost:7000/api/v1"
-streamlit run .\frontend\streamlit\app.py
+make streamlit
 ```
 
 `frontend/streamlit/app.py` остаётся единственной точкой входа для UI, а весь сценарий собран из модулей `pages/`, `flows/`, `components/` и `ui/`.

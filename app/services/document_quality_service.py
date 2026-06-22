@@ -5,7 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.domain.document_quality import DocumentQualityIssue, DocumentQualityReport
+from app.domain.document_quality import (
+    DocumentQualityIssue,
+    ImprovementRoadmap,
+    ImprovementRoadmapStep,
+    DocumentQualityRecommendation,
+    DocumentQualityScoreItem,
+    DocumentQualityReport,
+)
 
 
 GENERIC_PHRASES = {
@@ -76,6 +83,7 @@ class DocumentQualityService:
             issues=[
                 *self._resume_issues(sections, text),
             ],
+            sections=sections,
         )
 
     def evaluate_cover_letter(
@@ -102,6 +110,7 @@ class DocumentQualityService:
             issues=[
                 *self._cover_letter_issues(sections, text, resume_text),
             ],
+            sections=sections,
         )
 
     def _score_vacancy_alignment(self, sections: dict[str, Any], *, max_score: int) -> int:
@@ -364,6 +373,7 @@ class DocumentQualityService:
         document_kind: str,
         metrics: dict[str, int],
         issues: list[DocumentQualityIssue],
+        sections: dict[str, Any] | None = None,
     ) -> DocumentQualityReport:
         score = max(0, min(100, sum(metrics.values())))
         grade = self._grade(score)
@@ -375,6 +385,22 @@ class DocumentQualityService:
                 "Усилить покрытие требований вакансии и доказательную базу"
             )
 
+        score_breakdown = self._build_score_breakdown(
+            document_kind=document_kind,
+            metrics=metrics,
+        )
+
+        recommendations = self._build_recommendations(
+            document_kind=document_kind,
+            metrics=metrics,
+            issues=issues,
+            sections=sections,
+        )
+        roadmap = self._build_improvement_roadmap(
+            score=score,
+            recommendations=recommendations,
+        )
+
         return DocumentQualityReport(
             document_kind=document_kind,
             score=score,
@@ -383,7 +409,754 @@ class DocumentQualityService:
             strengths=strengths,
             improvements=improvements,
             issues=issues,
+            recommendations=recommendations,
+            score_breakdown=score_breakdown,
+            roadmap=roadmap,
         )
+
+    def _build_recommendations(
+        self,
+        *,
+        document_kind: str,
+        metrics: dict[str, int],
+        issues: list[DocumentQualityIssue],
+        sections: dict[str, Any],
+    ) -> list[DocumentQualityRecommendation]:
+        recommendations: list[DocumentQualityRecommendation] = []
+        issue_codes = {issue.code for issue in issues}
+
+        if document_kind == "resume":
+            recommendations.extend(
+                self._resume_recommendations(
+                    metrics=metrics,
+                    issue_codes=issue_codes,
+                    sections=sections,
+                )
+            )
+        elif document_kind == "cover_letter":
+            recommendations.extend(
+                self._cover_letter_recommendations(
+                    metrics=metrics,
+                    issue_codes=issue_codes,
+                    sections=sections,
+                )
+            )
+
+        return recommendations[:5]
+
+    def _build_score_breakdown(
+        self,
+        *,
+        document_kind: str,
+        metrics: dict[str, int],
+    ) -> list[DocumentQualityScoreItem]:
+        resume_labels = {
+            "vacancy_alignment": ("Соответствие вакансии", 25),
+            "evidence_density": ("Доказательная база", 20),
+            "achievement_quality": ("Качество достижений", 15),
+            "ats_quality": ("ATS качество", 15),
+            "skills_quality": ("Навыки", 10),
+            "summary_quality": ("Summary", 15),
+        }
+        cover_letter_labels = {
+            "relevance": ("Релевантность вакансии", 30),
+            "specificity": ("Конкретика", 20),
+            "evidence_usage": ("Использование доказательств", 20),
+            "ai_phrase_density": ("Естественность текста", 15),
+            "duplication": ("Отсутствие дублирования", 15),
+        }
+
+        mapping = (
+            resume_labels
+            if document_kind == "resume"
+            else cover_letter_labels
+        )
+
+        return [
+            DocumentQualityScoreItem(
+                code=code,
+                label=label,
+                score=metrics.get(code, 0),
+                max_score=max_score,
+                missing_points=max(max_score - metrics.get(code, 0), 0),
+            )
+            for code, (label, max_score) in mapping.items()
+        ]
+
+    def _recommendation_impact(
+        self,
+        *,
+        metric: str,
+        score: int,
+        max_score: int,
+    ) -> dict[str, Any]:
+        return {
+            "metric": metric,
+            "potential_gain": max(max_score - score, 0),
+        }
+
+    def _build_improvement_roadmap(
+        self,
+        *,
+        score: int,
+        recommendations: list[DocumentQualityRecommendation],
+    ) -> ImprovementRoadmap | None:
+        candidates: list[dict[str, Any]] = []
+
+        for rec in recommendations:
+            impact = rec.impact or {}
+            gain = int(impact.get("potential_gain") or 0)
+
+            if gain <= 0:
+                continue
+
+            candidates.append(
+                {
+                    "title": rec.title,
+                    "gain": gain,
+                    "code": rec.code,
+                }
+            )
+
+        if not candidates:
+            return None
+
+        candidates.sort(
+            key=lambda x: x["gain"],
+            reverse=True,
+        )
+
+        steps: list[ImprovementRoadmapStep] = []
+        for idx, item in enumerate(candidates[:5], start=1):
+            steps.append(
+                ImprovementRoadmapStep(
+                    order=idx,
+                    title=item["title"],
+                    expected_gain=item["gain"],
+                    recommendation_code=item["code"],
+                )
+            )
+
+        projected_score = min(
+            100,
+            score + (steps[0].expected_gain if steps else 0),
+        )
+
+        return ImprovementRoadmap(
+            current_score=score,
+            projected_score=projected_score,
+            steps=steps,
+        )
+
+    def _resume_recommendations(
+        self,
+        *,
+        metrics: dict[str, int],
+        issue_codes: set[str],
+        sections: dict[str, Any],
+    ) -> list[DocumentQualityRecommendation]:
+        recommendations: list[DocumentQualityRecommendation] = []
+
+        if metrics.get("vacancy_alignment", 0) < 15:
+            missing_keywords = (
+                sections.get("missing_keywords")
+                or []
+            )
+            rec = DocumentQualityRecommendation(
+                code="improve_vacancy_alignment",
+                title="Усилить соответствие вакансии",
+                why=(
+                    "Документ слабо покрывает требования вакансии. "
+                    "ATS и рекрутер могут не увидеть прямую связь между опытом и ролью."
+                ),
+                metric="vacancy_alignment",
+                impact=self._recommendation_impact(
+                    metric="vacancy_alignment",
+                    score=metrics.get("vacancy_alignment", 0),
+                    max_score=25,
+                ),
+            )
+            if missing_keywords:
+                rec.details = {
+                    "vacancy_gap_diagnostics": self._vacancy_gap_diagnostics(
+                        missing_keywords,
+                        sections=sections,
+                    )
+                }
+            rec.actions.extend(
+                [
+                    "Добавить только те навыки и обязанности, которые реально подтверждены профилем.",
+                    "Не добавлять неподтверждённый опыт ради совпадения с вакансией.",
+                ]
+            )
+            recommendations.append(rec)
+
+        if metrics.get("achievement_quality", 0) < 10 or "low_achievement_density" in issue_codes:
+            diagnostics = self._achievement_diagnostics(sections)
+            actions = []
+            if diagnostics["total"] == 0:
+                actions.append("Добавить 2–3 подтверждённых достижения, связанных с требованиями вакансии.")
+            else:
+                actions.append(
+                    "Диагностика достижений: "
+                    f"всего {diagnostics['total']}, "
+                    f"без действия {diagnostics['without_action']}, "
+                    f"без результата {diagnostics['without_result']}, "
+                    f"без метрики {diagnostics['without_metric']}."
+                )
+            actions.extend(
+                [
+                    "Для каждого сильного пункта добавить: что сделал, для чего и какой был результат.",
+                    "Если есть реальные цифры — добавить метрику.",
+                    "Если цифр нет — описать наблюдаемый результат без выдуманных процентов.",
+                ]
+            )
+            recommendations.append(
+                DocumentQualityRecommendation(
+                    code="improve_achievements",
+                    title="Усилить достижения",
+                    why=(
+                        "В достижениях не хватает действия, результата или измеримого эффекта. "
+                        "Из-за этого резюме выглядит как список обязанностей."
+                    ),
+                    actions=actions,
+                    metric="achievement_quality",
+                    impact=self._recommendation_impact(
+                        metric="achievement_quality",
+                        score=metrics.get("achievement_quality", 0),
+                        max_score=15,
+                    ),
+                    details={
+                        "achievement_diagnostics": diagnostics,
+                    },
+                )
+            )
+
+        if metrics.get("evidence_density", 0) < 14:
+            recommendations.append(
+                DocumentQualityRecommendation(
+                    code="add_supporting_evidence",
+                    title="Добавить доказательную базу",
+                    why=(
+                        "Документу не хватает подтверждённых фактов из профиля, достижений или evidence bank."
+                    ),
+                    actions=[
+                        "Добавить подтверждённые достижения из профиля.",
+                        "Привязать evidence snippets к ключевым требованиям вакансии.",
+                        "Пометить спорные утверждения как требующие подтверждения.",
+                    ],
+                    metric="evidence_density",
+                    impact=self._recommendation_impact(
+                        metric="evidence_density",
+                        score=metrics.get("evidence_density", 0),
+                        max_score=20,
+                    ),
+                )
+            )
+
+        if metrics.get("skills_quality", 0) < 8:
+            recommendations.append(
+                DocumentQualityRecommendation(
+                    code="improve_skills_section",
+                    title="Почистить навыки",
+                    why=(
+                        "Секция навыков содержит мало конкретных профессиональных сигналов "
+                        "или слишком много общих формулировок."
+                    ),
+                    actions=[
+                        "Оставить профессиональные hard skills и доменные навыки.",
+                        "Убрать слабые общие слова вроде «ответственность» и «коммуникабельность», если они не важны для вакансии.",
+                        "Сгруппировать похожие навыки без дублей.",
+                    ],
+                    metric="skills_quality",
+                    impact=self._recommendation_impact(
+                        metric="skills_quality",
+                        score=metrics.get("skills_quality", 0),
+                        max_score=10,
+                    ),
+                )
+            )
+
+        return recommendations
+
+    def _cover_letter_recommendations(
+        self,
+        *,
+        metrics: dict[str, int],
+        issue_codes: set[str],
+        sections: dict[str, Any],
+    ) -> list[DocumentQualityRecommendation]:
+        recommendations: list[DocumentQualityRecommendation] = []
+
+        if metrics.get("relevance", 0) < 18:
+            recommendations.append(
+                DocumentQualityRecommendation(
+                    code="improve_letter_relevance",
+                    title="Сильнее связать письмо с вакансией",
+                    why=(
+                        "Письмо недостаточно показывает, почему кандидат подходит именно под эту роль."
+                    ),
+                    actions=[
+                        "Назвать 1–2 конкретные задачи вакансии.",
+                        "Связать каждую задачу с подтверждённым опытом кандидата.",
+                        "Не писать общую мотивацию без связи с требованиями.",
+                    ],
+                    metric="relevance",
+                    impact=self._recommendation_impact(
+                        metric="relevance",
+                        score=metrics.get("relevance", 0),
+                        max_score=30,
+                    ),
+                )
+            )
+
+        if metrics.get("evidence_usage", 0) < 14 or "weak_evidence_usage" in issue_codes:
+            recommendations.append(
+                DocumentQualityRecommendation(
+                    code="add_letter_evidence",
+                    title="Добавить конкретный пример опыта",
+                    why=(
+                        "Письму не хватает факта или достижения, которое подтверждает релевантность кандидата."
+                    ),
+                    actions=[
+                        "Добавить один короткий пример из опыта.",
+                        "Использовать только подтверждённые достижения.",
+                        "Не повторять резюме дословно.",
+                    ],
+                    metric="evidence_usage",
+                    impact=self._recommendation_impact(
+                        metric="evidence_usage",
+                        score=metrics.get("evidence_usage", 0),
+                        max_score=20,
+                    ),
+                )
+            )
+
+        if "generic_closing" in issue_codes:
+            recommendations.append(
+                DocumentQualityRecommendation(
+                    code="rewrite_generic_closing",
+                    title="Переписать финальный абзац",
+                    why=(
+                        "Финальный абзац звучит шаблонно и снижает ощущение живого письма."
+                    ),
+                    actions=[
+                        "Убрать фразу «готов применять накопленный опыт».",
+                        "Закрыть письмо простой фразой о готовности обсудить задачи роли.",
+                        "Не добавлять новые неподтверждённые claims в финал.",
+                    ],
+                    metric="ai_phrase_density",
+                    impact=self._recommendation_impact(
+                        metric="ai_phrase_density",
+                        score=metrics.get("ai_phrase_density", 0),
+                        max_score=15,
+                    ),
+                )
+            )
+
+        if "resume_letter_duplication" in issue_codes:
+            recommendations.append(
+                DocumentQualityRecommendation(
+                    code="reduce_resume_duplication",
+                    title="Снизить повторение резюме",
+                    why=(
+                        "Письмо слишком похоже на резюме и не добавляет отдельной ценности."
+                    ),
+                    actions=[
+                        "Оставить в письме только 1–2 самых релевантных аргумента.",
+                        "Убрать подробный пересказ опыта.",
+                        "Сделать акцент на мотивации и связи с задачами вакансии.",
+                    ],
+                    metric="duplication",
+                    impact=self._recommendation_impact(
+                        metric="duplication",
+                        score=metrics.get("duplication", 0),
+                        max_score=15,
+                    ),
+                )
+            )
+
+        return recommendations
+
+    def _achievement_diagnostics(self, sections: dict[str, Any]) -> dict[str, Any]:
+        achievements = [
+            item
+            for item in (sections.get("selected_achievements") or [])
+            if isinstance(item, dict)
+        ]
+
+        total = len(achievements)
+        without_action = 0
+        without_result = 0
+        without_metric = 0
+        problem_achievements: list[dict[str, Any]] = []
+
+        for item in achievements:
+            title = str(
+                item.get("title")
+                or item.get("name")
+                or item.get("text")
+                or "Достижение без названия"
+            ).strip()
+
+            action = str(item.get("action") or "")
+            result = str(item.get("result") or "")
+            metric = str(item.get("metric_text") or "")
+
+            missing: list[str] = []
+
+            if not action and not self._has_action_verb(title):
+                without_action += 1
+                missing.append("action")
+
+            if not result:
+                without_result += 1
+                missing.append("result")
+
+            if not metric and not self._has_metric(title):
+                without_metric += 1
+                missing.append("metric")
+
+            if missing:
+                severity = self._achievement_problem_severity(missing)
+                problem_achievements.append(
+                    {
+                        "title": title,
+                        "missing": missing,
+                        "severity": severity,
+                        "priority_label": self._achievement_priority_label(severity),
+                        "questions": self._achievement_gap_questions(missing),
+                        "rewrite_hint": self._achievement_rewrite_hint(
+                            title=title,
+                            missing=missing,
+                        ),
+                    }
+                )
+
+        problem_achievements.sort(
+            key=lambda item: int(item.get("severity") or 0),
+            reverse=True,
+        )
+
+        return {
+            "total": total,
+            "without_action": without_action,
+            "without_result": without_result,
+            "without_metric": without_metric,
+            "problem_achievements": problem_achievements[:5],
+        }
+
+    def _achievement_gap_questions(self, missing: list[str]) -> list[str]:
+        questions: list[str] = []
+
+        if "action" in missing:
+            questions.extend(
+                [
+                    "Что именно вы сделали лично?",
+                    "За какой участок работы вы отвечали?",
+                ]
+            )
+
+        if "result" in missing:
+            questions.extend(
+                [
+                    "Что изменилось после вашей работы?",
+                    "Какой результат увидела команда, клиент или бизнес?",
+                ]
+            )
+
+        if "metric" in missing:
+            questions.extend(
+                [
+                    "Можно ли подтвердить результат числом, сроком, объёмом или процентом?",
+                    "Сколько объектов, документов, клиентов, задач или материалов было затронуто?",
+                ]
+            )
+
+        deduped: list[str] = []
+        for question in questions:
+            if question not in deduped:
+                deduped.append(question)
+
+        return deduped[:6]
+
+    def _achievement_problem_severity(self, missing: list[str]) -> int:
+        return min(len(set(missing)), 3)
+
+    def _achievement_priority_label(self, severity: int) -> str:
+        if severity >= 3:
+            return "Высокий приоритет"
+        if severity == 2:
+            return "Средний приоритет"
+        return "Низкий приоритет"
+
+    def _vacancy_gap_diagnostics(
+        self,
+        missing_keywords: list[Any],
+        sections: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        sections = sections or {}
+
+        gaps = [
+            self._classify_vacancy_gap(
+                str(keyword).strip(),
+                sections=sections,
+            )
+            for keyword in missing_keywords[:10]
+            if str(keyword).strip()
+        ]
+
+        priority = "high" if len(missing_keywords) >= 5 else "medium"
+
+        return {
+            "missing_keywords": [
+                gap["keyword"]
+                for gap in gaps
+            ],
+            "total_missing": len(missing_keywords),
+            "priority": priority,
+            "gaps": gaps,
+            "actions": [
+                "Проверить, есть ли этот навык или обязанность в реальном опыте кандидата",
+                "Если опыт подтверждён — добавить конкретный пример",
+                "Если опыта нет — не добавлять требование как факт",
+            ],
+        }
+
+    def _classify_vacancy_gap(
+        self,
+        keyword: str,
+        *,
+        sections: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        sections = sections or {}
+        profile_match = self._gap_profile_match(keyword, sections)
+
+        if profile_match:
+            return {
+                "keyword": keyword,
+                "status": "confirmed_in_profile",
+                "label": "Найдено в профиле",
+                "safe_to_add": True,
+                "importance": self._gap_importance(keyword),
+                "coverage_opportunity": self._gap_coverage_opportunity(
+                    importance=self._gap_importance(keyword),
+                    safe_to_add=True,
+                ),
+                "reason": (
+                    "Требование есть в вакансии и найдено в данных профиля. "
+                    "Можно усилить документ, если формулировка не искажает опыт."
+                ),
+                "matched_sources": profile_match,
+            }
+
+        return {
+            "keyword": keyword,
+            "status": "not_confirmed",
+            "label": "Не подтверждено профилем",
+            "safe_to_add": False,
+            "importance": self._gap_importance(keyword),
+            "coverage_opportunity": self._gap_coverage_opportunity(
+                importance=self._gap_importance(keyword),
+                safe_to_add=False,
+            ),
+            "reason": (
+                "Требование есть в вакансии, но пока не найдено в данных профиля."
+            ),
+            "matched_sources": [],
+        }
+
+    def _gap_profile_match(
+        self,
+        keyword: str,
+        sections: dict[str, Any],
+    ) -> list[str]:
+        normalized_keyword = str(keyword or "").strip().casefold()
+        if not normalized_keyword:
+            return []
+
+        matched_sources: list[str] = []
+
+        def _append(source: str) -> None:
+            if source not in matched_sources:
+                matched_sources.append(source)
+
+        matched_keywords = [
+            str(item).strip().casefold()
+            for item in (sections.get("matched_keywords") or [])
+            if str(item).strip()
+        ]
+        if normalized_keyword in matched_keywords:
+            _append("matched_keywords")
+
+        skills = [
+            str(item).strip().casefold()
+            for item in (sections.get("skills") or [])
+            if str(item).strip()
+        ]
+        if normalized_keyword in skills:
+            _append("skills")
+
+        selected_achievements = [
+            item
+            for item in (sections.get("selected_achievements") or [])
+            if isinstance(item, dict)
+        ]
+        for item in selected_achievements:
+            blob = " ".join(
+                str(value or "").casefold()
+                for value in (
+                    item.get("title"),
+                    item.get("name"),
+                    item.get("text"),
+                    item.get("reason"),
+                    item.get("metric_text"),
+                    item.get("action"),
+                    item.get("result"),
+                )
+            )
+            if normalized_keyword in blob:
+                _append("selected_achievements")
+                break
+
+        top_alignment_evidence = [
+            item
+            for item in (sections.get("top_alignment_evidence") or [])
+            if isinstance(item, dict)
+        ]
+        for item in top_alignment_evidence:
+            blob = " ".join(
+                str(value or "").casefold()
+                for value in (
+                    item.get("title"),
+                    item.get("reason"),
+                    item.get("skills"),
+                    item.get("snippet_text"),
+                )
+            )
+            if normalized_keyword in blob:
+                _append("top_alignment_evidence")
+                break
+
+        evidence_relevance = [
+            item
+            for item in (sections.get("evidence_relevance") or [])
+            if isinstance(item, dict)
+        ]
+        for item in evidence_relevance:
+            blob = " ".join(
+                str(value or "").casefold()
+                for value in (
+                    item.get("title"),
+                    item.get("reason"),
+                    item.get("skills"),
+                    item.get("snippet_text"),
+                )
+            )
+            if normalized_keyword in blob:
+                _append("evidence_relevance")
+                break
+
+        return matched_sources
+
+    def _gap_importance(self, keyword: str) -> str:
+        text = keyword.lower()
+
+        critical_words = [
+            "photoshop",
+            "coreldraw",
+            "excel",
+            "1с",
+            "sql",
+            "python",
+            "fastapi",
+        ]
+
+        if any(word in text for word in critical_words):
+            return "high"
+
+        return "medium"
+
+    def _gap_coverage_opportunity(self, *, importance: str, safe_to_add: bool) -> int:
+        if importance == "high" and safe_to_add:
+            return 10
+        if importance == "medium" and safe_to_add:
+            return 5
+        if importance == "high":
+            return 2
+        return 1
+
+    def _gap_profile_match(
+        self,
+        keyword: str,
+        sections: dict[str, Any],
+    ) -> list[str]:
+        needle = self._normalize_gap_text(keyword)
+        if not needle:
+            return []
+
+        sources: list[str] = []
+
+        if self._gap_found_in_list(needle, sections.get("skills")):
+            sources.append("skills")
+
+        if self._gap_found_in_achievements(needle, sections.get("selected_achievements")):
+            sources.append("selected_achievements")
+
+        if self._gap_found_in_list(needle, sections.get("top_alignment_evidence")):
+            sources.append("top_alignment_evidence")
+
+        if self._gap_found_in_list(needle, sections.get("matched_keywords")):
+            sources.append("matched_keywords")
+
+        return sources
+
+    def _gap_found_in_list(self, needle: str, values: Any) -> bool:
+        for value in values or []:
+            if needle in self._normalize_gap_text(value):
+                return True
+        return False
+
+    def _gap_found_in_achievements(self, needle: str, values: Any) -> bool:
+        for item in values or []:
+            if not isinstance(item, dict):
+                continue
+
+            haystack = " ".join(
+                str(item.get(field) or "")
+                for field in ("title", "action", "result", "metric_text")
+            )
+
+            if needle in self._normalize_gap_text(haystack):
+                return True
+
+        return False
+
+    def _normalize_gap_text(self, value: Any) -> str:
+        return re.sub(
+            r"\s+",
+            " ",
+            str(value or "").casefold().replace("ё", "е"),
+        ).strip()
+
+    def _achievement_rewrite_hint(
+        self,
+        *,
+        title: str,
+        missing: list[str],
+    ) -> str:
+        steps: list[str] = [title]
+
+        if "action" in missing:
+            steps.append("уточнить личный вклад")
+
+        if "result" in missing:
+            steps.append("добавить подтверждённый результат")
+
+        if "metric" in missing:
+            steps.append("добавить метрику, если она реально известна")
+
+        return " → ".join(steps)
 
     def _grade(self, score: int) -> str:
         if score >= 85:

@@ -112,6 +112,57 @@ async def _seed_review_document(db_session, test_user):
     return document
 
 
+async def _seed_review_document_with_quality_roadmap(db_session, test_user):
+    repo = DocumentVersionRepository()
+
+    content_json = {
+        "draft_mode": "deterministic_v1_review_ready",
+        "sections": {
+            "selected_achievements": [],
+            "claims_needing_confirmation": [],
+            "warnings": [],
+            "matched_keywords": ["Python"],
+            "missing_keywords": ["FastAPI", "Kubernetes"],
+            "skills": ["Python"],
+            "selection_rationale": [],
+        },
+        "meta": {
+            "source": "extracted",
+            "selected_achievement_ids": [],
+            "selected_evidence_ids": [],
+            "evidence_selection_reason": [],
+            "confidence": 0.42,
+            "generation_prompt_version": "resume_v1",
+            "generated_at": "2026-05-21T00:00:00Z",
+            "provenance": {
+                "source": "extracted",
+                "generation_mode": "deterministic_v1_review_ready",
+                "confidence": 0.42,
+                "generation_prompt_version": "resume_v1",
+                "generated_at": "2026-05-21T00:00:00Z",
+                "requires_human_review": True,
+            },
+        },
+        "readiness_score": {"overall_score": 0.42, "ats_score": 0.55},
+    }
+
+    document = await repo.create(
+        db_session,
+        user_id=test_user.id,
+        vacancy_id=None,
+        derived_from_id=None,
+        analysis_id=None,
+        document_kind="resume",
+        version_label="resume_draft_low_quality",
+        review_status="draft",
+        is_active=False,
+        content_json=content_json,
+        rendered_text="Backend developer\nPython",
+    )
+    await db_session.commit()
+    return document
+
+
 async def _seed_interview_prep_session(db_session, test_user):
     vacancy_repo = VacancyRepository()
     application_repo = ApplicationRecordRepository()
@@ -334,6 +385,36 @@ async def test_review_summary_document_payload_is_unified(client, db_session, te
     assert "review_low_confidence" in action_codes
     assert "review_warning" in action_codes
     assert "resolve_blocker" in action_codes
+
+
+async def test_review_summary_document_quality_smoke_contract(client, db_session, test_user):
+    document = await _seed_review_document_with_quality_roadmap(db_session, test_user)
+
+    response = await client.get(f"{API_PREFIX}/review/summary/document/{document.id}")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    quality = payload["quality"]
+    assert isinstance(quality["score"], int)
+    assert "score_breakdown" in quality
+    assert "recommendations" in quality
+    assert "roadmap" in quality
+
+    assert quality["roadmap"] is not None
+    assert quality["roadmap"]["current_score"] == quality["score"]
+    assert quality["roadmap"]["projected_score"] > quality["roadmap"]["current_score"]
+    assert quality["roadmap"]["steps"]
+    assert all(
+        set(step.keys()) == {"order", "title", "expected_gain"}
+        for step in quality["roadmap"]["steps"]
+    )
+
+    assert quality["recommendations"]
+    first_rec = quality["recommendations"][0]
+    assert "impact" in first_rec
+    assert "details" in first_rec
+    assert first_rec["impact"]["potential_gain"] >= 0
+    assert isinstance(first_rec["details"], dict)
 
 
 async def test_review_summary_interview_prep_payload_is_unified(client, db_session, test_user):
