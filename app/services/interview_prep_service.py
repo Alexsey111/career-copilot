@@ -351,6 +351,36 @@ class InterviewPrepService:
             for item in items
         ]
 
+    async def delete_sessions(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        application_id: UUID,
+    ) -> int:
+        deleted_count = await self.prep_session_repository.delete_by_application_id(
+            session,
+            user_id=user_id,
+            application_id=application_id,
+        )
+        await session.commit()
+        return deleted_count
+
+    async def delete_sessions_by_ids(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        session_ids: list[UUID],
+    ) -> int:
+        deleted_count = await self.prep_session_repository.delete_by_ids(
+            session,
+            user_id=user_id,
+            session_ids=session_ids,
+        )
+        await session.commit()
+        return deleted_count
+
     async def get_session(
         self,
         session: AsyncSession,

@@ -351,6 +351,22 @@ class CareerCopilotApiClient:
         finally:
             _log_api_timing("PATCH", url, started)
 
+    def delete_json(self, path: str, token: str | None = None) -> Any:
+        url = self._build_url(path)
+        started = time.perf_counter()
+        try:
+            response = httpx.delete(
+                url,
+                headers=self._build_headers(token),
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+            if not response.content:
+                return {}
+            return response.json()
+        finally:
+            _log_api_timing("DELETE", url, started)
+
     def get_application_analytics_summary(self, token: str | None = None) -> dict[str, Any]:
         return self.get_json("/applications/analytics/summary", token=token)
 
@@ -440,6 +456,29 @@ class CareerCopilotApiClient:
         return self.post_json(
             "/interview-prep/sessions",
             {"application_id": application_id},
+            token=token,
+        )
+
+    def delete_interview_prep_sessions(
+        self,
+        *,
+        application_id: str,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.delete_json(
+            f"/interview-prep/sessions?application_id={application_id}",
+            token=token,
+        )
+
+    def delete_interview_prep_sessions_by_ids(
+        self,
+        *,
+        session_ids: list[str],
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/interview-prep/sessions/delete",
+            {"session_ids": session_ids},
             token=token,
         )
 

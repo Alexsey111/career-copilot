@@ -46,8 +46,8 @@ def test_interview_answer_synthesis_does_not_use_unconfirmed_repository_star_as_
     assert "tailored resume" not in answer["action"]
     assert "FastAPI" in answer["tech_stack"]
     assert "OpenAI" in answer["tech_stack"]
-    assert any("persistence boundaries" in item for item in answer["tradeoffs"])
-    assert "Situation:" in answer["draft_text"]
+    assert any("границы хранения данных" in item for item in answer["tradeoffs"])
+    assert "Ситуация:" in answer["draft_text"]
     assert answer["source_evidence_id"] == "ev-career-copilot"
     assert answer["fact_status"] == "needs_confirmation"
 
@@ -71,8 +71,8 @@ def test_interview_answer_synthesis_builds_honest_gap_answer() -> None:
     )
 
     assert answer["format"] == "honest_gap_response"
-    assert "без overclaim" in answer["situation"]
-    assert "No confirmed Kubernetes evidence" in answer["task"]
+    assert "без преувеличений" in answer["situation"]
+    assert "нет подтверждённых доказательств по теме Kubernetes" in answer["task"]
     assert "Не заявлять опыт, который не подтверждён фактами" in answer["tradeoffs"][0]
     assert answer["fact_status"] == "inferred_needs_review"
 

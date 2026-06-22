@@ -17,6 +17,8 @@ The API may emit these stable question categories:
 - `gap-risk`
 - `evidence_probe`
 
+Product wording may sometimes use `gap_risk`, but the API payload currently emits `gap-risk`.
+
 Category meaning:
 
 - `technical` maps to a concrete vacancy requirement or tool.
@@ -58,6 +60,15 @@ Question payloads should be treated as stable when they include:
 - `match_confidence`
 - `match_type`
 
+## Evidence Rules
+
+- `technical` questions may only attach evidence with `match_type` values `exact_requirement` or `keyword_overlap`.
+- `behavioral` questions may only attach evidence with `match_confidence = high`.
+- `gap-risk` questions must never fabricate evidence.
+- `project_deep_dive` questions should surface the strongest available evidence, but still only from real evidence candidates.
+
+The system must not promote weak textual overlap into a supported claim.
+
 ## Grounding Status
 
 `questions[].suggested_answer.grounding_status` is a contract field and must remain stable.
@@ -77,6 +88,12 @@ Semantics:
 - `insufficient_evidence` means there is no usable evidence for a safe draft.
 
 Consumers must not treat any non-`grounded` answer as a verified claim.
+
+## Human Review Rules
+
+- `suggested_answer.requires_human_review` is always `true`.
+- This flag is part of the contract for every suggested answer, including grounded drafts.
+- Human review is required even when the draft looks complete, because the answer remains a preparation artifact.
 
 ## Evidence Match Confidence
 
@@ -98,6 +115,8 @@ For behavioral questions, evidence should not be auto-selected unless the match 
 
 ## Known Limitations
 
+- Interview Prep does not invent experience.
+- If confirmed evidence is missing, the system still creates the question and a preparation draft, but it does not attach evidence and readiness should decrease.
 - STAR drafts may be partial. If situation, task, action, or result is missing, the answer should stay explicit about what still needs confirmation.
 - Behavioral signals can still be generic. If the system cannot find a real match, it should not invent one.
 - The system must not auto-claim experience from weak textual overlap alone.

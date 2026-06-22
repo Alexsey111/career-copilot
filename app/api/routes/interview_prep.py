@@ -12,6 +12,7 @@ from app.db.session import get_db_session
 from app.models import User
 from app.schemas.interview_prep import (
     InterviewPrepReadinessRead,
+    InterviewPrepSessionDeleteRequest,
     InterviewPrepSessionCreateRequest,
     InterviewPrepSessionListItem,
     InterviewPrepSessionRead,
@@ -45,6 +46,36 @@ async def create_interview_prep_session(
         application_id=payload.application_id,
     )
     return _to_read_model(prep_session)
+
+
+@router.delete("/sessions")
+async def delete_interview_prep_sessions(
+    application_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, int]:
+    service = InterviewPrepService()
+    deleted_count = await service.delete_sessions(
+        session,
+        user_id=current_user.id,
+        application_id=application_id,
+    )
+    return {"deleted_count": deleted_count}
+
+
+@router.post("/sessions/delete")
+async def delete_interview_prep_sessions_by_ids(
+    payload: InterviewPrepSessionDeleteRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, int]:
+    service = InterviewPrepService()
+    deleted_count = await service.delete_sessions_by_ids(
+        session,
+        user_id=current_user.id,
+        session_ids=list(payload.session_ids or []),
+    )
+    return {"deleted_count": deleted_count}
 
 
 @router.get("/sessions/{prep_session_id}", response_model=InterviewPrepSessionRead)

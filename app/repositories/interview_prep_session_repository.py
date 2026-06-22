@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import InterviewPrepSession
@@ -88,3 +88,34 @@ class InterviewPrepSessionRepository:
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+    async def delete_by_application_id(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        application_id: UUID,
+    ) -> int:
+        stmt = delete(InterviewPrepSession).where(
+            InterviewPrepSession.user_id == user_id,
+            InterviewPrepSession.application_id == application_id,
+        )
+        result = await session.execute(stmt)
+        return int(result.rowcount or 0)
+
+    async def delete_by_ids(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        session_ids: list[UUID],
+    ) -> int:
+        if not session_ids:
+            return 0
+
+        stmt = delete(InterviewPrepSession).where(
+            InterviewPrepSession.user_id == user_id,
+            InterviewPrepSession.id.in_(session_ids),
+        )
+        result = await session.execute(stmt)
+        return int(result.rowcount or 0)

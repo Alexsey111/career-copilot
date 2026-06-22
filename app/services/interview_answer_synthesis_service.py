@@ -286,17 +286,17 @@ class InterviewAnswerSynthesisService:
             or "этой зоне"
         ).strip()
         message = str((weak_area or {}).get("message") or "").strip()
-        limitation = message or f"нет сильного подтверждённого опыта по {competency}"
+        limitation = self._humanize_gap_message(message) or f"нет сильного подтверждённого опыта по {competency}"
         answer = {
             "format": "honest_gap_response",
-            "situation": f"По {competency} важно ответить честно и без overclaim.",
-            "task": f"Показать понимание требования и план закрытия gap: {limitation}.",
+            "situation": f"По {competency} важно ответить честно и без преувеличений.",
+            "task": f"Показать понимание требования и план закрытия пробела: {limitation}.",
             "action": (
                 "Я бы прямо обозначил текущий уровень, связал его с ближайшим "
                 "подтверждённым опытом и предложил конкретный план добора практики."
             ),
             "result": (
-                "Такой ответ снижает риск неподтверждённых claims и показывает зрелый подход к обучению."
+                "Такой ответ снижает риск неподтверждённых утверждений и показывает зрелый подход к обучению."
             ),
             "tech_stack": [],
             "tradeoffs": [
@@ -315,6 +315,17 @@ class InterviewAnswerSynthesisService:
         }
         answer["draft_text"] = self._render_draft_text(answer)
         return answer
+
+    def _humanize_gap_message(self, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+
+        match = re.fullmatch(r"No confirmed (.+) evidence\.?", text, flags=re.IGNORECASE)
+        if match:
+            return f"нет подтверждённых доказательств по теме {match.group(1)}"
+
+        return text
 
     def _ungrounded_situation(
         self,
@@ -404,11 +415,11 @@ class InterviewAnswerSynthesisService:
             return self._clean_sentence(text)
         if "fastapi" in competency.lower():
             return (
-                "Можно описать backend/API пример через подтверждённые действия, "
-                "границы endpoint-ов, persistence layer и workflow logic — без добавления "
-                "непроверенных claims."
+                "Можно описать пример backend/API через подтверждённые действия, "
+                "границы endpoint-ов, слой хранения данных и логику workflow — без добавления "
+                "непроверенных утверждений."
             )
-        return "Описать решение через concrete implementation steps и проверяемые evidence."
+        return "Описать решение через конкретные шаги реализации и проверяемые доказательства."
 
     def _fallback_result(self, *, evidence: Mapping[str, Any]) -> str:
         title = str(evidence.get("title") or "").strip()
@@ -433,14 +444,14 @@ class InterviewAnswerSynthesisService:
         ).lower()
         tradeoffs: list[str] = []
         if "fastapi" in text or "backend" in text:
-            tradeoffs.append("Разделить API layer, business workflow и persistence boundaries")
+            tradeoffs.append("Разделить API-слой, бизнес-процесс и границы хранения данных")
         if "postgres" in text or "sqlalchemy" in text:
             tradeoffs.append("Балансировать простоту модели данных и возможность расширения")
         if "workflow" in text or "openai" in text or "llm" in text:
-            tradeoffs.append("Сохранять deterministic review flow вокруг AI-generated output")
+            tradeoffs.append("Сохранять детерминированную проверку вокруг результата AI")
         if "testing" in text or "pytest" in text:
-            tradeoffs.append("Покрывать критичные ветки тестами вместо проверки только happy path")
-        return tradeoffs or ["Держать ответ grounded in confirmed evidence без лишних claims"]
+            tradeoffs.append("Покрывать критичные ветки тестами вместо проверки только успешного сценария")
+        return tradeoffs or ["Держать ответ привязанным к подтверждённым фактам без лишних утверждений"]
 
     def _build_talking_points(
         self,
@@ -456,23 +467,23 @@ class InterviewAnswerSynthesisService:
             points.append(f"Назвать проект/факт: {evidence.get('title')}")
         if skills:
             points.append(f"Упомянуть стек: {', '.join(skills[:5])}")
-        points.append("Закрыть ответ результатом и тем, что было проверено evidence")
+        points.append("Закрыть ответ результатом и тем, какие факты были проверены")
         return points
 
     def _render_draft_text(self, answer: Mapping[str, Any]) -> str:
         lines = [
-            f"Situation: {answer.get('situation')}",
-            f"Task: {answer.get('task')}",
-            f"Action: {answer.get('action')}",
-            f"Result: {answer.get('result')}",
+            f"Ситуация: {answer.get('situation')}",
+            f"Задача: {answer.get('task')}",
+            f"Действия: {answer.get('action')}",
+            f"Результат: {answer.get('result')}",
         ]
         tech_stack = answer.get("tech_stack") or []
         if tech_stack:
-            lines.append(f"Tech stack: {', '.join(str(item) for item in tech_stack)}")
+            lines.append(f"Стек: {', '.join(str(item) for item in tech_stack)}")
         tradeoffs = answer.get("tradeoffs") or []
         if tradeoffs:
             lines.append(
-                "Tradeoffs: " + "; ".join(str(item) for item in tradeoffs[:3])
+                "Компромиссы: " + "; ".join(str(item) for item in tradeoffs[:3])
             )
         return "\n".join(line for line in lines if line and not line.endswith(": None"))
 

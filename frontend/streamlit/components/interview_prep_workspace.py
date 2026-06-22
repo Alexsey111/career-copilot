@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -116,6 +117,145 @@ def _humanize_evidence_fact_status(value: Any) -> str:
     if status == "rejected":
         return "Отклонено"
     return "Статус не указан"
+
+
+def _humanize_question_category(value: Any) -> str:
+    category = str(value or "").strip().lower()
+    labels = {
+        "technical": "технический вопрос",
+        "behavioral": "поведенческий вопрос",
+        "gap-risk": "вопрос по слабой зоне",
+        "evidence_probe": "уточнение по опыту",
+        "project_deep_dive": "разбор проекта",
+        "leadership": "лидерский опыт",
+        "unknown": "без категории",
+    }
+    return labels.get(category, category or "без категории")
+
+
+def _humanize_answer_format(value: Any) -> str:
+    answer_format = str(value or "").strip()
+    labels = {
+        "STAR": "STAR",
+        "STAR_or_example": "STAR или пример из опыта",
+        "STAR_or_project_context": "STAR или контекст проекта",
+        "honest_gap_response": "честный ответ о слабой зоне",
+    }
+    return labels.get(answer_format, answer_format or "не указан")
+
+
+def _humanize_star_field(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    labels = {
+        "situation": "Ситуация",
+        "task": "Задача",
+        "action": "Действия",
+        "result": "Результат",
+    }
+    return labels.get(key, str(value or ""))
+
+
+def _humanize_competency_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "—"
+
+    normalized = text.lower().replace(" ", "_")
+    labels = {
+        "ownership": "ответственность",
+        "communication": "коммуникация",
+        "leadership": "лидерство",
+        "collaboration": "сотрудничество",
+        "cross_functional_collaboration": "кросс-функциональное сотрудничество",
+        "mentoring": "наставничество",
+        "learning_agility": "обучаемость",
+        "stakeholder_management": "работа со стейкхолдерами",
+        "architecture_tradeoffs": "архитектурные компромиссы",
+        "independent_delivery": "самостоятельное доведение задач до результата",
+        "tradeoff_reasoning": "обоснование компромиссов",
+        "fundamentals": "базовые принципы",
+        "adobe_photoshop": "Adobe Photoshop",
+        "coreldraw": "CorelDRAW",
+    }
+    if normalized in labels:
+        return labels[normalized]
+
+    return text.replace("_", " ")
+
+
+def _humanize_seniority_level(value: Any) -> str:
+    level = str(value or "").strip().lower()
+    labels = {
+        "junior": "junior",
+        "middle": "middle",
+        "senior": "senior",
+        "lead": "lead",
+        "staff": "staff",
+        "principal": "principal",
+    }
+    return labels.get(level, str(value or "—"))
+
+
+def _humanize_display_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    replacements = {
+        "проявили ownership": "проявили ответственность",
+        "проявили communication": "проявили коммуникацию",
+        "проявили collaboration": "проявили сотрудничество",
+        "проявили learning agility": "проявили обучаемость",
+        "grounded in confirmed evidence": "привязанным к подтверждённым фактам",
+        "confirmed evidence": "подтверждённые факты",
+        "claims": "утверждений",
+        "claim": "утверждение",
+        "evidence": "доказательства",
+        "ownership": "ответственность",
+        "communication": "коммуникация",
+        "collaboration": "сотрудничество",
+        "independent delivery": "самостоятельное доведение задач до результата",
+        "tradeoff reasoning": "обоснование компромиссов",
+        "learning agility": "обучаемость",
+        "architecture tradeoffs": "архитектурные компромиссы",
+        "cross-functional collaboration": "кросс-функциональное сотрудничество",
+    }
+    for source, target in replacements.items():
+        text = re.sub(rf"\b{re.escape(source)}\b", target, text, flags=re.IGNORECASE)
+    return text
+
+
+def _humanize_weak_area_message(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "Слабая зона"
+
+    match = re.fullmatch(r"No confirmed (.+) evidence\.?", text, flags=re.IGNORECASE)
+    if match:
+        competency = _humanize_competency_value(match.group(1))
+        return f"Нет подтверждённых доказательств по компетенции: {competency}"
+
+    return text
+
+
+def _format_session_cleanup_label(
+    item: dict[str, Any],
+    *,
+    index: int,
+    current_application_id: str | None,
+) -> str:
+    session_id = str(item.get("id") or "").strip()
+    application_id = str(item.get("application_id") or "").strip()
+    prep_status = _humanize_prep_status(item.get("prep_status"))
+    readiness = _format_score(item.get("readiness_score"))
+    created_at = str(item.get("created_at") or "").strip()
+    created_date = created_at[:10] if created_at else "—"
+    app_suffix = application_id[-8:] if application_id else "—"
+    current_marker = " · текущий отклик" if current_application_id and application_id == current_application_id else ""
+    return (
+        f"{index}. {prep_status} · {readiness} · app …{app_suffix} · "
+        f"{created_date} · {session_id[:8]}{current_marker}"
+    )
 
 
 def _sanitize_evidence_text(value: Any) -> str:
@@ -253,7 +393,7 @@ def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
 
             rows = [
                 {
-                    "Категория": category,
+                    "Категория": _humanize_question_category(category),
                     "Количество": count,
                 }
                 for category, count in sorted(by_category.items())
@@ -323,7 +463,7 @@ def _render_competency_coverage(
         elif fact_status in {"needs_confirmation", "partial"}:
             status_text = "Нужно подтвердить"
         elif key in weak_by_competency:
-            status_text = "Нет подтверждённого evidence"
+            status_text = "Нет подтверждённых доказательств"
         else:
             status_text = "Не определено"
 
@@ -362,7 +502,7 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
         required_skills = competency_map.get("required_skills") or []
         if required_skills:
             for item in required_skills:
-                st.markdown(f"- {item.get('label') or item.get('key')}")
+                st.markdown(f"- {_humanize_display_text(item.get('label') or item.get('key'))}")
         else:
             st.caption("Обязательные навыки не извлечены.")
 
@@ -371,7 +511,7 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
         behavioral_signals = competency_map.get("behavioral_signals") or []
         if behavioral_signals:
             for signal in behavioral_signals:
-                st.markdown(f"- {signal}")
+                st.markdown(f"- {_humanize_competency_value(signal)}")
         else:
             st.caption("Поведенческие сигналы не извлечены.")
 
@@ -381,9 +521,9 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
         st.markdown("#### Ожидания по уровню")
         seniority = competency_map.get("seniority_expectations") or {}
         if seniority:
-            st.write(f"Уровень: {seniority.get('level') or '—'}")
+            st.write(f"Уровень: {_humanize_seniority_level(seniority.get('level'))}")
             for signal in seniority.get("signals") or []:
-                st.markdown(f"- {signal}")
+                st.markdown(f"- {_humanize_competency_value(signal)}")
         else:
             st.caption("Ожидания по уровню не извлечены.")
 
@@ -396,7 +536,7 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
         )
         if domain_focus_areas:
             for item in domain_focus_areas:
-                st.markdown(f"- {item}")
+                st.markdown(f"- {_humanize_display_text(item)}")
         else:
             st.caption("Фокус интервью не извлечён.")
 
@@ -414,15 +554,15 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
             st.caption("Черновик ответа. Проверьте и адаптируйте под свой реальный опыт.")
 
         fields = [
-            ("Situation", answer.get("situation")),
-            ("Task", answer.get("task")),
-            ("Action", answer.get("action")),
-            ("Result", answer.get("result")),
+            ("Ситуация", answer.get("situation")),
+            ("Задача", answer.get("task")),
+            ("Действия", answer.get("action")),
+            ("Результат", answer.get("result")),
         ]
         for label, value in fields:
             value_text = str(value or "").strip()
             if value_text:
-                st.markdown(f"**{label}:** {value_text}")
+                st.markdown(f"**{label}:** {_humanize_display_text(value_text)}")
 
     tech_stack = [
         str(item).strip()
@@ -442,7 +582,7 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         title = "Что нужно собрать" if insufficient_grounding else "Компромиссы и ограничения"
         with st.expander(title, expanded=False):
             for item in tradeoffs:
-                st.markdown(f"- {item}")
+                st.markdown(f"- {_humanize_display_text(item)}")
 
     talking_points = [
         str(item).strip()
@@ -453,7 +593,7 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         title = "Что нужно собрать" if insufficient_grounding else "Что подчеркнуть на интервью"
         with st.expander(title, expanded=False):
             for item in talking_points:
-                st.markdown(f"- {item}")
+                st.markdown(f"- {_humanize_display_text(item)}")
 
 
 def _render_question_group(questions: list[dict[str, Any]]) -> None:
@@ -467,16 +607,21 @@ def _render_question_group(questions: list[dict[str, Any]]) -> None:
         grouped.setdefault(str(question.get("category") or "unknown"), []).append(question)
 
     for category, items in grouped.items():
-        with st.expander(f"{category} ({len(items)})", expanded=category in {"technical", "gap-risk"}):
+        with st.expander(
+            f"{_humanize_question_category(category)} ({len(items)})",
+            expanded=category in {"technical", "gap-risk"},
+        ):
             for question in items:
                 with st.container(border=True):
-                    st.markdown(f"**{question.get('prompt') or 'Question'}**")
+                    st.markdown(f"**{_humanize_display_text(question.get('prompt') or 'Вопрос')}**")
                     if question.get("answer_format"):
-                        st.caption(f"Формат ответа: {question.get('answer_format')}")
+                        st.caption(
+                            f"Формат ответа: {_humanize_answer_format(question.get('answer_format'))}"
+                        )
                     if question.get("competency_name") or question.get("competency_key"):
                         st.caption(
                             "Компетенция: "
-                            f"{question.get('competency_name') or question.get('competency_key')}"
+                            f"{_humanize_display_text(question.get('competency_name') or question.get('competency_key'))}"
                         )
 
                     suggested_answer = question.get("suggested_answer")
@@ -484,7 +629,7 @@ def _render_question_group(questions: list[dict[str, Any]]) -> None:
 
                     evidence = question.get("recommended_evidence") or []
                     rationale_title = (
-                        "У нас пока нет доказательств. Вот что нужно собрать."
+                        "Почему системе пока не хватает доказательств"
                         if _is_insufficient_grounding(suggested_answer)
                         else "Почему система предлагает этот пример"
                     )
@@ -497,7 +642,9 @@ def _render_question_group(questions: list[dict[str, Any]]) -> None:
                                     st.caption(_humanize_reason(reason))
                         else:
                             if _is_insufficient_grounding(suggested_answer):
-                                st.caption("Вот что нужно собрать: подтверждённые факты, результат и конкретные действия.")
+                                st.caption(
+                                    "Нужно собрать подтверждённые факты, результат и конкретные действия."
+                                )
                             else:
                                 st.caption("Пока не привязано подтверждённое доказательство.")
 
@@ -557,7 +704,7 @@ def _render_question_supporting_evidence(
                 continue
 
             if not isinstance(snippet, dict):
-                st.caption("Backend вернул неожиданные детали доказательства.")
+                st.caption("Сервер вернул неожиданные детали доказательства.")
                 continue
 
             st.caption(
@@ -570,7 +717,7 @@ def _render_question_supporting_evidence(
             star_summary = snippet.get("star_summary") or snippet.get("star_summary_json") or {}
             if isinstance(star_summary, dict) and star_summary:
                 star_parts = [
-                    f"{key}={_sanitize_evidence_text(value)}"
+                    f"{_humanize_star_field(key)}={_sanitize_evidence_text(value)}"
                     for key, value in star_summary.items()
                     if key in {"situation", "task", "action", "result"}
                     if _sanitize_evidence_text(value) not in ("", "—")
@@ -593,9 +740,9 @@ def _render_evidence_links(evidence_links: list[dict[str, Any]]) -> None:
     for item in evidence_links:
         rows.append(
             {
-                "Вопрос": str(item.get("question_category") or "—"),
-                "Компетенция": item.get("competency_key") or "—",
-                "Достижение": item.get("achievement_title") or "—",
+                "Вопрос": _humanize_question_category(item.get("question_category")),
+                "Компетенция": _humanize_competency_value(item.get("competency_key")),
+                "Достижение": _humanize_display_text(item.get("achievement_title") or "—"),
                 "Почему подходит": _humanize_reason(item.get("reason")),
             }
         )
@@ -611,7 +758,7 @@ def _render_weak_areas(weak_areas: list[dict[str, Any]]) -> None:
 
     for item in weak_areas:
         severity = str(item.get("severity") or "").lower()
-        text = f"{item.get('message') or 'Weak area'}"
+        text = _humanize_weak_area_message(item.get("message"))
         if severity == "blocker":
             st.error(text)
         elif severity == "warning":
@@ -620,8 +767,93 @@ def _render_weak_areas(weak_areas: list[dict[str, Any]]) -> None:
             st.info(text)
         if item.get("category") or item.get("competency_key"):
             st.caption(
-                f"{item.get('category') or 'category'} · {item.get('competency_key') or 'competency'}"
+                f"{_humanize_question_category(item.get('category'))} · "
+                f"{_humanize_competency_value(item.get('competency_key'))}"
             )
+
+
+def _render_session_cleanup_action(
+    client: CareerCopilotApiClient,
+    *,
+    token: str | None,
+    selection_state_key: str,
+    sessions: list[dict[str, Any]],
+    current_application_id: str | None,
+) -> None:
+    st.markdown("### Управление сессиями")
+    st.caption(
+        "Выберите одну или несколько сессий подготовки к интервью, которые больше не нужны."
+    )
+
+    if not sessions:
+        st.info("Сессии подготовки к интервью пока не созданы.")
+        return
+
+    session_ids: list[str] = []
+    labels: dict[str, str] = {}
+    default_selected: list[str] = []
+    for index, item in enumerate(sessions, start=1):
+        session_id = str(item.get("id") or "").strip()
+        if not session_id:
+            continue
+        session_ids.append(session_id)
+        labels[session_id] = _format_session_cleanup_label(
+            item,
+            index=index,
+            current_application_id=current_application_id,
+        )
+        if current_application_id and str(item.get("application_id") or "").strip() == current_application_id:
+            default_selected.append(session_id)
+
+    if not session_ids:
+        st.info("У доступных сессий нет валидных id.")
+        return
+
+    selected_session_ids = st.multiselect(
+        "Сессии для удаления",
+        options=session_ids,
+        default=default_selected,
+        format_func=lambda value: labels.get(value, value),
+        key=f"{selection_state_key}_delete_picker",
+    )
+
+    if not selected_session_ids:
+        st.caption("Отметьте одну или несколько сессий, чтобы активировать удаление.")
+        return
+
+    st.warning("Удаление нельзя отменить. Будут удалены только отмеченные сессии.")
+
+    if not st.button(
+        "Удалить выбранные сессии",
+        type="primary",
+        width="stretch",
+        key=f"{selection_state_key}_delete_selected_interview_prep_sessions",
+    ):
+        return
+
+    try:
+        result = client.delete_interview_prep_sessions_by_ids(
+            session_ids=selected_session_ids,
+            token=token,
+        )
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Сервер вернул HTTP {exc.response.status_code}")
+        st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к серверу")
+        st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Сервер вернул неожиданный ответ")
+        st.code(str(exc))
+        return
+
+    deleted_count = int(result.get("deleted_count") or 0) if isinstance(result, dict) else 0
+    st.session_state.pop(selection_state_key, None)
+    st.session_state.pop(f"{selection_state_key}_delete_picker", None)
+    st.success(f"Удалено сессий: {deleted_count}")
+    st.rerun()
 
 
 def _render_create_action(
@@ -632,11 +864,14 @@ def _render_create_action(
 ) -> None:
     application = st.session_state.get("application")
     if not application:
-        st.info("В сессии Streamlit нет текущего отклика. Сначала создайте отклик со статусом applied.")
+        st.info(
+            "В сессии Streamlit нет текущего отклика. "
+            "Сначала создайте отклик со статусом «отклик отправлен»."
+        )
         return
 
     if str(application.get("status") or "").lower() != "applied":
-        st.info("Подготовка к интервью доступна после перевода отклика в статус applied.")
+        st.info("Подготовка к интервью доступна после перевода отклика в статус «отклик отправлен».")
         return
 
     application_id = str(application.get("id") or "").strip()
@@ -663,20 +898,20 @@ def _render_create_action(
                 token=token,
             )
         except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул HTTP {exc.response.status_code}")
+            st.error(f"Сервер вернул HTTP {exc.response.status_code}")
             st.code(exc.response.text)
             return
         except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
+            st.error("Не удалось подключиться к серверу")
             st.code(str(exc))
             return
         except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
+            st.error("Сервер вернул неожиданный ответ")
             st.code(str(exc))
             return
 
         if not isinstance(session, dict):
-            st.error("Backend вернул неожиданный формат сессии")
+            st.error("Сервер вернул неожиданный формат сессии")
             st.json(session)
             return
 
@@ -710,25 +945,33 @@ def render_interview_prep_workspace_tab(
     try:
         sessions = client.list_interview_prep_sessions(token=token)
     except httpx.HTTPStatusError as exc:
-        st.error(f"Backend вернул HTTP {exc.response.status_code}")
+        st.error(f"Сервер вернул HTTP {exc.response.status_code}")
         st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
-        st.error("Не удалось подключиться к backend")
+        st.error("Не удалось подключиться к серверу")
         st.code(str(exc))
         return
     except ValueError as exc:
-        st.error("Backend вернул неожиданный ответ")
+        st.error("Сервер вернул неожиданный ответ")
         st.code(str(exc))
         return
 
     if not isinstance(sessions, list):
-        st.error("Backend вернул неожиданный список сессий")
+        st.error("Сервер вернул неожиданный список сессий")
         st.json(sessions)
         return
 
     current_application = st.session_state.get("application") or {}
     current_application_id = str(current_application.get("id") or "").strip()
+
+    _render_session_cleanup_action(
+        client,
+        token=token,
+        selection_state_key=selection_state_key,
+        sessions=sessions,
+        current_application_id=current_application_id,
+    )
 
     if current_application_id:
         sessions = [
@@ -827,20 +1070,20 @@ def render_interview_prep_workspace_tab(
     try:
         selected_session = client.get_interview_prep_session(selected_session_id, token=token)
     except httpx.HTTPStatusError as exc:
-        st.error(f"Backend вернул HTTP {exc.response.status_code}")
+        st.error(f"Сервер вернул HTTP {exc.response.status_code}")
         st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
-        st.error("Не удалось подключиться к backend")
+        st.error("Не удалось подключиться к серверу")
         st.code(str(exc))
         return
     except ValueError as exc:
-        st.error("Backend вернул неожиданный ответ")
+        st.error("Сервер вернул неожиданный ответ")
         st.code(str(exc))
         return
 
     if not isinstance(selected_session, dict):
-        st.error("Backend вернул неожиданный формат сессии")
+        st.error("Сервер вернул неожиданный формат сессии")
         st.json(selected_session)
         return
 
@@ -869,20 +1112,22 @@ def render_interview_prep_workspace_tab(
     st.divider()
     _render_question_group(selected_session.get("questions") or [])
     st.divider()
-    st.markdown("### Provenance доказательств по вопросам")
+    st.markdown("### Происхождение доказательств по вопросам")
     questions = selected_session.get("questions") or []
     if not questions:
         st.caption("Вопросов пока нет.")
     else:
         for question in questions:
             with st.container(border=True):
-                st.markdown(f"**{question.get('prompt') or 'Question'}**")
+                st.markdown(f"**{_humanize_display_text(question.get('prompt') or 'Вопрос')}**")
                 if question.get("answer_format"):
-                    st.caption(f"Формат ответа: {question.get('answer_format')}")
+                    st.caption(
+                        f"Формат ответа: {_humanize_answer_format(question.get('answer_format'))}"
+                    )
                 if question.get("competency_name") or question.get("competency_key"):
                     st.caption(
                         "Компетенция: "
-                        f"{question.get('competency_name') or question.get('competency_key')}"
+                        f"{_humanize_display_text(question.get('competency_name') or question.get('competency_key'))}"
                     )
                 _render_question_supporting_evidence(
                     client,

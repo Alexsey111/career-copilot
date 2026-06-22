@@ -304,3 +304,96 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     assert gap_question["requires_careful_answer"] is True
     assert gap_question["provenance"]["requires_careful_answer"] is True
     assert gap_question["provenance"]["fact_status"] == "inferred_needs_review"
+
+
+@pytest.mark.asyncio
+async def test_delete_interview_prep_sessions_by_ids_removes_only_selected_sessions(
+    client,
+    db_session,
+    test_user,
+    fake_storage,
+):
+    await _prepare_profile_with_confirmed_achievements(
+        client,
+        db_session,
+        test_user,
+        fake_storage,
+    )
+    seeded = await _seed_vacancy_and_application(client, db_session, test_user)
+
+    vacancy_repo = VacancyRepository()
+    analysis_repo = VacancyAnalysisRepository()
+    application_repo = ApplicationRecordRepository()
+
+    second_vacancy = await vacancy_repo.create(
+        db_session,
+        user_id=test_user.id,
+        source="manual",
+        source_url=None,
+        external_id=None,
+        title="Senior Backend Engineer - Secondary",
+        company="Acme",
+        location="Remote",
+        description_raw=(
+            "We need a Senior Backend Engineer.\n"
+            "Must have: Python, FastAPI, Kubernetes, PostgreSQL.\n"
+            "Leadership and ownership matter."
+        ),
+        normalized_json={"requirements": ["Python", "FastAPI", "Kubernetes", "PostgreSQL"]},
+    )
+    await analysis_repo.replace_for_vacancy(
+        db_session,
+        vacancy_id=second_vacancy.id,
+        must_have_json=[
+            {"text": "Python", "keyword": "python", "weight": 100},
+            {"text": "FastAPI", "keyword": "fastapi", "weight": 95},
+            {"text": "Kubernetes", "keyword": "kubernetes", "weight": 90},
+            {"text": "PostgreSQL", "keyword": "postgresql", "weight": 90},
+        ],
+        nice_to_have_json=[{"text": "Redis", "keyword": "redis", "weight": 40}],
+        keywords_json=["Python", "FastAPI", "Kubernetes", "PostgreSQL", "leadership"],
+        gaps_json=[],
+        strengths_json=[],
+        match_score=81,
+        analysis_version="v-test-2",
+    )
+
+    second_application = await application_repo.create(
+        db_session,
+        user_id=test_user.id,
+        vacancy_id=second_vacancy.id,
+        status="applied",
+        source="manual",
+        notes="Second application for cleanup testing",
+    )
+    await db_session.commit()
+
+    first_create = await client.post(
+        f"{API_PREFIX}/interview-prep/sessions",
+        json={"application_id": str(seeded["application"].id)},
+    )
+    assert first_create.status_code == 200, first_create.text
+
+    second_create = await client.post(
+        f"{API_PREFIX}/interview-prep/sessions",
+        json={"application_id": str(second_application.id)},
+    )
+    assert second_create.status_code == 200, second_create.text
+
+    list_response = await client.get(f"{API_PREFIX}/interview-prep/sessions")
+    assert list_response.status_code == 200, list_response.text
+    sessions = list_response.json()
+    assert len(sessions) == 2
+
+    delete_response = await client.post(
+        f"{API_PREFIX}/interview-prep/sessions/delete",
+        json={"session_ids": [sessions[0]["id"]]},
+    )
+    assert delete_response.status_code == 200, delete_response.text
+    assert delete_response.json()["deleted_count"] == 1
+
+    after_delete = await client.get(f"{API_PREFIX}/interview-prep/sessions")
+    assert after_delete.status_code == 200, after_delete.text
+    remaining_sessions = after_delete.json()
+    assert len(remaining_sessions) == 1
+    assert remaining_sessions[0]["id"] != sessions[0]["id"]

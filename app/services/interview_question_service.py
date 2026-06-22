@@ -16,6 +16,7 @@ from app.domain.interview_prep import (
     achievement_search_text,
     build_behavioral_signals,
     build_competency_key,
+    dedupe_preserve_order,
     build_seniority_expectations,
     has_leadership_tokens,
     has_metric_text,
@@ -45,7 +46,11 @@ class InterviewQuestionService:
         )
         behavioral_signals = build_behavioral_signals(vacancy, analysis, required_skills)
         seniority = build_seniority_expectations(vacancy)
-        domain_focus_areas = infer_domain_focus_areas(vacancy, analysis)
+        domain_focus_areas = self._build_domain_focus_areas(
+            required_skills=required_skills,
+            vacancy=vacancy,
+            analysis=analysis,
+        )
 
         return {
             "required_skills": required_skills,
@@ -88,16 +93,17 @@ class InterviewQuestionService:
             )
 
         for signal in (competency_map.get("behavioral_signals") or [])[:2]:
+            signal_label = self._humanize_behavioral_signal(signal)
             questions.append(
                 self._build_question(
                     category="behavioral",
                     prompt=(
-                        f"Приведите пример, где вы проявили {signal} "
+                        f"Приведите пример, где вы проявили {signal_label} "
                         f"в рабочем проекте."
                     ),
                     answer_format="STAR",
                     competency_key=build_competency_key(signal),
-                    competency_name=signal,
+                    competency_name=signal_label,
                     evidence_candidates=evidence_candidates,
                 )
             )
@@ -128,7 +134,7 @@ class InterviewQuestionService:
                     ),
                     answer_format="STAR",
                     competency_key="leadership",
-                    competency_name="Leadership",
+                    competency_name="лидерство",
                     evidence_candidates=evidence_candidates,
                 )
             )
@@ -221,6 +227,10 @@ class InterviewQuestionService:
                 question=question,
                 evidence_items=evidence_candidates,
             )
+            ranked = self._filter_ranked_evidence_for_question(
+                category=str(question.get("category") or ""),
+                ranked=ranked,
+            )
             for item in ranked[:2]:
                 links.append(
                     {
@@ -280,18 +290,10 @@ class InterviewQuestionService:
             },
             evidence_items=evidence_candidates,
         )
-        ranked = [
-            item
-            for item in ranked
-            if item.get("match_confidence") in {"high", "medium"}
-        ]
-        if category == "behavioral":
-            ranked = [
-                item
-                for item in ranked
-                if item.get("match_confidence") == "high"
-                or item.get("match_type") == "exact_requirement"
-            ]
+        ranked = self._filter_ranked_evidence_for_question(
+            category=category,
+            ranked=ranked,
+        )
         recommended_evidence_ids = [
             item["achievement_id"]
             for item in ranked[:2]
@@ -348,6 +350,39 @@ class InterviewQuestionService:
             },
         }
 
+    def _filter_ranked_evidence_for_question(
+        self,
+        *,
+        category: str,
+        ranked: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        category = str(category or "").strip().lower()
+        filtered = [
+            item
+            for item in ranked
+            if item.get("match_confidence") in {"high", "medium"}
+        ]
+
+        if category == "technical":
+            filtered = [
+                item
+                for item in filtered
+                if item.get("match_type")
+                in {
+                    "exact_requirement",
+                    "keyword_overlap",
+                }
+            ]
+
+        if category == "behavioral":
+            filtered = [
+                item
+                for item in filtered
+                if item.get("match_confidence") == "high"
+            ]
+
+        return filtered
+
     def _rank_evidence_items_for_question(
         self,
         *,
@@ -362,6 +397,7 @@ class InterviewQuestionService:
         competency_key = str(question.get("competency_key") or "").lower()
         competency_name = str(question.get("competency_name") or "").lower()
         query_tokens = tokenize_text(" ".join([prompt, competency_key, competency_name, category]))
+        competency_tokens = tokenize_text(" ".join([competency_key, competency_name]))
         query_skills = set(extract_skill_tags(prompt, competency_key, competency_name, category))
 
         ranked: list[dict[str, Any]] = []
@@ -382,6 +418,7 @@ class InterviewQuestionService:
             )
             text_tokens = tokenize_text(text)
             overlap = len(query_tokens & text_tokens)
+            competency_overlap = len(competency_tokens & text_tokens)
             evidence_skills = {
                 str(skill).strip().lower().replace(" ", "_")
                 for skill in (evidence.get("skills") or [])
@@ -426,21 +463,24 @@ class InterviewQuestionService:
             if usage_count:
                 score -= min(usage_count * 0.05, 0.3)
 
-            match_confidence = self._evidence_match_confidence(
-                score=score,
-                overlap=overlap,
-                evidence=evidence,
-            )
             match_type = self._evidence_match_type(
                 question=question,
                 evidence=evidence,
                 overlap=overlap,
+                competency_overlap=competency_overlap,
+            )
+            match_confidence = self._evidence_match_confidence(
+                score=score,
+                overlap=overlap,
+                competency_overlap=competency_overlap,
+                match_type=match_type,
+                evidence=evidence,
             )
 
             ranked.append(
                 {
                     "achievement_id": evidence.get("id") or evidence.get("achievement_id"),
-                    "title": evidence.get("title") or "Evidence",
+                    "title": self._clean_evidence_title(evidence.get("title")),
                     "source_type": evidence.get("source_type"),
                     "fact_status": evidence.get("fact_status"),
                     "skills": list(evidence.get("skills") or []),
@@ -451,6 +491,7 @@ class InterviewQuestionService:
                         question=question,
                         evidence=evidence,
                         overlap=overlap,
+                        competency_overlap=competency_overlap,
                     ),
                 }
             )
@@ -464,11 +505,14 @@ class InterviewQuestionService:
         question: dict[str, Any],
         evidence: dict[str, Any],
         overlap: int,
+        competency_overlap: int,
     ) -> str:
         parts: list[str] = []
 
-        if overlap >= 2:
-            parts.append("Совпадает с несколькими словами из вопроса")
+        if competency_overlap >= 2:
+            parts.append("Совпадает с ключевой компетенцией")
+        elif overlap >= 2:
+            parts.append("Есть слабое контекстное совпадение")
         elif overlap == 1:
             parts.append("Есть слабое текстовое совпадение")
 
@@ -488,26 +532,81 @@ class InterviewQuestionService:
         *,
         score: float,
         overlap: int,
+        competency_overlap: int,
+        match_type: str = "",
         evidence: dict[str, Any],
     ) -> str:
         fact_status = str(evidence.get("fact_status") or "").lower()
+        match_type = str(match_type or "").strip().lower()
 
-        if fact_status in {
-            EvidenceFactStatus.CONFIRMED,
-            EvidenceFactStatus.USER_PROVIDED,
-        } and overlap >= 2:
-            return "high"
+        if match_type == "exact_requirement":
+            if fact_status in {
+                EvidenceFactStatus.CONFIRMED,
+                EvidenceFactStatus.USER_PROVIDED,
+            }:
+                return "high"
+            return "medium"
 
-        if overlap >= 2:
+        if match_type == "keyword_overlap":
+            if fact_status in {
+                EvidenceFactStatus.CONFIRMED,
+                EvidenceFactStatus.USER_PROVIDED,
+            }:
+                return "medium"
             return "medium"
 
         if fact_status in {
             EvidenceFactStatus.CONFIRMED,
             EvidenceFactStatus.USER_PROVIDED,
-        } and overlap >= 1:
+        } and competency_overlap >= 2:
+            return "high"
+
+        if competency_overlap >= 2:
             return "medium"
 
         return "low"
+
+    def _clean_evidence_title(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "Evidence"
+
+        separators = [
+            " Участвовала ",
+            " Участвовал ",
+            " Подготовила ",
+            " Подготовил ",
+            " Сократила ",
+            " Сократил ",
+            " Оптимизировала ",
+            " Оптимизировал ",
+        ]
+
+        for separator in separators:
+            index = text.find(separator)
+            if index > 0:
+                text = text[:index].strip(" .;:-")
+                break
+
+        return text or "Evidence"
+
+    def _humanize_behavioral_signal(self, value: Any) -> str:
+        signal = str(value or "").strip()
+        normalized = signal.lower().replace(" ", "_")
+        labels = {
+            "ownership": "ответственность",
+            "communication": "коммуникацию",
+            "collaboration": "сотрудничество",
+            "cross_functional_collaboration": "кросс-функциональное сотрудничество",
+            "mentoring": "наставничество",
+            "learning_agility": "обучаемость",
+            "stakeholder_management": "работу со стейкхолдерами",
+            "architecture_tradeoffs": "архитектурные компромиссы",
+            "independent_delivery": "самостоятельное доведение задач до результата",
+            "tradeoff_reasoning": "обоснование компромиссов",
+            "fundamentals": "понимание базовых принципов",
+        }
+        return labels.get(normalized, signal or "рабочее качество")
 
     def _evidence_match_type(
         self,
@@ -515,6 +614,7 @@ class InterviewQuestionService:
         question: dict[str, Any],
         evidence: dict[str, Any],
         overlap: int,
+        competency_overlap: int,
     ) -> str:
         competency_key = str(question.get("competency_key") or "").lower()
         competency_name = str(question.get("competency_name") or "").lower()
@@ -530,8 +630,11 @@ class InterviewQuestionService:
         if competency_name and competency_name in text:
             return "exact_requirement"
 
-        if overlap >= 2:
+        if competency_overlap >= 2:
             return "keyword_overlap"
+
+        if overlap >= 2:
+            return "weak_context_overlap"
 
         return "weak_overlap"
 
@@ -564,7 +667,7 @@ class InterviewQuestionService:
         return {
             "id": achievement.get("id"),
             "achievement_id": achievement.get("id"),
-            "title": achievement.get("title") or "Evidence",
+            "title": self._clean_evidence_title(achievement.get("title")),
             "snippet_text": text,
             "skills": skills,
             "evidence_strength": strength.value,
@@ -858,6 +961,24 @@ class InterviewQuestionService:
             seen.add(key)
             deduped.append(item)
         return deduped
+
+    def _build_domain_focus_areas(
+        self,
+        *,
+        required_skills: list[dict[str, Any]],
+        vacancy,
+        analysis,
+    ) -> list[str]:
+        normalized = [
+            str(item.get("label") or "").strip()
+            for item in required_skills
+            if str(item.get("label") or "").strip()
+        ]
+
+        if normalized:
+            return dedupe_preserve_order(normalized)[:6]
+
+        return infer_domain_focus_areas(vacancy, analysis)
 
     @staticmethod
     def _build_question_id(

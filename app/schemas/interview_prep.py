@@ -15,6 +15,10 @@ class InterviewPrepSessionCreateRequest(StrictBaseModel):
     application_id: UUID
 
 
+class InterviewPrepSessionDeleteRequest(StrictBaseModel):
+    session_ids: list[UUID] = Field(default_factory=list)
+
+
 class InterviewPrepEvidenceLinkRead(StrictBaseModel):
     question_id: str
     question_category: str

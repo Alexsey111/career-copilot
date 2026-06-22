@@ -229,3 +229,143 @@ def test_behavioral_question_does_not_use_weak_random_evidence_match() -> None:
 
     assert behavioral_question["recommended_evidence"] == []
     assert behavioral_question["recommended_evidence_ids"] == []
+
+
+def test_clean_evidence_title_truncates_concatenated_achievement_title() -> None:
+    service = InterviewQuestionService()
+
+    assert service._clean_evidence_title(
+        "Подготовила более 200 рекламных материалов для федеральных кампаний Участвовала в ребрендинге продуктовой линейки"
+    ) == "Подготовила более 200 рекламных материалов для федеральных кампаний"
+
+
+def test_behavioral_question_does_not_attach_medium_confidence_evidence() -> None:
+    service = InterviewQuestionService()
+
+    question = service._build_question(
+        category="behavioral",
+        prompt="Приведите пример, где вы проявили communication в рабочем проекте.",
+        answer_format="STAR",
+        competency_key="communication",
+        competency_name="communication",
+        evidence_candidates=[
+            {
+                "id": "ev-1",
+                "title": "Подготовила более 200 рекламных материалов",
+                "fact_status": "confirmed",
+                "snippet_text": "Подготовила более 200 рекламных материалов",
+                "skills": [],
+            }
+        ],
+    )
+
+    assert question["recommended_evidence"] == []
+    assert question["recommended_evidence_ids"] == []
+
+
+def test_domain_focus_areas_use_normalized_required_skills_first() -> None:
+    service = InterviewQuestionService()
+
+    focus_areas = service._build_domain_focus_areas(
+        required_skills=[
+            {"key": "adobe_photoshop", "label": "Adobe Photoshop"},
+            {"key": "coreldraw", "label": "CorelDRAW"},
+        ],
+        vacancy=None,
+        analysis=None,
+    )
+
+    assert focus_areas == ["Adobe Photoshop", "CorelDRAW"]
+
+
+def test_confirmed_single_token_overlap_is_low_confidence() -> None:
+    service = InterviewQuestionService()
+
+    confidence = service._evidence_match_confidence(
+        score=1.85,
+        overlap=1,
+        competency_overlap=1,
+        evidence={
+            "fact_status": "confirmed",
+        },
+    )
+
+    assert confidence == "low"
+
+
+def test_prompt_context_overlap_does_not_create_supporting_evidence() -> None:
+    service = InterviewQuestionService()
+
+    question = service._build_question(
+        category="technical",
+        prompt="Расскажите о вашем опыте работы в Adobe Photoshop.",
+        answer_format="STAR_or_example",
+        competency_key="adobe_photoshop",
+        competency_name="Adobe Photoshop",
+        evidence_candidates=[
+            {
+                "id": "ev-1",
+                "title": "Участвовала в ребрендинге продуктовой линейки",
+                "fact_status": "confirmed",
+                "snippet_text": "Участвовала в ребрендинге продуктовой линейки",
+                "skills": [],
+            }
+        ],
+    )
+
+    assert question["recommended_evidence"] == []
+    assert question["recommended_evidence_ids"] == []
+
+
+def test_technical_question_does_not_attach_weak_text_match_even_if_confirmed() -> None:
+    service = InterviewQuestionService()
+
+    question = service._build_question(
+        category="technical",
+        prompt="Расскажите о вашем опыте работы в Adobe Photoshop.",
+        answer_format="STAR_or_example",
+        competency_key="adobe_photoshop",
+        competency_name="Adobe Photoshop",
+        evidence_candidates=[
+            {
+                "id": "ev-1",
+                "title": "Участвовала в ребрендинге продуктовой линейки",
+                "fact_status": "confirmed",
+                "snippet_text": "Участвовала в ребрендинге продуктовой линейки",
+                "skills": [],
+            }
+        ],
+    )
+
+    assert question["recommended_evidence"] == []
+    assert question["recommended_evidence_ids"] == []
+    assert question["source_achievement_id"] is None
+
+
+def test_evidence_links_do_not_attach_weak_technical_text_match() -> None:
+    service = InterviewQuestionService()
+    evidence = {
+        "id": "ev-1",
+        "title": "Участвовала в ребрендинге продуктовой линейки",
+        "fact_status": "confirmed",
+        "snippet_text": "Участвовала в ребрендинге продуктовой линейки",
+        "skills": [],
+    }
+    question = service._build_question(
+        category="technical",
+        prompt="Расскажите о вашем опыте работы в Adobe Photoshop.",
+        answer_format="STAR_or_example",
+        competency_key="adobe_photoshop",
+        competency_name="Adobe Photoshop",
+        evidence_candidates=[evidence],
+    )
+
+    links = service.build_evidence_links(
+        questions=[question],
+        confirmed_achievements=[],
+        evidence_snippets=[evidence],
+    )
+
+    assert links == []
+    assert question["recommended_evidence"] == []
+    assert question["recommended_evidence_ids"] == []
