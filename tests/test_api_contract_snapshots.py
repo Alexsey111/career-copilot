@@ -135,7 +135,7 @@ async def _seed_review_summary_document(db_session, test_user):
     return document
 
 
-async def _seed_interview_prep_session(client, db_session, test_user):
+async def _seed_interview_prep_session(db_session, test_user):
     vacancy_repo = VacancyRepository()
     application_repo = ApplicationRecordRepository()
     analysis_repo = VacancyAnalysisRepository()
@@ -190,7 +190,6 @@ async def _seed_interview_prep_session(client, db_session, test_user):
         match_score=84,
         analysis_version="v-test",
     )
-
     application = await application_repo.create(
         db_session,
         user_id=test_user.id,
@@ -417,6 +416,7 @@ async def test_review_summary_document_contract_snapshot(client, db_session, tes
             "ready",
             "requires_human_review",
             "risk_level",
+            "quality",
             "blockers",
             "warnings",
             "claims_requiring_confirmation",
@@ -472,7 +472,7 @@ async def test_document_readiness_contract_snapshot(client, db_session, test_use
 
 
 async def test_interview_prep_session_contract_snapshot(client, db_session, test_user):
-    prep_session = await _seed_interview_prep_session(client, db_session, test_user)
+    prep_session = await _seed_interview_prep_session(db_session, test_user)
 
     response = await client.get(
         f"{API_PREFIX}/interview-prep/sessions/{prep_session.id}",
@@ -556,7 +556,7 @@ async def test_interview_prep_session_contract_snapshot(client, db_session, test
 
     _assert_keys(
         payload["readiness"],
-        {"ready", "blockers", "warnings", "score", "provenance"},
+        {"ready", "blockers", "warnings", "score", "provenance", "question_summary"},
     )
     assert payload["readiness"]["ready"] is False
     assert payload["readiness"]["provenance"]["confidence_level"] == "needs_review"
@@ -584,7 +584,7 @@ async def test_interview_prep_session_contract_snapshot(client, db_session, test
 
 
 async def test_interview_prep_readiness_contract_snapshot(client, db_session, test_user):
-    prep_session = await _seed_interview_prep_session(client, db_session, test_user)
+    prep_session = await _seed_interview_prep_session(db_session, test_user)
 
     response = await client.get(
         f"{API_PREFIX}/interview-prep/sessions/{prep_session.id}/readiness",
@@ -592,7 +592,10 @@ async def test_interview_prep_readiness_contract_snapshot(client, db_session, te
     assert response.status_code == 200, response.text
     payload = response.json()
 
-    _assert_keys(payload, {"ready", "blockers", "warnings", "score", "provenance"})
+    _assert_keys(
+        payload,
+        {"ready", "blockers", "warnings", "score", "provenance", "question_summary"},
+    )
     assert payload["ready"] is False
     assert payload["blockers"] == ["No confirmed Kubernetes evidence"]
     assert payload["warnings"] == ["No scale metrics"]

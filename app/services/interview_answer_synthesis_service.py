@@ -54,7 +54,10 @@ class InterviewAnswerSynthesisService:
         if category == "gap-risk":
             return self._build_gap_answer(question=question, weak_area=weak_area)
 
-        star = {} if self._requires_ownership_review(evidence) else self._resolve_star(evidence)
+        grounding_status = self._answer_grounding_status(evidence)
+        can_build_star = grounding_status == "grounded"
+
+        star = self._resolve_star(evidence) if can_build_star else {}
         skills = self._resolve_skills(evidence)
         competency = str(
             question.get("competency_name")
@@ -65,14 +68,36 @@ class InterviewAnswerSynthesisService:
 
         answer = {
             "format": "STAR_plus_tradeoffs",
-            "situation": star.get("situation")
-            or self._fallback_situation(evidence=evidence, competency=competency),
-            "task": star.get("task")
-            or self._fallback_task(evidence=evidence, competency=competency),
-            "action": star.get("action")
-            or self._fallback_action(evidence=evidence, competency=competency),
-            "result": star.get("result")
-            or self._fallback_result(evidence=evidence),
+            "situation": (
+                star.get("situation")
+                if can_build_star
+                else self._ungrounded_situation(
+                    evidence=evidence,
+                    grounding_status=grounding_status,
+                )
+            ),
+            "task": (
+                star.get("task")
+                if can_build_star
+                else self._ungrounded_task(
+                    competency=competency,
+                    grounding_status=grounding_status,
+                )
+            ),
+            "action": (
+                star.get("action")
+                if can_build_star
+                else self._ungrounded_action(
+                    grounding_status=grounding_status,
+                )
+            ),
+            "result": (
+                star.get("result")
+                if can_build_star
+                else self._ungrounded_result(
+                    grounding_status=grounding_status,
+                )
+            ),
             "tech_stack": skills[:8],
             "tradeoffs": self._build_tradeoffs(
                 question=question,
@@ -88,6 +113,7 @@ class InterviewAnswerSynthesisService:
             or None,
             "source_title": str(evidence.get("title") or "").strip() or None,
             "fact_status": str(evidence.get("fact_status") or "needs_review"),
+            "grounding_status": grounding_status,
             "requires_human_review": True,
         }
         answer["draft_text"] = self._render_draft_text(answer)
@@ -124,11 +150,76 @@ class InterviewAnswerSynthesisService:
 
     def _resolve_star(self, evidence: Mapping[str, Any]) -> dict[str, str]:
         star = dict(evidence.get("star_summary") or {})
-        return {
-            key: str(star.get(key) or "").strip()
-            for key in ("situation", "task", "action", "result")
-            if str(star.get(key) or "").strip()
-        }
+        result: dict[str, str] = {}
+
+        for key in ("situation", "task", "action", "result"):
+            value = self._sanitize_answer_text(star.get(key))
+            if value:
+                result[key] = value
+
+        return result
+
+    def _can_build_grounded_star(self, evidence: Mapping[str, Any]) -> bool:
+        if not evidence:
+            return False
+
+        if self._requires_ownership_review(evidence):
+            return False
+
+        fact_status = str(evidence.get("fact_status") or "").strip().lower()
+        if fact_status not in {"confirmed", "user_provided"}:
+            return False
+
+        raw_star = dict(evidence.get("star_summary") or {})
+        star = self._resolve_star(evidence)
+        if not (star.get("action") and star.get("result")):
+            return False
+
+        blocked_fragments = [
+            "extracted as a normalized contribution signal",
+            "candidate ownership must be reviewed",
+            "implementation signal",
+            "workflow automation signal",
+        ]
+        for key in ("situation", "task", "action", "result"):
+            raw_text = str(raw_star.get(key) or "").strip().lower()
+            if raw_text and any(fragment in raw_text for fragment in blocked_fragments):
+                return False
+
+        return True
+
+    def _answer_grounding_status(self, evidence: Mapping[str, Any]) -> str:
+        if not evidence:
+            return "insufficient_evidence"
+
+        if self._requires_ownership_review(evidence):
+            return "needs_confirmation"
+
+        star = self._resolve_star(evidence)
+        if star.get("action") and star.get("result"):
+            return "grounded"
+
+        return "partial_evidence"
+
+    def _sanitize_answer_text(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+
+        blocked_fragments = [
+            "extracted as a normalized contribution signal",
+            "candidate ownership must be reviewed",
+            "implementation signal",
+            "workflow automation signal",
+        ]
+
+        lowered = text.lower()
+        for fragment in blocked_fragments:
+            if fragment in lowered:
+                text = text[: lowered.find(fragment)].strip(" .;:-")
+                break
+
+        return text
 
     def _resolve_skills(self, evidence: Mapping[str, Any]) -> list[str]:
         skills = [
@@ -156,7 +247,32 @@ class InterviewAnswerSynthesisService:
         for label, pattern in inferred:
             if re.search(pattern, text, flags=re.IGNORECASE):
                 skills.append(label)
-        return self._dedupe(skills)
+        return [
+            skill
+            for skill in self._dedupe(skills)
+            if self._is_technical_skill(skill)
+        ]
+
+    def _is_technical_skill(self, value: str) -> bool:
+        text = value.strip().lower()
+        if not text:
+            return False
+
+        behavioral = {
+            "leadership",
+            "ownership",
+            "communication",
+            "collaboration",
+            "mentoring",
+            "stakeholder",
+            "stakeholder management",
+            "teamwork",
+            "learning agility",
+        }
+        if text in behavioral:
+            return False
+
+        return True
 
     def _build_gap_answer(
         self,
@@ -177,20 +293,20 @@ class InterviewAnswerSynthesisService:
             "task": f"Показать понимание требования и план закрытия gap: {limitation}.",
             "action": (
                 "Я бы прямо обозначил текущий уровень, связал его с ближайшим "
-                "релевантным опытом и предложил конкретный план быстрого добора практики."
+                "подтверждённым опытом и предложил конкретный план добора практики."
             ),
             "result": (
                 "Такой ответ снижает риск неподтверждённых claims и показывает зрелый подход к обучению."
             ),
             "tech_stack": [],
             "tradeoffs": [
-                "Не заявлять production experience без подтверждённых фактов",
-                "Показывать adjacent experience и план онбординга",
+                "Не заявлять опыт, который не подтверждён фактами",
+                "Показать ближайший релевантный опыт и понятный план закрытия пробела",
             ],
             "talking_points": [
-                f"Честно признать weak area: {competency}",
-                "Связать с подтверждённым backend/automation опытом",
-                "Назвать первые шаги: документация, spike, pairing, небольшой production task",
+                f"Честно обозначить текущий уровень по теме: {competency}",
+                "Связать ответ с подтверждённым смежным опытом",
+                "Назвать 2–3 конкретных шага, как быстро закрыть пробел перед выходом на роль",
             ],
             "source_evidence_id": None,
             "source_title": None,
@@ -199,6 +315,61 @@ class InterviewAnswerSynthesisService:
         }
         answer["draft_text"] = self._render_draft_text(answer)
         return answer
+
+    def _ungrounded_situation(
+        self,
+        *,
+        evidence: Mapping[str, Any],
+        grounding_status: str,
+    ) -> str:
+        title = str(evidence.get("title") or "").strip()
+        if grounding_status == "partial_evidence":
+            if title:
+                return f"Есть релевантный факт: {title}."
+            return "Пока есть релевантный факт, но STAR-история ещё не полная."
+        if grounding_status == "needs_confirmation":
+            if title:
+                return f"Найден возможный пример, но его нужно подтвердить: {title}."
+            return "Найден возможный пример, но его нужно подтвердить."
+        return "Пока нет достаточно подтверждённого примера для безопасного STAR-ответа."
+
+    def _ungrounded_task(
+        self,
+        *,
+        competency: str,
+        grounding_status: str,
+    ) -> str:
+        if grounding_status == "partial_evidence":
+            return (
+                f"Дособрать задачу, личный вклад и результат по теме "
+                f"{competency or 'вопроса'}."
+            )
+
+        if grounding_status == "needs_confirmation":
+            return (
+                f"Проверить, можно ли безопасно использовать этот пример "
+                f"для темы {competency or 'вопроса'}."
+            )
+
+        return f"Подготовить реальный пример по теме {competency or 'вопроса'}."
+
+    def _ungrounded_action(self, *, grounding_status: str) -> str:
+        if grounding_status == "partial_evidence":
+            return "Уточнить, что именно вы сделали лично."
+
+        if grounding_status == "needs_confirmation":
+            return "Подтвердить личный вклад перед использованием примера."
+
+        return "Не добавлять неподтверждённые действия или личный вклад."
+
+    def _ungrounded_result(self, *, grounding_status: str) -> str:
+        if grounding_status == "partial_evidence":
+            return "Добавить проверяемый результат или метрику, если она реально известна."
+
+        if grounding_status == "needs_confirmation":
+            return "Использовать только подтверждённый результат."
+
+        return "Добавить подтверждённый результат, если он реально известен."
 
     def _fallback_situation(
         self,

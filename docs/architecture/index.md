@@ -17,4 +17,5 @@ This folder collects the stable operating model for the pilot and early demo lif
 - [Pilot Readiness Checklist](../pilot_readiness_checklist.md)
 - [Document Provenance Contract](../document_provenance_contract.md)
 - [Interview Prep Provenance Contract](../interview_prep_provenance_contract.md)
+- [Interview Prep Contract](../interview_prep_contract.md)
 - [Evidence Confidence Contract](../evidence_confidence_contract.md)

@@ -47,6 +47,10 @@ class InterviewReadinessService:
                     "severity": "blocker",
                     "category": "technical",
                     "competency_key": skill["key"],
+                    "competency_label": skill["label"],
+                    "source_requirement": (
+                        skill.get("source_requirement") or skill["label"]
+                    ),
                     "evidence_count": 0,
                 }
             )

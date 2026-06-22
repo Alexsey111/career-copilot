@@ -73,8 +73,36 @@ def test_interview_answer_synthesis_builds_honest_gap_answer() -> None:
     assert answer["format"] == "honest_gap_response"
     assert "без overclaim" in answer["situation"]
     assert "No confirmed Kubernetes evidence" in answer["task"]
-    assert "Не заявлять production experience" in answer["tradeoffs"][0]
+    assert "Не заявлять опыт, который не подтверждён фактами" in answer["tradeoffs"][0]
     assert answer["fact_status"] == "inferred_needs_review"
+
+
+def test_gap_answer_is_profession_neutral() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    answer = service._build_gap_answer(
+        question={
+            "competency_name": "Adobe Photoshop",
+        },
+        weak_area={
+            "message": "No confirmed Adobe Photoshop evidence",
+        },
+    )
+
+    combined = " ".join(
+        [
+            *answer["tradeoffs"],
+            *answer["talking_points"],
+            answer["action"],
+        ]
+    ).lower()
+
+    assert "backend" not in combined
+    assert "automation" not in combined
+    assert "spike" not in combined
+    assert "pairing" not in combined
+    assert "production task" not in combined
+    assert "подтверждённым опытом" in combined
 
 
 def test_fallback_action_does_not_invent_backend_ownership_claim() -> None:
@@ -121,3 +149,98 @@ def test_interview_answer_synthesis_attaches_answers_to_questions() -> None:
 
     assert questions[0]["suggested_answer"]["source_evidence_id"] == "ev-python"
     assert "Python" in questions[0]["suggested_answer"]["tech_stack"]
+
+
+def test_answer_synthesis_does_not_build_star_from_ownership_review_noise() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    answer = service.build_answer(
+        question={
+            "category": "technical",
+            "competency_name": "Adobe Photoshop",
+            "recommended_evidence_ids": ["ev-1"],
+        },
+        evidence_by_id={
+            "ev-1": {
+                "id": "ev-1",
+                "title": "Участвовала в ребрендинге продуктовой линейки",
+                "fact_status": "confirmed",
+                "skills": ["leadership"],
+                "star_summary": {
+                    "situation": "В проекте ребрендинга",
+                    "task": "Подготовить макеты",
+                    "action": (
+                        "Участвовала в ребрендинге продуктовой линейки "
+                        "Extracted as a normalized contribution signal; "
+                        "candidate ownership must be reviewed before strong use in documents"
+                    ),
+                    "result": "Обновлена визуальная система продукта",
+                },
+            }
+        },
+    )
+
+    assert answer["grounding_status"] == "grounded"
+    assert "Extracted as a normalized contribution signal" not in answer["action"]
+    assert "candidate ownership must be reviewed" not in answer["action"].lower()
+    assert answer["tech_stack"] == []
+
+
+def test_answer_synthesis_builds_grounded_star_from_confirmed_clean_evidence() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    answer = service.build_answer(
+        question={
+            "category": "technical",
+            "competency_name": "Adobe Photoshop",
+            "recommended_evidence_ids": ["ev-1"],
+        },
+        evidence_by_id={
+            "ev-1": {
+                "id": "ev-1",
+                "title": "Подготовка макетов",
+                "fact_status": "confirmed",
+                "skills": ["Adobe Photoshop", "leadership"],
+                "star_summary": {
+                    "situation": "Нужно было подготовить макеты для печати",
+                    "task": "Адаптировать материалы под требования типографии",
+                    "action": "Подготовила макеты в Adobe Photoshop",
+                    "result": "Материалы были переданы в печать без доработок",
+                },
+            }
+        },
+    )
+
+    assert answer["grounding_status"] == "grounded"
+    assert answer["action"] == "Подготовила макеты в Adobe Photoshop"
+    assert answer["tech_stack"] == ["Adobe Photoshop"]
+
+
+def test_answer_synthesis_uses_partial_evidence_when_fact_exists_but_star_incomplete() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    answer = service.build_answer(
+        question={
+            "category": "technical",
+            "competency_name": "Adobe Photoshop",
+            "recommended_evidence_ids": ["ev-1"],
+        },
+        evidence_by_id={
+            "ev-1": {
+                "id": "ev-1",
+                "title": "Сократила сроки подготовки макетов на 30%",
+                "fact_status": "confirmed",
+                "star_summary": {
+                    "situation": "",
+                    "task": "",
+                    "action": "",
+                    "result": "",
+                },
+            }
+        },
+    )
+
+    assert answer["grounding_status"] == "partial_evidence"
+    assert "Есть релевантный факт" in answer["situation"]
+    assert "Дособрать задачу" in answer["task"]
+    assert "Недостаточно подтверждённых данных" not in answer["draft_text"]

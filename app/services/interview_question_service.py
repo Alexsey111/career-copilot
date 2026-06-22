@@ -19,7 +19,7 @@ from app.domain.interview_prep import (
     build_seniority_expectations,
     has_leadership_tokens,
     has_metric_text,
-    infer_domain_expectations,
+    infer_domain_focus_areas,
     tokenize_text,
 )
 
@@ -39,17 +39,21 @@ class InterviewQuestionService:
                 *self._extract_requirement_items(analysis.gaps_json or [], source="gap"),
             ],
         )
-        evidence_competencies = self._extract_evidence_competencies(evidence_snippets or [])
+        evidence_competencies = self._extract_evidence_competencies(
+            evidence_snippets or [],
+            vacancy_competencies=required_skills,
+        )
         behavioral_signals = build_behavioral_signals(vacancy, analysis, required_skills)
         seniority = build_seniority_expectations(vacancy)
-        domain_expectations = infer_domain_expectations(vacancy, analysis)
+        domain_focus_areas = infer_domain_focus_areas(vacancy, analysis)
 
         return {
             "required_skills": required_skills,
             "evidence_competencies": evidence_competencies,
             "behavioral_signals": behavioral_signals,
             "seniority_expectations": seniority,
-            "domain_expectations": domain_expectations,
+            "domain_focus_areas": domain_focus_areas,
+            "domain_expectations": domain_focus_areas,
         }
 
     def build_question_set(
@@ -68,9 +72,9 @@ class InterviewQuestionService:
         questions: list[dict[str, Any]] = []
 
         for skill in (competency_map.get("required_skills") or [])[:4]:
-            prompt = (
-                f"Расскажите о практическом опыте с {skill['label']} "
-                f"в контексте вакансии {vacancy.title}."
+            prompt = self._technical_question_prompt(
+                skill_label=str(skill["label"]),
+                vacancy_title=str(getattr(vacancy, "title", "") or ""),
             )
             questions.append(
                 self._build_question(
@@ -168,16 +172,22 @@ class InterviewQuestionService:
                 )
 
         for weak_area in weak_areas[:3]:
+            weak_label = self._weak_area_label(weak_area)
             questions.append(
                 self._build_question(
                     category="gap-risk",
                     prompt=(
                         f"Как вы честно ответите на вопрос о слабой зоне: "
-                        f"{weak_area['message'].rstrip('.')}"
+                        f"{weak_label.rstrip('.')}"
                     ),
                     answer_format="honest_gap_response",
                     competency_key=weak_area.get("competency_key"),
-                    competency_name=weak_area.get("category") or weak_area["message"],
+                    competency_name=(
+                        weak_area.get("competency_name")
+                        or weak_area.get("competency_label")
+                        or weak_area.get("source_requirement")
+                        or weak_label
+                    ),
                     evidence_candidates=evidence_candidates,
                 )
             )
@@ -233,6 +243,11 @@ class InterviewQuestionService:
                     "title": item["title"],
                     "score": item["score"],
                     "reason": item["reason"],
+                    "source_type": item.get("source_type"),
+                    "fact_status": item.get("fact_status"),
+                    "skills": item.get("skills") or [],
+                    "match_confidence": item.get("match_confidence"),
+                    "match_type": item.get("match_type"),
                 }
                 for item in ranked[:2]
             ]
@@ -265,6 +280,18 @@ class InterviewQuestionService:
             },
             evidence_items=evidence_candidates,
         )
+        ranked = [
+            item
+            for item in ranked
+            if item.get("match_confidence") in {"high", "medium"}
+        ]
+        if category == "behavioral":
+            ranked = [
+                item
+                for item in ranked
+                if item.get("match_confidence") == "high"
+                or item.get("match_type") == "exact_requirement"
+            ]
         recommended_evidence_ids = [
             item["achievement_id"]
             for item in ranked[:2]
@@ -303,6 +330,8 @@ class InterviewQuestionService:
                     "source_type": item.get("source_type"),
                     "fact_status": item.get("fact_status"),
                     "skills": item.get("skills") or [],
+                    "match_confidence": item.get("match_confidence"),
+                    "match_type": item.get("match_type"),
                 }
                 for item in ranked[:2]
             ],
@@ -337,6 +366,15 @@ class InterviewQuestionService:
 
         ranked: list[dict[str, Any]] = []
         for evidence in evidence_items:
+            evidence_category = str(
+                evidence.get("category")
+                or (evidence.get("star_summary") or {}).get("category")
+                or ""
+            ).strip().lower()
+            evidence_title = str(evidence.get("title") or "").strip().lower()
+            if evidence_category == "technologies" or evidence_title == "technology stack from resume":
+                continue
+
             text = str(
                 evidence.get("snippet_text")
                 or evidence.get("title")
@@ -388,6 +426,17 @@ class InterviewQuestionService:
             if usage_count:
                 score -= min(usage_count * 0.05, 0.3)
 
+            match_confidence = self._evidence_match_confidence(
+                score=score,
+                overlap=overlap,
+                evidence=evidence,
+            )
+            match_type = self._evidence_match_type(
+                question=question,
+                evidence=evidence,
+                overlap=overlap,
+            )
+
             ranked.append(
                 {
                     "achievement_id": evidence.get("id") or evidence.get("achievement_id"),
@@ -396,6 +445,8 @@ class InterviewQuestionService:
                     "fact_status": evidence.get("fact_status"),
                     "skills": list(evidence.get("skills") or []),
                     "score": round(score, 3),
+                    "match_confidence": match_confidence,
+                    "match_type": match_type,
                     "reason": self._build_evidence_reason(
                         question=question,
                         evidence=evidence,
@@ -414,17 +465,75 @@ class InterviewQuestionService:
         evidence: dict[str, Any],
         overlap: int,
     ) -> str:
-        parts = []
-        category = str(question.get("category") or "").lower()
-        if category:
-            parts.append(category.replace("_", " "))
-        if overlap:
-            parts.append(f"{overlap} token matches")
+        parts: list[str] = []
+
+        if overlap >= 2:
+            parts.append("Совпадает с несколькими словами из вопроса")
+        elif overlap == 1:
+            parts.append("Есть слабое текстовое совпадение")
+
         if self._has_metric_signal(evidence):
-            parts.append("contains metrics")
-        if has_leadership_tokens(str(evidence.get("snippet_text") or evidence.get("title") or "")):
-            parts.append("contains leadership signal")
-        return ", ".join(parts) or "closest confirmed achievement"
+            parts.append("Есть измеримый результат")
+
+        fact_status = str(evidence.get("fact_status") or "").lower()
+        if fact_status in {EvidenceFactStatus.CONFIRMED, EvidenceFactStatus.USER_PROVIDED}:
+            parts.append("Факт подтверждён")
+        else:
+            parts.append("Факт требует подтверждения")
+
+        return " · ".join(parts) or "Связь с вопросом требует проверки"
+
+    def _evidence_match_confidence(
+        self,
+        *,
+        score: float,
+        overlap: int,
+        evidence: dict[str, Any],
+    ) -> str:
+        fact_status = str(evidence.get("fact_status") or "").lower()
+
+        if fact_status in {
+            EvidenceFactStatus.CONFIRMED,
+            EvidenceFactStatus.USER_PROVIDED,
+        } and overlap >= 2:
+            return "high"
+
+        if overlap >= 2:
+            return "medium"
+
+        if fact_status in {
+            EvidenceFactStatus.CONFIRMED,
+            EvidenceFactStatus.USER_PROVIDED,
+        } and overlap >= 1:
+            return "medium"
+
+        return "low"
+
+    def _evidence_match_type(
+        self,
+        *,
+        question: dict[str, Any],
+        evidence: dict[str, Any],
+        overlap: int,
+    ) -> str:
+        competency_key = str(question.get("competency_key") or "").lower()
+        competency_name = str(question.get("competency_name") or "").lower()
+        text = str(
+            evidence.get("snippet_text")
+            or evidence.get("title")
+            or achievement_search_text(evidence)
+        ).lower()
+
+        if competency_key and competency_key in text:
+            return "exact_requirement"
+
+        if competency_name and competency_name in text:
+            return "exact_requirement"
+
+        if overlap >= 2:
+            return "keyword_overlap"
+
+        return "weak_overlap"
 
     def _achievement_to_evidence_item(self, achievement: dict[str, Any]) -> dict[str, Any]:
         text = achievement_search_text(achievement)
@@ -564,20 +673,125 @@ class InterviewQuestionService:
             ).strip()
             if not text:
                 continue
-            extracted.append(
-                {
-                    "key": build_competency_key(text),
-                    "label": text,
-                    "source": source,
-                    "weight": item.get("weight"),
-                }
-            )
+            for label in self._normalize_requirement_labels(text):
+                extracted.append(
+                    {
+                        "key": build_competency_key(label),
+                        "label": label,
+                        "source": source,
+                        "weight": item.get("weight"),
+                        "source_requirement": text,
+                    }
+                )
         return extracted
+
+    def _normalize_requirement_labels(self, text: str) -> list[str]:
+        labels: list[str] = []
+
+        for group in re.findall(r"\(([^)]+)\)", text):
+            labels.extend(self._split_requirement_list(group))
+
+        known_tools = [
+            "Adobe Photoshop",
+            "CorelDRAW",
+            "Corel Draw",
+            "Adobe Illustrator",
+            "Illustrator",
+            "Figma",
+            "InDesign",
+        ]
+        for tool in known_tools:
+            if re.search(rf"(?<!\w){re.escape(tool)}(?!\w)", text, flags=re.IGNORECASE):
+                labels.append("CorelDRAW" if tool == "Corel Draw" else tool)
+
+        labels = self._dedupe_text(labels)
+        return labels or [text]
+
+    def _split_requirement_list(self, value: str) -> list[str]:
+        parts = [
+            part.strip(" .;:-–—•")
+            for part in re.split(r"[,;/|]|\s+и\s+|\s+and\s+", value)
+            if part.strip(" .;:-–—•")
+        ]
+        return [
+            part
+            for part in parts
+            if re.search(r"[A-Za-zА-Яа-яЁё0-9]", part)
+            and len(part) <= 50
+        ]
+
+    def _technical_question_prompt(self, *, skill_label: str, vacancy_title: str) -> str:
+        label = skill_label.strip()
+        if self._is_software_tool_label(label):
+            return f"Расскажите о вашем опыте работы в {label}."
+        if "макет" in label.lower() and "печ" in label.lower():
+            return "Как вы готовили макеты к печати?"
+        suffix = f" в контексте вакансии {vacancy_title}" if vacancy_title else ""
+        return f"Расскажите о практическом опыте с {label}{suffix}."
+
+    def _is_software_tool_label(self, value: str) -> bool:
+        normalized = value.strip().lower()
+        return normalized in {
+            "adobe photoshop",
+            "coreldraw",
+            "adobe illustrator",
+            "illustrator",
+            "figma",
+            "indesign",
+        }
+
+    def _weak_area_label(self, weak_area: dict[str, Any]) -> str:
+        label = str(
+            weak_area.get("competency_name")
+            or weak_area.get("competency_label")
+            or weak_area.get("source_requirement")
+            or ""
+        ).strip()
+        if label:
+            return label
+
+        message = str(weak_area.get("message") or "").strip()
+        match = re.match(r"^No confirmed (.+?) evidence(?:\.|$)", message, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return message
+
+    def _dedupe_text(self, values: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            cleaned = re.sub(r"\s+", " ", str(value)).strip()
+            key = cleaned.casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(cleaned)
+        return result
 
     def _extract_evidence_competencies(
         self,
         evidence_snippets: list[dict[str, Any]],
+        *,
+        vacancy_competencies: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
+        vacancy_text = " ".join(
+            str(item.get("label") or item.get("key") or "")
+            for item in (vacancy_competencies or [])
+        )
+        vacancy_tokens = tokenize_text(vacancy_text)
+        vacancy_keys = {
+            str(item.get("key") or "").strip().lower()
+            for item in (vacancy_competencies or [])
+            if str(item.get("key") or "").strip()
+        }
+        allowed_keys = {
+            *vacancy_keys,
+        }
+        allowed_labels = {
+            str(item.get("label") or "").strip().lower()
+            for item in (vacancy_competencies or [])
+            if str(item.get("label") or "").strip()
+        }
         items: list[dict[str, Any]] = []
         for evidence in evidence_snippets:
             source_type = str(evidence.get("source_type") or "").strip().lower()
@@ -588,13 +802,18 @@ class InterviewQuestionService:
             ).strip().lower()
             if source_type not in {"resume_structured", "github_public", "achievement", "manual"}:
                 continue
+
+            # Aggregated skill lists are useful as profile signals,
+            # but they are not interview stories and must not become evidence_probe questions.
+            if category == "technologies":
+                continue
+
             if category and category not in {
                 "ai_project",
                 "automation",
                 "prompt_engineering",
                 "workflow_experience",
                 "competency_signal",
-                "technologies",
                 "project",
                 "achievement",
             }:
@@ -603,9 +822,23 @@ class InterviewQuestionService:
                 label = str(skill).strip()
                 if not label:
                     continue
+                skill_key = build_competency_key(label)
+                skill_tokens = tokenize_text(label)
+
+                if vacancy_tokens or vacancy_keys:
+                    has_overlap = bool(skill_tokens & vacancy_tokens) or skill_key in vacancy_keys
+                    if not has_overlap:
+                        continue
+
+                if (allowed_keys or allowed_labels) and (
+                    skill_key not in allowed_keys
+                    and label.lower() not in allowed_labels
+                    and not (tokenize_text(label) & vacancy_tokens)
+                ):
+                    continue
                 items.append(
                     {
-                        "key": build_competency_key(label),
+                        "key": skill_key,
                         "label": label,
                         "source": source_type or "evidence_bank",
                         "evidence_id": evidence.get("id"),

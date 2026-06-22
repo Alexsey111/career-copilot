@@ -208,6 +208,7 @@ class InterviewPrepService:
             evidence_snippets=ranked_evidence_snippets,
             weak_areas=weak_areas,
         )
+        question_summary = self._build_question_summary(questions)
         for link in evidence_links:
             evidence_id = link.get("achievement_id")
             if not evidence_id:
@@ -238,6 +239,7 @@ class InterviewPrepService:
             weak_areas=weak_areas,
             evidence_links=evidence_links,
         )
+        readiness["question_summary"] = question_summary
         readiness["provenance"] = provenance
         prep_status = "ready" if readiness["ready"] else "draft"
 
@@ -251,6 +253,28 @@ class InterviewPrepService:
             "readiness_score": readiness["score"],
             "prep_status": prep_status,
             "provenance": provenance,
+        }
+
+    def _build_question_summary(self, questions: list[dict[str, Any]]) -> dict[str, Any]:
+        by_category: dict[str, int] = {}
+        careful_answer_count = 0
+        with_evidence_count = 0
+
+        for question in questions:
+            category = str(question.get("category") or "unknown").strip() or "unknown"
+            by_category[category] = by_category.get(category, 0) + 1
+
+            if bool(question.get("requires_careful_answer")):
+                careful_answer_count += 1
+
+            if question.get("recommended_evidence_ids") or question.get("recommended_evidence"):
+                with_evidence_count += 1
+
+        return {
+            "total": len(questions),
+            "by_category": by_category,
+            "careful_answer_count": careful_answer_count,
+            "with_evidence_count": with_evidence_count,
         }
 
     def _rank_evidence_snippets(

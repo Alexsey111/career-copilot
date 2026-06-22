@@ -96,6 +96,61 @@ def _humanize_strength(value: Any) -> str:
     }.get(strength, "требует проверки")
 
 
+def _humanize_evidence_source(value: Any) -> str:
+    source = str(value or "").strip().lower()
+    if source in {"resume_structured", "structured_resume_extraction_v2"}:
+        return "Импортировано из резюме"
+    if source in {"manual", "achievement"}:
+        return "Добавлено кандидатом"
+    if source in {"github_public", "github_repository_analysis"}:
+        return "Импортировано из GitHub"
+    return "Источник не указан"
+
+
+def _humanize_evidence_fact_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status in {"confirmed", "user_provided"}:
+        return "Подтверждено кандидатом"
+    if status in {"needs_confirmation", "partial", "unverified"}:
+        return "Требует подтверждения"
+    if status == "rejected":
+        return "Отклонено"
+    return "Статус не указан"
+
+
+def _sanitize_evidence_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    blocked_markers = [
+        "extracted as a",
+        "normalized contribution signal",
+        "candidate ownership must be reviewed",
+        "before strong use in documents",
+        "implementation signal",
+        "workflow automation signal",
+    ]
+
+    lowered = text.lower()
+    cut_positions = [
+        lowered.find(marker)
+        for marker in blocked_markers
+        if lowered.find(marker) >= 0
+    ]
+
+    if cut_positions:
+        text = text[: min(cut_positions)].strip(" .;:-")
+
+    return text
+
+
+def _is_insufficient_grounding(answer: dict[str, Any] | None) -> bool:
+    if not isinstance(answer, dict):
+        return False
+    return str(answer.get("grounding_status") or "").strip().lower() == "insufficient_evidence"
+
+
 def _collect_evidence_by_competency(
     *,
     questions: list[dict[str, Any]],
@@ -159,6 +214,56 @@ def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
         st.metric("Предупреждения", len(warnings))
     with col_score:
         st.metric("Оценка", _format_score(readiness.get("score")))
+
+    question_summary = readiness.get("question_summary") or {}
+
+    if question_summary:
+        st.markdown("### Покрытие вопросов")
+
+        by_category = question_summary.get("by_category") or {}
+
+        col_q1, col_q2, col_q3, col_q4 = st.columns(4)
+
+        with col_q1:
+            st.metric(
+                "Всего вопросов",
+                question_summary.get("total", 0),
+            )
+
+        with col_q2:
+            st.metric(
+                "С доказательствами",
+                question_summary.get("with_evidence_count", 0),
+            )
+
+        with col_q3:
+            st.metric(
+                "Сложных зон",
+                question_summary.get("careful_answer_count", 0),
+            )
+
+        with col_q4:
+            st.metric(
+                "Категорий",
+                len(by_category),
+            )
+
+        if by_category:
+            st.markdown("**Распределение вопросов**")
+
+            rows = [
+                {
+                    "Категория": category,
+                    "Количество": count,
+                }
+                for category, count in sorted(by_category.items())
+            ]
+
+            st.dataframe(
+                rows,
+                width="stretch",
+                hide_index=True,
+            )
 
     if blockers:
         st.markdown("**Блокеры**")
@@ -283,21 +388,30 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
             st.caption("Ожидания по уровню не извлечены.")
 
     with col_domain:
-        st.markdown("#### Ожидания по домену")
-        domain_expectations = competency_map.get("domain_expectations") or []
-        if domain_expectations:
-            for domain in domain_expectations:
-                st.markdown(f"- {domain}")
+        st.markdown("#### Фокус интервью")
+        domain_focus_areas = (
+            competency_map.get("domain_focus_areas")
+            or competency_map.get("domain_expectations")
+            or []
+        )
+        if domain_focus_areas:
+            for item in domain_focus_areas:
+                st.markdown(f"- {item}")
         else:
-            st.caption("Ожидания по домену не извлечены.")
+            st.caption("Фокус интервью не извлечён.")
 
 
 def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
     if not isinstance(answer, dict) or not answer:
         return
 
+    insufficient_grounding = _is_insufficient_grounding(answer)
+
     with st.expander("Черновик ответа", expanded=False):
-        st.caption("Черновик ответа. Проверьте и адаптируйте под свой реальный опыт.")
+        if insufficient_grounding:
+            st.caption("У нас пока нет доказательств. Вот что нужно собрать.")
+        else:
+            st.caption("Черновик ответа. Проверьте и адаптируйте под свой реальный опыт.")
 
         fields = [
             ("Situation", answer.get("situation")),
@@ -325,7 +439,8 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         if str(item).strip()
     ]
     if tradeoffs:
-        with st.expander("Компромиссы и ограничения", expanded=False):
+        title = "Что нужно собрать" if insufficient_grounding else "Компромиссы и ограничения"
+        with st.expander(title, expanded=False):
             for item in tradeoffs:
                 st.markdown(f"- {item}")
 
@@ -335,7 +450,8 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         if str(item).strip()
     ]
     if talking_points:
-        with st.expander("Что подчеркнуть на интервью", expanded=False):
+        title = "Что нужно собрать" if insufficient_grounding else "Что подчеркнуть на интервью"
+        with st.expander(title, expanded=False):
             for item in talking_points:
                 st.markdown(f"- {item}")
 
@@ -363,21 +479,27 @@ def _render_question_group(questions: list[dict[str, Any]]) -> None:
                             f"{question.get('competency_name') or question.get('competency_key')}"
                         )
 
-                    _render_suggested_answer(question.get("suggested_answer"))
+                    suggested_answer = question.get("suggested_answer")
+                    _render_suggested_answer(suggested_answer)
 
                     evidence = question.get("recommended_evidence") or []
-                    with st.expander("Почему система предлагает этот пример", expanded=False):
+                    rationale_title = (
+                        "У нас пока нет доказательств. Вот что нужно собрать."
+                        if _is_insufficient_grounding(suggested_answer)
+                        else "Почему система предлагает этот пример"
+                    )
+                    with st.expander(rationale_title, expanded=False):
                         if evidence:
                             for item in evidence:
-                                fact_status = _fact_status_badge(item.get("fact_status"))
-                                st.markdown(
-                                    f"- {fact_status} · {item.get('title')}"
-                                )
+                                st.markdown(f"- {item.get('title')}")
                                 reason = item.get("reason")
                                 if reason:
                                     st.caption(_humanize_reason(reason))
                         else:
-                            st.caption("Пока не привязано подтверждённое доказательство.")
+                            if _is_insufficient_grounding(suggested_answer):
+                                st.caption("Вот что нужно собрать: подтверждённые факты, результат и конкретные действия.")
+                            else:
+                                st.caption("Пока не привязано подтверждённое доказательство.")
 
 
 def _render_question_supporting_evidence(
@@ -438,21 +560,25 @@ def _render_question_supporting_evidence(
                 st.caption("Backend вернул неожиданные детали доказательства.")
                 continue
 
-            fact_status = snippet.get("fact_status") or "—"
-            strength = snippet.get("evidence_strength") or "—"
-            st.caption(f"{_fact_status_badge(str(fact_status))} · {_humanize_strength(strength)}")
+            st.caption(
+                "Источник: "
+                f"{_humanize_evidence_source(snippet.get('source_type') or snippet.get('source'))}"
+                " · "
+                f"{_humanize_evidence_fact_status(snippet.get('fact_status'))}"
+            )
 
             star_summary = snippet.get("star_summary") or snippet.get("star_summary_json") or {}
             if isinstance(star_summary, dict) and star_summary:
                 star_parts = [
-                    f"{key}={value}"
+                    f"{key}={_sanitize_evidence_text(value)}"
                     for key, value in star_summary.items()
-                    if value not in (None, "", [])
+                    if key in {"situation", "task", "action", "result"}
+                    if _sanitize_evidence_text(value) not in ("", "—")
                 ]
                 if star_parts:
                     st.caption("STAR-превью: " + ", ".join(star_parts))
 
-            snippet_text = str(snippet.get("snippet_text") or "").strip()
+            snippet_text = _sanitize_evidence_text(snippet.get("snippet_text"))
             if snippet_text:
                 st.write(snippet_text)
 

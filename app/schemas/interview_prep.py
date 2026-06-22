@@ -39,6 +39,7 @@ class InterviewPrepReadinessRead(StrictBaseModel):
     warnings: list[str] = Field(default_factory=list)
     score: int | None = None
     provenance: dict[str, Any] = Field(default_factory=dict)
+    question_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class InterviewPrepQuestionRead(StrictBaseModel):

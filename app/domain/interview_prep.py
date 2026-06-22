@@ -32,6 +32,16 @@ def dedupe_preserve_order(values: list[str]) -> list[str]:
     return deduped
 
 
+def extract_requirement_text(item: dict[str, Any]) -> str:
+    return str(
+        item.get("text")
+        or item.get("keyword")
+        or item.get("requirement_text")
+        or item.get("label")
+        or ""
+    ).strip()
+
+
 def achievement_search_text(achievement: dict[str, Any]) -> str:
     parts = [
         str(achievement.get("title") or ""),
@@ -136,6 +146,119 @@ def infer_domain_expectations(vacancy, analysis) -> list[str]:
     )
 
     domain_map = [
+        (
+            "design / branding",
+            [
+                "designer",
+                "design",
+                "graphic",
+                "branding",
+                "brand",
+                "visual",
+                "layout",
+                "figma",
+                "photoshop",
+                "coreldraw",
+                "illustrator",
+                "print",
+                "printing",
+                "prepress",
+                "макет",
+                "дизайн",
+                "дизайнер",
+                "бренд",
+                "брендинг",
+                "айдентика",
+                "фирменный стиль",
+                "полиграф",
+                "печать",
+                "допечат",
+                "препресс",
+                "photoshop",
+                "coreldraw",
+            ],
+        ),
+        (
+            "marketing / communications",
+            [
+                "marketing",
+                "communication",
+                "campaign",
+                "advertising",
+                "smm",
+                "content",
+                "маркетинг",
+                "коммуникац",
+                "реклама",
+                "кампания",
+                "контент",
+                "smm",
+            ],
+        ),
+        (
+            "finance / accounting",
+            [
+                "accounting",
+                "accountant",
+                "finance",
+                "tax",
+                "vat",
+                "invoice",
+                "бухгалтер",
+                "бухгалтерия",
+                "ндс",
+                "налог",
+                "первичная документация",
+                "сверка",
+                "1с",
+            ],
+        ),
+        (
+            "legal",
+            [
+                "lawyer",
+                "legal",
+                "contract",
+                "claim",
+                "court",
+                "юрист",
+                "право",
+                "договор",
+                "претенз",
+                "суд",
+                "исков",
+            ],
+        ),
+        (
+            "medical / healthcare",
+            [
+                "doctor",
+                "medical",
+                "clinic",
+                "patient",
+                "healthcare",
+                "врач",
+                "медицин",
+                "клиник",
+                "пациент",
+                "терапевт",
+            ],
+        ),
+        (
+            "supply / procurement",
+            [
+                "procurement",
+                "supply",
+                "purchasing",
+                "logistics",
+                "warehouse",
+                "закуп",
+                "снабжен",
+                "мто",
+                "логист",
+                "склад",
+            ],
+        ),
         ("backend", ["backend", "api", "fastapi", "python", "postgres", "postgresql"]),
         ("platform", ["platform", "infrastructure", "infra", "kubernetes", "terraform", "devops"]),
         ("data", ["data", "analytics", "warehouse", "etl", "pipelines"]),
@@ -151,9 +274,33 @@ def infer_domain_expectations(vacancy, analysis) -> list[str]:
             domains.append(label)
 
     if not domains:
-        domains.append("general software delivery")
+        domains.append("general professional delivery")
 
     return dedupe_preserve_order(domains)
+
+
+def infer_domain_focus_areas(vacancy, analysis, limit: int = 6) -> list[str]:
+    items: list[str] = []
+
+    if analysis is not None:
+        for source in (
+            analysis.must_have_json or [],
+            analysis.strengths_json or [],
+            analysis.gaps_json or [],
+            analysis.nice_to_have_json or [],
+        ):
+            for item in source:
+                if isinstance(item, dict):
+                    text = extract_requirement_text(item)
+                    if text:
+                        items.append(text)
+
+        for keyword in analysis.keywords_json or []:
+            text = str(keyword or "").strip()
+            if text:
+                items.append(text)
+
+    return dedupe_preserve_order(items)[:limit]
 
 
 def build_behavioral_signals(vacancy, analysis, required_skills: list[dict[str, Any]]) -> list[str]:
@@ -202,4 +349,3 @@ def build_seniority_expectations(vacancy) -> dict[str, Any]:
         "level": level,
         "signals": signals,
     }
-

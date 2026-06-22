@@ -47,18 +47,19 @@ def test_interview_competency_map_uses_extracted_evidence_signals() -> None:
 
     assert any(item["key"] == "ai_workflow" for item in competency_map["required_skills"])
     assert any(item["key"] == "chatgpt" for item in competency_map["required_skills"])
-    assert any(item["key"] == "prompt_engineering" for item in competency_map["evidence_competencies"])
+    assert any(item["key"] == "chatgpt" for item in competency_map["evidence_competencies"])
+    assert all(item["key"] != "prompt_engineering" for item in competency_map["evidence_competencies"])
 
     evidence_question = next(
         item
         for item in questions
         if item["category"] == "evidence_probe"
-        and item["competency_key"] == "prompt_engineering"
+        and item["competency_key"] == "chatgpt"
     )
     assert evidence_question["source_type"] == "extracted_evidence"
     assert evidence_question["fact_status"] == "user_provided"
     assert evidence_question["recommended_evidence_ids"] == ["ev-1"]
-    assert "prompt engineering" in evidence_question["prompt"]
+    assert "ChatGPT" in evidence_question["prompt"]
 
 
 def test_interview_readiness_counts_user_provided_evidence_bank_items() -> None:
@@ -106,3 +107,32 @@ def test_interview_readiness_counts_user_provided_evidence_bank_items() -> None:
     assert "No leadership examples" not in messages
     assert "No scale metrics" not in messages
     assert "No confirmed domain-specific evidence" not in messages
+
+
+def test_interview_readiness_weak_area_keeps_human_requirement_label() -> None:
+    service = InterviewReadinessService()
+
+    weak_areas = service.build_weak_areas(
+        competency_map={
+            "required_skills": [
+                {
+                    "key": "adobe_photoshop",
+                    "label": "Adobe Photoshop",
+                    "source_requirement": (
+                        "отличное знание графических редакторов "
+                        "(Adobe Photoshop, CorelDRAW)"
+                    ),
+                }
+            ],
+            "seniority_expectations": {},
+            "domain_expectations": [],
+        },
+        confirmed_achievements=[],
+        evidence_snippets=[],
+    )
+
+    assert weak_areas[0]["message"] == "No confirmed Adobe Photoshop evidence"
+    assert weak_areas[0]["competency_label"] == "Adobe Photoshop"
+    assert weak_areas[0]["source_requirement"] == (
+        "отличное знание графических редакторов (Adobe Photoshop, CorelDRAW)"
+    )

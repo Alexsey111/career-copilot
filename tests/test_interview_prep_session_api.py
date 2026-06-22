@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.models import SourceFile
 from app.repositories.application_record_repository import ApplicationRecordRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
@@ -13,16 +14,28 @@ pytestmark = pytest.mark.asyncio
 API_PREFIX = "/api/v1"
 
 
-async def _prepare_profile_with_confirmed_achievements(client, db_session, test_user) -> list[dict]:
+async def _prepare_profile_with_confirmed_achievements(
+    client,
+    db_session,
+    test_user,
+    fake_storage,
+) -> list[dict]:
     extraction_repo = FileExtractionRepository()
-
-    upload_response = await client.post(
-        f"{API_PREFIX}/files/upload",
-        data={"file_kind": "resume"},
-        files={"file": ("resume.pdf", b"%PDF-1.4 fake pdf", "application/pdf")},
+    source_file = SourceFile(
+        user_id=test_user.id,
+        file_kind="resume",
+        storage_key="test/interview-prep-session-api/resume.pdf",
+        original_name="resume.pdf",
+        mime_type="application/pdf",
+        size_bytes=16,
     )
-    assert upload_response.status_code == 200, upload_response.text
-    source_file_id = upload_response.json()["id"]
+    db_session.add(source_file)
+    await db_session.commit()
+    await db_session.refresh(source_file)
+
+    fake_storage[source_file.storage_key] = b"%PDF-1.4 fake pdf"
+
+    source_file_id = str(source_file.id)
 
     import_response = await client.post(
         f"{API_PREFIX}/profile/import-resume",
@@ -37,7 +50,7 @@ async def _prepare_profile_with_confirmed_achievements(client, db_session, test_
         user_id=test_user.id,
     )
     assert extraction is not None, "Imported file extraction must be visible before structuring"
-    assert str(extraction.source_file_id) == str(source_file_id)
+    assert str(extraction.source_file_id) == source_file_id
 
     structured_response = await client.post(
         f"{API_PREFIX}/profile/extract-structured",
@@ -179,8 +192,14 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     client,
     db_session,
     test_user,
+    fake_storage,
 ):
-    await _prepare_profile_with_confirmed_achievements(client, db_session, test_user)
+    await _prepare_profile_with_confirmed_achievements(
+        client,
+        db_session,
+        test_user,
+        fake_storage,
+    )
     seeded = await _seed_vacancy_and_application(client, db_session, test_user)
 
     create_response = await client.post(
@@ -216,7 +235,10 @@ async def test_create_interview_prep_session_builds_deterministic_snapshot(
     assert suggested_answer["situation"] == "We needed a backend for a new product workflow."
     assert "Python" in suggested_answer["tech_stack"]
     assert "FastAPI" in suggested_answer["tech_stack"]
+    assert suggested_answer["grounding_status"] == "grounded"
     assert suggested_answer["source_title"] == "Built Python and FastAPI backend with PostgreSQL"
+    assert technical_python_question["recommended_evidence"][0]["match_confidence"] == "high"
+    assert technical_python_question["recommended_evidence"][0]["match_type"] == "exact_requirement"
 
     evidence_links = payload["evidence_links"]
     assert any(
