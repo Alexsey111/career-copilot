@@ -202,10 +202,12 @@ class InterviewPrepService:
             questions=questions,
             confirmed_achievements=confirmed_achievements,
             evidence_snippets=ranked_evidence_snippets,
+            competency_map=competency_map,
         )
         questions = self.answer_synthesis_service.attach_suggested_answers(
             questions=questions,
             evidence_snippets=ranked_evidence_snippets,
+            confirmed_achievements=confirmed_achievements,
             weak_areas=weak_areas,
         )
         question_summary = self._build_question_summary(questions)
@@ -238,7 +240,15 @@ class InterviewPrepService:
             competency_map=competency_map,
             weak_areas=weak_areas,
             evidence_links=evidence_links,
+            questions=questions,
         )
+        competency_coverage_matrix = self._build_competency_coverage_matrix(
+            competency_map=competency_map,
+            questions=questions,
+            evidence_links=evidence_links,
+            weak_areas=weak_areas,
+        )
+        readiness["competency_coverage_matrix"] = competency_coverage_matrix
         readiness["question_summary"] = question_summary
         readiness["provenance"] = provenance
         prep_status = "ready" if readiness["ready"] else "draft"
@@ -276,6 +286,128 @@ class InterviewPrepService:
             "careful_answer_count": careful_answer_count,
             "with_evidence_count": with_evidence_count,
         }
+
+    def _build_competency_coverage_matrix(
+        self,
+        *,
+        competency_map: dict[str, Any],
+        questions: list[dict[str, Any]],
+        evidence_links: list[dict[str, Any]],
+        weak_areas: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        required_skills = competency_map.get("required_skills") or []
+        if not required_skills:
+            return []
+
+        evidence_by_competency = self._collect_evidence_by_competency(
+            questions=questions,
+            evidence_links=evidence_links,
+        )
+        weak_by_competency = {
+            str(item.get("competency_key") or "").strip().lower(): item
+            for item in weak_areas
+            if str(item.get("competency_key") or "").strip()
+        }
+
+        rows: list[dict[str, Any]] = []
+
+        for skill in required_skills:
+            if not isinstance(skill, dict):
+                continue
+
+            competency_key = str(skill.get("key") or "").strip().lower()
+            competency_label = str(skill.get("label") or skill.get("key") or "").strip()
+
+            if not competency_key and competency_label:
+                competency_key = competency_label.lower().replace(" ", "_")
+
+            evidence_items = evidence_by_competency.get(competency_key, [])
+            fact_status = self._best_fact_status(evidence_items)
+
+            if fact_status in {"confirmed", "user_provided"}:
+                coverage_status = "covered"
+                evidence_status = "confirmed"
+                reason = "Есть подтверждённые доказательства по компетенции."
+                suggested_next_step = "Подготовить STAR-ответ на основе найденного примера."
+            elif fact_status in {"needs_confirmation", "partial"}:
+                coverage_status = "needs_confirmation"
+                evidence_status = "partial"
+                reason = "Есть возможные доказательства, но их нужно подтвердить."
+                suggested_next_step = "Проверить факт, результат и личный вклад кандидата."
+            elif competency_key in weak_by_competency:
+                coverage_status = "missing"
+                evidence_status = "missing"
+                reason = str(
+                    weak_by_competency[competency_key].get("message")
+                    or "Подтверждённых доказательств не найдено."
+                )
+                suggested_next_step = (
+                    "Собрать пример из опыта: ситуация, задача, действия, результат."
+                )
+            else:
+                coverage_status = "unknown"
+                evidence_status = "unknown"
+                reason = "Покрытие компетенции не определено."
+                suggested_next_step = "Проверить профиль и банк достижений."
+
+            rows.append(
+                {
+                    "competency_key": competency_key,
+                    "competency_label": competency_label or competency_key,
+                    "coverage_status": coverage_status,
+                    "evidence_status": evidence_status,
+                    "fact_status": fact_status,
+                    "evidence_count": len(evidence_items),
+                    "reason": reason,
+                    "suggested_next_step": suggested_next_step,
+                }
+            )
+
+        return rows
+
+    def _collect_evidence_by_competency(
+        self,
+        *,
+        questions: list[dict[str, Any]],
+        evidence_links: list[dict[str, Any]],
+    ) -> dict[str, list[dict[str, Any]]]:
+        result: dict[str, list[dict[str, Any]]] = {}
+
+        for question in questions:
+            competency_key = str(question.get("competency_key") or "").strip().lower()
+            if not competency_key:
+                continue
+
+            for item in question.get("recommended_evidence") or []:
+                result.setdefault(competency_key, []).append(item)
+
+        for item in evidence_links:
+            competency_key = str(item.get("competency_key") or "").strip().lower()
+            if not competency_key:
+                continue
+
+            result.setdefault(competency_key, []).append(item)
+
+        return result
+
+    def _best_fact_status(self, items: list[dict[str, Any]]) -> str | None:
+        statuses = {
+            str(item.get("fact_status") or "").strip().lower()
+            for item in items
+            if str(item.get("fact_status") or "").strip()
+        }
+
+        if "confirmed" in statuses:
+            return "confirmed"
+        if "user_provided" in statuses:
+            return "user_provided"
+        if "needs_confirmation" in statuses:
+            return "needs_confirmation"
+        if "partial" in statuses:
+            return "partial"
+        if statuses:
+            return sorted(statuses)[0]
+        return None
 
     def _rank_evidence_snippets(
         self,

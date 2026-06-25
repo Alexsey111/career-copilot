@@ -5,6 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 
+from app.services.interview_answer_quality_service import (
+    InterviewAnswerQualityService,
+)
+
 
 class InterviewAnswerSynthesisService:
     """Build deterministic interview answer drafts from STAR evidence."""
@@ -14,13 +18,24 @@ class InterviewAnswerSynthesisService:
         *,
         questions: list[dict[str, Any]],
         evidence_snippets: Sequence[Mapping[str, Any]],
+        confirmed_achievements: Sequence[Mapping[str, Any]] | None = None,
         weak_areas: Sequence[Mapping[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        evidence_by_id = {
-            str(item.get("id") or item.get("achievement_id") or "").strip(): dict(item)
-            for item in evidence_snippets
-            if str(item.get("id") or item.get("achievement_id") or "").strip()
-        }
+        evidence_by_id: dict[str, dict[str, Any]] = {}
+        for item in confirmed_achievements or []:
+            evidence_id = str(
+                item.get("id") or item.get("achievement_id") or ""
+            ).strip()
+            if evidence_id:
+                evidence_by_id[evidence_id] = self._normalize_evidence(item)
+
+        for item in evidence_snippets:
+            evidence_id = str(
+                item.get("id") or item.get("achievement_id") or ""
+            ).strip()
+            if evidence_id:
+                evidence_by_id[evidence_id] = self._normalize_evidence(item)
+
         weak_area_by_key = {
             str(item.get("competency_key") or "").strip(): dict(item)
             for item in (weak_areas or [])
@@ -41,6 +56,25 @@ class InterviewAnswerSynthesisService:
 
         return enriched
 
+    def _normalize_evidence(
+        self,
+        evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        item = dict(evidence)
+        if not item.get("star_summary"):
+            item["star_summary"] = {
+                field: item.get(field)
+                for field in ("situation", "task", "action", "result")
+                if str(item.get(field) or "").strip()
+            }
+        if not item.get("snippet_text"):
+            item["snippet_text"] = " ".join(
+                str(item.get(field) or "").strip()
+                for field in ("title", "situation", "task", "action", "result")
+                if str(item.get(field) or "").strip()
+            )
+        return item
+
     def build_answer(
         self,
         *,
@@ -59,12 +93,12 @@ class InterviewAnswerSynthesisService:
 
         star = self._resolve_star(evidence) if can_build_star else {}
         skills = self._resolve_skills(evidence)
-        competency = str(
+        competency = self._normalize_competency_label(
             question.get("competency_name")
             or question.get("source_requirement")
             or question.get("competency_key")
             or ""
-        ).strip()
+        )
 
         answer = {
             "format": "STAR_plus_tradeoffs",
@@ -117,6 +151,7 @@ class InterviewAnswerSynthesisService:
             "requires_human_review": True,
         }
         answer["draft_text"] = self._render_draft_text(answer)
+        answer["quality"] = InterviewAnswerQualityService().evaluate(answer).as_dict()
         return answer
 
     def _select_question_evidence(
@@ -280,11 +315,11 @@ class InterviewAnswerSynthesisService:
         question: Mapping[str, Any],
         weak_area: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
-        competency = str(
+        competency = self._normalize_competency_label(
             question.get("competency_name")
             or question.get("competency_key")
             or "этой зоне"
-        ).strip()
+        )
         message = str((weak_area or {}).get("message") or "").strip()
         limitation = self._humanize_gap_message(message) or f"нет сильного подтверждённого опыта по {competency}"
         answer = {
@@ -314,6 +349,7 @@ class InterviewAnswerSynthesisService:
             "requires_human_review": True,
         }
         answer["draft_text"] = self._render_draft_text(answer)
+        answer["quality"] = InterviewAnswerQualityService().evaluate(answer).as_dict()
         return answer
 
     def _humanize_gap_message(self, value: str) -> str:
@@ -323,7 +359,7 @@ class InterviewAnswerSynthesisService:
 
         match = re.fullmatch(r"No confirmed (.+) evidence\.?", text, flags=re.IGNORECASE)
         if match:
-            return f"нет подтверждённых доказательств по теме {match.group(1)}"
+            return f"нет подтверждённых доказательств по теме {self._normalize_competency_label(match.group(1))}"
 
         return text
 
@@ -462,7 +498,9 @@ class InterviewAnswerSynthesisService:
     ) -> list[str]:
         points: list[str] = []
         if competency:
-            points.append(f"Начать с связи ответа с компетенцией: {competency}")
+            points.append(
+                f"Начать с связи ответа с компетенцией: {self._normalize_competency_label(competency)}"
+            )
         if evidence.get("title"):
             points.append(f"Назвать проект/факт: {evidence.get('title')}")
         if skills:
@@ -501,6 +539,22 @@ class InterviewAnswerSynthesisService:
             "ai workflow": "AI Workflow",
         }
         return known.get(cleaned.lower(), cleaned)
+
+    def _normalize_competency_label(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+
+        replacements = {
+            "коммуникацию": "коммуникация",
+            "коммуникацией": "коммуникация",
+            "компетенцией: коммуникацию": "компетенцией: коммуникация",
+            "теме коммуникацию": "теме коммуникация",
+        }
+        normalized = replacements.get(text.lower(), text)
+        if text[:1].isupper() and normalized:
+            return normalized[:1].upper() + normalized[1:]
+        return normalized
 
     def _clean_sentence(self, value: str) -> str:
         return re.sub(r"\s+", " ", value).strip(" .;-–—•")

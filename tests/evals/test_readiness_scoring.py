@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from app.domain.readiness_models import RecommendationItem, ReadinessScore, ReadinessSignal
 from app.domain.coverage_models import RequirementCoverage
 from app.domain.coverage_eval_models import CoverageEvaluationReport, CoverageCheckResult
@@ -86,6 +88,44 @@ class TestReadinessScoringService:
         assert result.evidence_score > 0.7
         assert result.overall_score > 0.6
         assert result.is_ready is True or result.readiness_level == "needs_work"
+
+    def test_calculate_readiness_includes_structured_score_breakdown(self) -> None:
+        coverage = [
+            RequirementCoverage(
+                requirement_text="Python development",
+                keyword="Python",
+                coverage_type=CoverageType.DIRECT,
+            ),
+        ]
+        service = ReadinessScoringService(
+            coverage=coverage,
+            evidence_scores=[0.8],
+            ats_preservation_score=0.9,
+            interview_quality_score=0.7,
+        )
+
+        result = service.calculate_readiness()
+        payload = asdict(result.score_breakdown)
+
+        assert payload["overall"] == result.overall_score
+        assert [item["key"] for item in payload["components"]] == [
+            "coverage",
+            "evidence",
+            "ats",
+            "interview",
+            "quality",
+        ]
+        assert payload["components"][0] == {
+            "key": "coverage",
+            "label": "Coverage",
+            "score": 1.0,
+            "weight": 0.3,
+            "contribution": 0.3,
+        }
+        assert all(
+            set(item) == {"key", "label", "score", "weight", "contribution"}
+            for item in payload["components"]
+        )
 
     def test_calculate_readiness_with_critical_issues(self) -> None:
         coverage = [

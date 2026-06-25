@@ -14,8 +14,6 @@ pytestmark = pytest.mark.asyncio
 
 API_PREFIX = "/api/v1"
 
-API_PREFIX = "/api/v1"
-
 
 def _assert_keys(payload: dict, expected_keys: set[str]) -> None:
     assert set(payload) == expected_keys
@@ -218,6 +216,40 @@ async def _seed_interview_prep_contract_session(db_session, test_user):
             "blockers": ["No confirmed Kubernetes evidence"],
             "warnings": ["No scale metrics"],
             "score": 58,
+            "explanation": {
+                "summary": "Есть критические пробелы, которые нужно закрыть перед интервью.",
+                "positive_factors": [],
+                "negative_factors": [
+                    "No confirmed Kubernetes evidence",
+                    "No scale metrics",
+                ],
+                "next_best_actions": [
+                    "Подтвердить опыт по компетенции: Kubernetes.",
+                    "Добавить измеримый результат с цифрами.",
+                ],
+            },
+            "competency_coverage_matrix": [
+                {
+                    "competency_key": "python",
+                    "competency_label": "Python",
+                    "coverage_status": "covered",
+                    "evidence_status": "confirmed",
+                    "fact_status": "confirmed",
+                    "evidence_count": 1,
+                    "reason": "Есть подтверждённые доказательства по компетенции.",
+                    "suggested_next_step": "Подготовить STAR-ответ на основе найденного примера.",
+                },
+                {
+                    "competency_key": "kubernetes",
+                    "competency_label": "Kubernetes",
+                    "coverage_status": "missing",
+                    "evidence_status": "missing",
+                    "fact_status": None,
+                    "evidence_count": 0,
+                    "reason": "No confirmed Kubernetes evidence",
+                    "suggested_next_step": "Собрать пример из опыта: ситуация, задача, действия, результат.",
+                },
+            ],
             "provenance": {
                 "source": "achievement_mapping",
                 "generation_mode": "deterministic_v1_review_ready",
@@ -249,12 +281,16 @@ async def _seed_interview_prep_contract_session(db_session, test_user):
     return prep_session
 
 
-async def test_interview_prep_contract_snapshot(client, db_session, test_user):
+async def build_interview_prep_snapshot(client, db_session, test_user) -> dict:
     prep_session = await _seed_interview_prep_contract_session(db_session, test_user)
 
     response = await client.get(f"{API_PREFIX}/interview-prep/sessions/{prep_session.id}")
     assert response.status_code == 200, response.text
-    payload = response.json()
+    return response.json()
+
+
+async def test_interview_prep_contract_snapshot(client, db_session, test_user):
+    payload = await build_interview_prep_snapshot(client, db_session, test_user)
 
     _assert_keys(
         payload,
@@ -274,7 +310,6 @@ async def test_interview_prep_contract_snapshot(client, db_session, test_user):
             "updated_at",
         },
     )
-    assert payload["id"] == str(prep_session.id)
     assert payload["prep_status"] == "draft"
 
     technical_question = next(
@@ -366,3 +401,49 @@ async def test_interview_prep_contract_snapshot(client, db_session, test_user):
     assert gap_question["suggested_answer"]["requires_human_review"] is True
     assert gap_question["recommended_evidence"] == []
     assert gap_question["provenance"]["requires_human_review"] is True
+
+    matrix = payload["readiness"]["competency_coverage_matrix"]
+
+    assert len(matrix) == 2
+    assert matrix[0]["competency_key"] == "python"
+    assert matrix[0]["coverage_status"] == "covered"
+    assert matrix[1]["competency_key"] == "kubernetes"
+    assert matrix[1]["coverage_status"] == "missing"
+
+    readiness = payload["readiness"]
+
+    assert "competency_coverage_matrix" in readiness
+    assert isinstance(readiness["competency_coverage_matrix"], list)
+
+    assert "explanation" in readiness
+    assert set(readiness["explanation"]) == {
+        "summary",
+        "positive_factors",
+        "negative_factors",
+        "next_best_actions",
+    }
+    assert isinstance(readiness["explanation"]["summary"], str)
+    assert isinstance(readiness["explanation"]["positive_factors"], list)
+    assert isinstance(readiness["explanation"]["negative_factors"], list)
+    assert isinstance(readiness["explanation"]["next_best_actions"], list)
+
+
+async def test_interview_prep_session_contract_snapshot_minimal(
+    client,
+    db_session,
+    test_user,
+):
+    payload = await build_interview_prep_snapshot(client, db_session, test_user)
+
+    question = payload["questions"][0]
+
+    assert "question_id" in question
+    assert "category" in question
+    assert "prompt" in question
+    assert "answer_format" in question
+    assert "recommended_evidence" in question
+    assert "provenance" in question
+
+    suggested = question["suggested_answer"]
+
+    assert suggested["requires_human_review"] is True

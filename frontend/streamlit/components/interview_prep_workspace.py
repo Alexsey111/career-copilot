@@ -5,11 +5,21 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import httpx
 import streamlit as st
 
 from api_client import CareerCopilotApiClient
+
+
+INTERVIEW_ANSWER_QUALITY_METRIC_LABELS = {
+    "star_completeness": "STAR-структура",
+    "evidence_usage": "Доказательства",
+    "specificity": "Конкретика",
+    "overclaim_safety": "Безопасность утверждений",
+    "readiness": "Готовность ответа",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +90,7 @@ def _humanize_reason(reason: Any) -> str:
         "skills overlap": "Навыки совпадают с требованиями вакансии",
         "snippet text overlap": "Описание проекта совпадает с требованиями вакансии",
         "related skill overlap": "Связанный навык поддерживает требование вакансии",
+        "совпадает с доменным контекстом": "Связано с предметной областью вакансии",
         "recommended": "Рекомендовано для ответа на этот вопрос",
     }
     for key, label in replacements.items():
@@ -144,6 +155,17 @@ def _humanize_answer_format(value: Any) -> str:
     return labels.get(answer_format, answer_format or "не указан")
 
 
+def _humanize_answer_quality_grade(value: Any) -> str:
+    grade = str(value or "").strip().lower()
+    labels = {
+        "excellent": "отличный",
+        "good": "хороший",
+        "needs_work": "требует доработки",
+        "weak": "слабый",
+    }
+    return labels.get(grade, grade or "—")
+
+
 def _humanize_star_field(value: Any) -> str:
     key = str(value or "").strip().lower()
     labels = {
@@ -183,6 +205,24 @@ def _humanize_competency_value(value: Any) -> str:
     return text.replace("_", " ")
 
 
+def _normalize_competency_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    replacements = {
+        "коммуникацию": "коммуникация",
+        "коммуникацией": "коммуникация",
+        "ответственность": "ответственность",
+        "сотрудничество": "сотрудничество",
+    }
+
+    normalized = replacements.get(text.lower(), text)
+    if text[:1].isupper() and normalized:
+        return normalized[:1].upper() + normalized[1:]
+    return normalized
+
+
 def _humanize_seniority_level(value: Any) -> str:
     level = str(value or "").strip().lower()
     labels = {
@@ -206,6 +246,8 @@ def _humanize_display_text(value: Any) -> str:
         "проявили communication": "проявили коммуникацию",
         "проявили collaboration": "проявили сотрудничество",
         "проявили learning agility": "проявили обучаемость",
+        "компетенцией: коммуникацию": "компетенцией: коммуникация",
+        "теме коммуникацию": "теме коммуникация",
         "grounded in confirmed evidence": "привязанным к подтверждённым фактам",
         "confirmed evidence": "подтверждённые факты",
         "claims": "утверждений",
@@ -222,6 +264,8 @@ def _humanize_display_text(value: Any) -> str:
     }
     for source, target in replacements.items():
         text = re.sub(rf"\b{re.escape(source)}\b", target, text, flags=re.IGNORECASE)
+    text = text.replace("компетенцией: коммуникацию", "компетенцией: коммуникация")
+    text = text.replace("теме коммуникацию", "теме коммуникация")
     return text
 
 
@@ -283,6 +327,19 @@ def _sanitize_evidence_text(value: Any) -> str:
         text = text[: min(cut_positions)].strip(" .;:-")
 
     return text
+
+
+def _looks_like_uuid(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+
+    try:
+        UUID(text)
+    except ValueError:
+        return False
+
+    return True
 
 
 def _is_insufficient_grounding(answer: dict[str, Any] | None) -> bool:
@@ -420,68 +477,138 @@ def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
         for warning in warnings:
             st.markdown(f"- {warning}")
 
+    roadmap = readiness.get("roadmap") or {}
+    steps = roadmap.get("steps") or []
+
+    if steps:
+        st.markdown("### План повышения готовности")
+
+        current_score = roadmap.get("current_score")
+        projected_score = roadmap.get("projected_score")
+
+        col_now, col_future = st.columns(2)
+
+        with col_now:
+            st.metric(
+                "Текущая готовность",
+                _format_score(current_score),
+            )
+
+        with col_future:
+            st.metric(
+                "После выполнения шагов",
+                _format_score(projected_score),
+            )
+
+        for step in steps:
+            with st.container(border=True):
+                st.markdown(
+                    f"**Шаг {step.get('order')}**"
+                )
+
+                st.write(step.get("title"))
+
+                st.caption(
+                    f"Ожидаемый прирост: +{step.get('expected_gain', 0)}"
+                )
+
 
 def _render_competency_coverage(
     *,
+    competency_coverage_matrix: list[dict[str, Any]] | None,
     competency_map: dict[str, Any] | None,
     questions: list[dict[str, Any]],
     evidence_links: list[dict[str, Any]],
     weak_areas: list[dict[str, Any]],
 ) -> None:
-    competency_map = competency_map or {}
-    required_skills = competency_map.get("required_skills") or []
-
     st.markdown("### Покрытие компетенций доказательствами")
     st.caption(
         "Показывает, какие требования вакансии уже подтверждены, "
         "какие требуют подтверждения, а где доказательств пока нет."
     )
 
-    if not required_skills:
-        st.info("Обязательные компетенции не извлечены.")
-        return
-
-    evidence_by_competency = _collect_evidence_by_competency(
-        questions=questions,
-        evidence_links=evidence_links,
-    )
-    weak_by_competency = {
-        _normalize_key(item.get("competency_key")): item
-        for item in weak_areas
-        if item.get("competency_key")
-    }
-
-    rows = []
-    for skill in required_skills:
-        key = _normalize_key(skill.get("key"))
-        label = skill.get("label") or skill.get("key") or "—"
-        evidence_items = evidence_by_competency.get(key, [])
-        fact_status = _best_fact_status(evidence_items)
-
-        if fact_status in {"confirmed", "user_provided"}:
-            status_text = "Подтверждено"
-        elif fact_status in {"needs_confirmation", "partial"}:
-            status_text = "Нужно подтвердить"
-        elif key in weak_by_competency:
-            status_text = "Нет подтверждённых доказательств"
-        else:
-            status_text = "Не определено"
-
-        rows.append(
+    matrix = [
+        item
+        for item in competency_coverage_matrix or []
+        if isinstance(item, dict)
+    ]
+    if matrix:
+        coverage_labels = {
+            "covered": "Подтверждено",
+            "needs_confirmation": "Нужно подтвердить",
+            "missing": "Нет подтверждённых доказательств",
+            "unknown": "Не определено",
+        }
+        rows = [
             {
-                "Статус": _evidence_status_icon(fact_status if evidence_items else None),
-                "Компетенция": label,
-                "Покрытие": status_text,
-                "Найдено примеров": len(evidence_items),
-                "Комментарий": (
-                    weak_by_competency.get(key, {}).get("message")
-                    if key in weak_by_competency
-                    else "Есть подтверждающие примеры"
-                    if evidence_items
-                    else "Примеры не найдены"
+                "Статус": _evidence_status_icon(
+                    item.get("fact_status") or item.get("evidence_status")
                 ),
+                "Компетенция": (
+                    item.get("competency_label")
+                    or item.get("competency_key")
+                    or "—"
+                ),
+                "Покрытие": coverage_labels.get(
+                    _normalize_key(item.get("coverage_status")),
+                    _humanize_display_text(item.get("coverage_status") or "Не определено"),
+                ),
+                "Найдено примеров": item.get("evidence_count", 0),
+                "Комментарий": item.get("reason") or "—",
             }
+            for item in matrix
+        ]
+    else:
+        competency_map = competency_map or {}
+        required_skills = competency_map.get("required_skills") or []
+
+        if not required_skills:
+            st.info("Обязательные компетенции не извлечены.")
+            return
+
+        evidence_by_competency = _collect_evidence_by_competency(
+            questions=questions,
+            evidence_links=evidence_links,
         )
+        weak_by_competency = {
+            _normalize_key(item.get("competency_key")): item
+            for item in weak_areas
+            if item.get("competency_key")
+        }
+
+        rows = []
+        for skill in required_skills:
+            key = _normalize_key(skill.get("key"))
+            label = skill.get("label") or skill.get("key") or "—"
+            evidence_items = evidence_by_competency.get(key, [])
+            fact_status = _best_fact_status(evidence_items)
+
+            if fact_status in {"confirmed", "user_provided"}:
+                status_text = "Подтверждено"
+            elif fact_status in {"needs_confirmation", "partial"}:
+                status_text = "Нужно подтвердить"
+            elif key in weak_by_competency:
+                status_text = "Нет подтверждённых доказательств"
+            else:
+                status_text = "Не определено"
+
+            rows.append(
+                {
+                    "Статус": _evidence_status_icon(
+                        fact_status if evidence_items else None
+                    ),
+                    "Компетенция": label,
+                    "Покрытие": status_text,
+                    "Найдено примеров": len(evidence_items),
+                    "Комментарий": (
+                        weak_by_competency.get(key, {}).get("message")
+                        if key in weak_by_competency
+                        else "Есть подтверждающие примеры"
+                        if evidence_items
+                        else "Примеры не найдены"
+                    ),
+                }
+            )
 
     st.dataframe(rows, width="stretch", hide_index=True)
 
@@ -505,6 +632,14 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
                 st.markdown(f"- {_humanize_display_text(item.get('label') or item.get('key'))}")
         else:
             st.caption("Обязательные навыки не извлечены.")
+
+        domain_requirements = competency_map.get("domain_requirements") or []
+        if domain_requirements:
+            st.markdown("**Предметная область**")
+            for item in domain_requirements:
+                label = item.get("label") if isinstance(item, dict) else item
+                if label:
+                    st.markdown(f"- {_humanize_display_text(label)}")
 
     with col_behavioral:
         st.markdown("#### Поведенческие сигналы")
@@ -546,6 +681,8 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         return
 
     insufficient_grounding = _is_insufficient_grounding(answer)
+
+    _render_answer_quality(answer)
 
     with st.expander("Черновик ответа", expanded=False):
         if insufficient_grounding:
@@ -590,9 +727,51 @@ def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
         if str(item).strip()
     ]
     if talking_points:
-        title = "Что нужно собрать" if insufficient_grounding else "Что подчеркнуть на интервью"
+        title = (
+            "Что рассказать на интервью после подтверждения"
+            if insufficient_grounding
+            else "Что подчеркнуть на интервью"
+        )
         with st.expander(title, expanded=False):
             for item in talking_points:
+                st.markdown(f"- {_humanize_display_text(item)}")
+
+
+def _render_answer_quality(answer: dict[str, Any]) -> None:
+    quality = answer.get("quality") or {}
+    if not isinstance(quality, dict) or not quality:
+        return
+
+    score = quality.get("score")
+    grade = _humanize_answer_quality_grade(quality.get("grade"))
+    metrics = quality.get("metrics") or {}
+    strengths = quality.get("strengths") or []
+    improvements = quality.get("improvements") or []
+
+    with st.expander("Качество ответа", expanded=False):
+        col_score, col_grade = st.columns(2)
+        with col_score:
+            st.metric("Оценка", _format_score(score))
+        with col_grade:
+            st.metric("Уровень", grade)
+
+        if metrics:
+            st.markdown("**Метрики**")
+            for key, value in metrics.items():
+                label = INTERVIEW_ANSWER_QUALITY_METRIC_LABELS.get(
+                    str(key),
+                    str(key).replace("_", " "),
+                )
+                st.metric(label, value)
+
+        if strengths:
+            st.markdown("**Сильные стороны**")
+            for item in strengths:
+                st.markdown(f"- {_humanize_display_text(item)}")
+
+        if improvements:
+            st.markdown("**Что улучшить**")
+            for item in improvements:
                 st.markdown(f"- {_humanize_display_text(item)}")
 
 
@@ -619,9 +798,12 @@ def _render_question_group(questions: list[dict[str, Any]]) -> None:
                             f"Формат ответа: {_humanize_answer_format(question.get('answer_format'))}"
                         )
                     if question.get("competency_name") or question.get("competency_key"):
+                        competency_name = _normalize_competency_label(
+                            question.get("competency_name") or question.get("competency_key")
+                        )
                         st.caption(
                             "Компетенция: "
-                            f"{_humanize_display_text(question.get('competency_name') or question.get('competency_key'))}"
+                            f"{_humanize_display_text(competency_name)}"
                         )
 
                     suggested_answer = question.get("suggested_answer")
@@ -678,7 +860,8 @@ def _render_question_supporting_evidence(
         return
 
     for item in recommended:
-        evidence_id = str(item.get("achievement_id") or "").strip()
+        achievement_id = item.get("achievement_id")
+        evidence_id = str(achievement_id or "").strip()
         title = str(item.get("title") or "Подтверждающий опыт").strip()
         reason = str(item.get("reason") or "").strip() or "—"
         score = _format_score(item.get("score"))
@@ -687,6 +870,10 @@ def _render_question_supporting_evidence(
             st.markdown(f"**{title}**")
             st.caption(f"Почему это поможет в ответе: {_humanize_reason(reason)}")
 
+            if not _looks_like_uuid(achievement_id):
+                st.caption("Детали доказательства недоступны для этого источника.")
+                continue
+
             if not evidence_id:
                 st.caption("Детали этого доказательства пока недоступны.")
                 continue
@@ -694,7 +881,11 @@ def _render_question_supporting_evidence(
             try:
                 snippet = client.get_evidence_snippet(evidence_id, token=token)
             except httpx.HTTPStatusError as exc:
-                st.caption(f"Не удалось загрузить детали доказательства: HTTP {exc.response.status_code}")
+                if exc.response.status_code == 404:
+                    st.caption("Детали доказательства недоступны, показана краткая версия.")
+                    continue
+
+                st.error(f"Не удалось загрузить детали доказательства: HTTP {exc.response.status_code}")
                 continue
             except httpx.RequestError as exc:
                 st.caption(f"Не удалось загрузить детали доказательства: {exc}")
@@ -836,6 +1027,7 @@ def _render_session_cleanup_action(
             session_ids=selected_session_ids,
             token=token,
         )
+        st.code(result)
     except httpx.HTTPStatusError as exc:
         st.error(f"Сервер вернул HTTP {exc.response.status_code}")
         st.code(exc.response.text)
@@ -1099,9 +1291,11 @@ def render_interview_prep_workspace_tab(
         st.caption(f"prep_status: {selected_session.get('prep_status')}")
         st.caption(f"readiness_score: {selected_session.get('readiness_score')}")
 
-    _render_readiness_panel(selected_session.get("readiness"))
+    readiness = selected_session.get("readiness") or {}
+    _render_readiness_panel(readiness)
     st.divider()
     _render_competency_coverage(
+        competency_coverage_matrix=readiness.get("competency_coverage_matrix"),
         competency_map=selected_session.get("competency_map"),
         questions=selected_session.get("questions") or [],
         evidence_links=selected_session.get("evidence_links") or [],
@@ -1125,9 +1319,12 @@ def render_interview_prep_workspace_tab(
                         f"Формат ответа: {_humanize_answer_format(question.get('answer_format'))}"
                     )
                 if question.get("competency_name") or question.get("competency_key"):
+                    competency_name = _normalize_competency_label(
+                        question.get("competency_name") or question.get("competency_key")
+                    )
                     st.caption(
                         "Компетенция: "
-                        f"{_humanize_display_text(question.get('competency_name') or question.get('competency_key'))}"
+                        f"{_humanize_display_text(competency_name)}"
                     )
                 _render_question_supporting_evidence(
                     client,

@@ -1,9 +1,18 @@
+# app\services\readiness_scoring_service.py
+
 from __future__ import annotations
 
 from typing import Any
 
 from app.config.scoring import COMPONENT_WEIGHTS
-from app.domain.readiness_models import ReadinessSignal, ReadinessScore, RecommendationItem, RecommendationCategory
+from app.domain.readiness_models import (
+    ReadinessScore,
+    ReadinessScoreBreakdown,
+    ReadinessScoreComponent,
+    ReadinessSignal,
+    RecommendationCategory,
+    RecommendationItem,
+)
 from app.domain.coverage_models import RequirementCoverage
 from app.domain.coverage_eval_models import CoverageEvaluationReport
 from app.domain.constants import (
@@ -13,13 +22,12 @@ from app.domain.constants import (
 )
 
 
-# Веса компонентов для итоговой оценки
-COMPONENT_WEIGHTS = {
-    "coverage": 0.30,
-    "evidence": 0.25,
-    "ats": 0.20,
-    "interview": 0.15,
-    "quality": 0.10,
+COMPONENT_LABELS = {
+    "coverage": "Coverage",
+    "evidence": "Evidence",
+    "ats": "ATS",
+    "interview": "Interview",
+    "quality": "Quality",
 }
 
 
@@ -54,6 +62,10 @@ class ReadinessScoringService:
         signals = self._collect_signals()
         component_scores = self._calculate_component_scores(signals)
         overall_score = self._calculate_overall_score(component_scores)
+        score_breakdown = self._build_score_breakdown(
+            component_scores=component_scores,
+            overall_score=overall_score,
+        )
         blocking_issues = self._identify_blocking_issues(signals, component_scores)
         warnings = self._identify_warnings(signals, component_scores)
         recommendations = self._generate_recommendation(overall_score, blocking_issues, warnings)
@@ -65,6 +77,7 @@ class ReadinessScoringService:
             interview_score=component_scores.get("interview", 0.0),
             coverage_score=component_scores.get("coverage", 0.0),
             quality_score=component_scores.get("quality", 0.0),
+            score_breakdown=score_breakdown,
             blocking_issues=blocking_issues,
             warnings=warnings,
             recommendations=recommendations,
@@ -204,6 +217,27 @@ class ReadinessScoringService:
             return 0.0
 
         return round(weighted_sum, 3)
+
+    def _build_score_breakdown(
+        self,
+        *,
+        component_scores: dict[str, float],
+        overall_score: float,
+    ) -> ReadinessScoreBreakdown:
+        components = [
+            ReadinessScoreComponent(
+                key=key,
+                label=COMPONENT_LABELS.get(key, key.replace("_", " ").title()),
+                score=component_scores.get(key, 0.0),
+                weight=weight,
+                contribution=round(component_scores.get(key, 0.0) * weight, 3),
+            )
+            for key, weight in COMPONENT_WEIGHTS.items()
+        ]
+        return ReadinessScoreBreakdown(
+            components=components,
+            overall=overall_score,
+        )
 
     def _identify_blocking_issues(
         self,

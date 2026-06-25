@@ -141,13 +141,6 @@ def render_mvp_flow(client: CareerCopilotApiClient, token: str | None = None) ->
 
     st.divider()
 
-    st.info(
-        "После создания и ручной отправки отклика используйте вкладку «Отклики» "
-        "для дальнейшего workflow, analytics и tracking."
-    )
-
-    st.divider()
-
     render_interview_preparation_step(client, token=token)
 
     st.divider()

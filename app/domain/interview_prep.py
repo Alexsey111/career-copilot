@@ -3,7 +3,36 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(slots=True)
+class InterviewReadinessRoadmapStep:
+    order: int
+    title: str
+    expected_gain: int
+
+    def as_dict(self) -> dict:
+        return {
+            "order": self.order,
+            "title": self.title,
+            "expected_gain": self.expected_gain,
+        }
+
+
+@dataclass(slots=True)
+class InterviewReadinessRoadmap:
+    current_score: int
+    projected_score: int
+    steps: list[InterviewReadinessRoadmapStep]
+
+    def as_dict(self) -> dict:
+        return {
+            "current_score": self.current_score,
+            "projected_score": self.projected_score,
+            "steps": [item.as_dict() for item in self.steps],
+        }
 
 
 def normalize_text(text: str | None) -> str:
@@ -15,7 +44,7 @@ def tokenize_text(text: str | None) -> set[str]:
 
 
 def build_competency_key(text: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "_", text.strip().lower())
+    normalized = re.sub(r"[^a-zа-яё0-9]+", "_", text.strip().lower())
     normalized = normalized.strip("_")
     return normalized or "general_competency"
 

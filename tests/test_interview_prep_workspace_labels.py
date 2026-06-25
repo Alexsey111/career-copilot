@@ -8,7 +8,9 @@ if str(STREAMLIT_ROOT) not in sys.path:
 from components.interview_prep_workspace import (  # type: ignore
     _humanize_evidence_fact_status,
     _humanize_evidence_source,
+    _humanize_reason,
     _sanitize_evidence_text,
+    _normalize_competency_label,
 )
 
 
@@ -29,3 +31,14 @@ def test_humanize_evidence_source_and_status_hide_internal_values() -> None:
     assert _humanize_evidence_fact_status("user_provided") == (
         "Подтверждено кандидатом"
     )
+
+
+def test_normalize_competency_label_uses_dictionary_form() -> None:
+    assert _normalize_competency_label("коммуникацию") == "коммуникация"
+    assert _normalize_competency_label("Коммуникацией") == "Коммуникация"
+
+
+def test_humanize_reason_rewrites_legacy_domain_context_text() -> None:
+    assert _humanize_reason(
+        "Совпадает с доменным контекстом · Факт подтверждён"
+    ) == "Связано с предметной областью вакансии"

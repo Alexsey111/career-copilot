@@ -44,6 +44,9 @@ class InterviewPrepReadinessRead(StrictBaseModel):
     score: int | None = None
     provenance: dict[str, Any] = Field(default_factory=dict)
     question_summary: dict[str, Any] = Field(default_factory=dict)
+    roadmap: dict[str, Any] = Field(default_factory=dict)
+    competency_coverage_matrix: list[dict[str, Any]] = Field(default_factory=list)
+    explanation: dict[str, Any] = Field(default_factory=dict)
 
 
 class InterviewPrepQuestionRead(StrictBaseModel):

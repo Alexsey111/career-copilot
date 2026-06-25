@@ -556,7 +556,17 @@ async def test_interview_prep_session_contract_snapshot(client, db_session, test
 
     _assert_keys(
         payload["readiness"],
-        {"ready", "blockers", "warnings", "score", "provenance", "question_summary"},
+        {
+            "ready",
+            "blockers",
+            "warnings",
+            "score",
+            "roadmap",
+            "provenance",
+            "question_summary",
+            "competency_coverage_matrix",
+            "explanation",
+        },
     )
     assert payload["readiness"]["ready"] is False
     assert payload["readiness"]["provenance"]["confidence_level"] == "needs_review"
@@ -594,7 +604,17 @@ async def test_interview_prep_readiness_contract_snapshot(client, db_session, te
 
     _assert_keys(
         payload,
-        {"ready", "blockers", "warnings", "score", "provenance", "question_summary"},
+        {
+            "ready",
+            "blockers",
+            "warnings",
+            "score",
+            "roadmap",
+            "provenance",
+            "question_summary",
+            "competency_coverage_matrix",
+            "explanation",
+        },
     )
     assert payload["ready"] is False
     assert payload["blockers"] == ["No confirmed Kubernetes evidence"]

@@ -11,6 +11,8 @@ from components import (
     render_document_review_workspace_tab,
     render_interview_prep_workspace_tab,
 )
+from ui.formatting import format_application_status
+from ui.formatting import format_optional_datetime
 
 
 def _humanize_application_status(value: object) -> str:
@@ -36,6 +38,29 @@ def _humanize_review_status(value: object) -> str:
         "archived": "архив",
     }
     return labels.get(status, status or "—")
+
+
+def _humanize_status_history_value(value: object) -> str:
+    status = str(value or "").strip().lower()
+    if not status or status == "none":
+        return "не указан"
+    return format_application_status(status)
+
+
+def _humanize_status_history_timestamp(value: object) -> str:
+    formatted = format_optional_datetime(str(value or "").strip() or None)
+    return formatted if formatted != "—" else "не указана"
+
+
+def _format_status_history_entry(item: dict[str, object]) -> str:
+    created_at = _humanize_status_history_timestamp(item.get("created_at"))
+    previous_status = _humanize_status_history_value(item.get("previous_status"))
+    new_status = _humanize_status_history_value(item.get("new_status"))
+
+    transition = f"{previous_status} → {new_status}"
+    if created_at != "не указана":
+        return f"{created_at}: {transition}"
+    return transition
 
 
 def _scroll_to_step9_top() -> None:
@@ -812,10 +837,7 @@ def render_application_tracking_step(client: CareerCopilotApiClient, token: str 
     if isinstance(timeline, list) and timeline:
         st.markdown("#### История статусов")
         for item in timeline:
-            st.markdown(
-                f"- {item.get('created_at')}: "
-                f"{item.get('previous_status') or '—'} → {item.get('new_status')}"
-            )
+            st.markdown(f"- {_format_status_history_entry(item)}")
 
 
 def render_interview_preparation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
@@ -830,10 +852,15 @@ def render_interview_preparation_step(client: CareerCopilotApiClient, token: str
         st.info("Сначала сохраните отклик в трекере на шаге 10.")
         return
 
-    if application.get("status") != "applied":
+    application_status = str(application.get("status") or "").strip().lower()
+    if application_status not in {
+        "applied",
+        "manual_applied",
+        "sent_manually",
+        "отправлен вручную",
+    }:
         st.info(
-            "Interview prep имеет смысл запускать после ручной отправки отклика "
-            "и перевода статуса в applied на шаге 11."
+            "Подготовка к интервью доступна после ручной отправки отклика."
         )
         return
 

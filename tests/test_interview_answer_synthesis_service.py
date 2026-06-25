@@ -151,6 +151,69 @@ def test_interview_answer_synthesis_attaches_answers_to_questions() -> None:
     assert "Python" in questions[0]["suggested_answer"]["tech_stack"]
 
 
+def test_interview_answer_synthesis_normalizes_competency_label_in_talking_points() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    answer = service.build_answer(
+        question={
+            "question_id": "q-communication",
+            "category": "technical",
+            "prompt": "Как вы описываете коммуникацию в команде?",
+            "competency_name": "коммуникацию",
+        },
+        evidence_by_id={},
+    )
+
+    assert any(
+        "компетенцией: коммуникация" in item for item in answer["talking_points"]
+    )
+    assert all("коммуникацию" not in item for item in answer["talking_points"])
+
+
+def test_project_deep_dive_quality_uses_recommended_confirmed_achievement() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    questions = service.attach_suggested_answers(
+        questions=[
+            {
+                "question_id": "q-project",
+                "category": "project_deep_dive",
+                "prompt": (
+                    "Разберите этот проект или достижение глубже: "
+                    "Снизил количество аварийных заявок на 20%."
+                ),
+                "competency_key": "снизил_количество_аварийных_заявок",
+                "competency_name": "Снизил количество аварийных заявок на 20%",
+                "recommended_evidence_ids": ["achievement-1"],
+                "recommended_evidence": [
+                    {
+                        "achievement_id": "achievement-1",
+                        "title": "Снизил количество аварийных заявок на 20%",
+                    }
+                ],
+            }
+        ],
+        evidence_snippets=[],
+        confirmed_achievements=[
+            {
+                "id": "achievement-1",
+                "title": "Снизил количество аварийных заявок на 20%",
+                "situation": "На объекте регулярно возникали аварийные заявки.",
+                "task": "Снизить число повторных аварий.",
+                "action": "Внедрил профилактические осмотры инженерных систем.",
+                "result": "Количество аварийных заявок снизилось на 20%.",
+                "fact_status": "confirmed",
+            }
+        ],
+    )
+
+    answer = questions[0]["suggested_answer"]
+
+    assert answer["source_evidence_id"] == "achievement-1"
+    assert answer["grounding_status"] == "grounded"
+    assert answer["quality"]["metrics"]["evidence_usage"] == 25
+
+
 def test_answer_synthesis_does_not_build_star_from_ownership_review_noise() -> None:
     service = InterviewAnswerSynthesisService()
 
@@ -216,6 +279,36 @@ def test_answer_synthesis_builds_grounded_star_from_confirmed_clean_evidence() -
     assert answer["tech_stack"] == ["Adobe Photoshop"]
 
 
+def test_interview_answer_synthesis_attaches_answer_quality() -> None:
+    service = InterviewAnswerSynthesisService()
+
+    answer = service.build_answer(
+        question={
+            "category": "technical",
+            "competency_name": "Adobe Photoshop",
+            "recommended_evidence_ids": ["ev-1"],
+        },
+        evidence_by_id={
+            "ev-1": {
+                "id": "ev-1",
+                "title": "Подготовка макетов",
+                "fact_status": "confirmed",
+                "skills": ["Adobe Photoshop"],
+                "star_summary": {
+                    "situation": "Нужно было подготовить макеты.",
+                    "task": "Адаптировать материалы.",
+                    "action": "Подготовила макеты в Adobe Photoshop.",
+                    "result": "Передала материалы в печать без доработок.",
+                },
+            }
+        },
+    )
+
+    assert "quality" in answer
+    assert answer["quality"]["score"] >= 70
+    assert answer["quality"]["metrics"]
+
+
 def test_answer_synthesis_uses_partial_evidence_when_fact_exists_but_star_incomplete() -> None:
     service = InterviewAnswerSynthesisService()
 
@@ -244,3 +337,5 @@ def test_answer_synthesis_uses_partial_evidence_when_fact_exists_but_star_incomp
     assert "Есть релевантный факт" in answer["situation"]
     assert "Дособрать задачу" in answer["task"]
     assert "Недостаточно подтверждённых данных" not in answer["draft_text"]
+    assert answer["quality"]["metrics"]["star_completeness"] <= 15
+    assert answer["quality"]["grade"] != "excellent"

@@ -40,6 +40,23 @@ class ReadinessSignal:
 
 
 @dataclass(slots=True)
+class ReadinessScoreComponent:
+    """Вклад одного компонента в итоговую оценку готовности."""
+    key: str
+    label: str
+    score: float
+    weight: float
+    contribution: float
+
+
+@dataclass(slots=True)
+class ReadinessScoreBreakdown:
+    """Структурированная детализация итоговой оценки."""
+    components: list[ReadinessScoreComponent] = field(default_factory=list)
+    overall: float = 0.0
+
+
+@dataclass(slots=True)
 class ReadinessScore:
     """Итоговая оценка готовности документа."""
     overall_score: float  # 0.0 - 1.0
@@ -50,6 +67,9 @@ class ReadinessScore:
     interview_score: float = 0.0
     coverage_score: float = 0.0
     quality_score: float = 0.0
+    score_breakdown: ReadinessScoreBreakdown = field(
+        default_factory=ReadinessScoreBreakdown
+    )
 
     # Проблемы
     blocking_issues: list[str] = field(default_factory=list)

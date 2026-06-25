@@ -2,6 +2,7 @@ import pytest
 from uuid import UUID
 
 from app.services.interview_prep_service import InterviewPrepService
+from app.services.interview_readiness_service import InterviewReadinessService
 
 
 def test_build_question_summary_counts_categories_and_evidence() -> None:
@@ -36,6 +37,106 @@ def test_build_question_summary_counts_categories_and_evidence() -> None:
         },
         "careful_answer_count": 1,
         "with_evidence_count": 2,
+    }
+
+
+def test_build_competency_coverage_matrix_marks_confirmed_and_missing() -> None:
+    service = InterviewPrepService()
+
+    matrix = service._build_competency_coverage_matrix(
+        competency_map={
+            "required_skills": [
+                {"key": "python", "label": "Python"},
+                {"key": "kubernetes", "label": "Kubernetes"},
+            ]
+        },
+        questions=[
+            {
+                "competency_key": "python",
+                "recommended_evidence": [
+                    {
+                        "achievement_id": "ach-1",
+                        "title": "Built Python backend",
+                        "fact_status": "confirmed",
+                    }
+                ],
+            }
+        ],
+        evidence_links=[],
+        weak_areas=[
+            {
+                "competency_key": "kubernetes",
+                "message": "No confirmed Kubernetes evidence",
+            }
+        ],
+    )
+
+    assert matrix == [
+        {
+            "competency_key": "python",
+            "competency_label": "Python",
+            "coverage_status": "covered",
+            "evidence_status": "confirmed",
+            "fact_status": "confirmed",
+            "evidence_count": 1,
+            "reason": "Есть подтверждённые доказательства по компетенции.",
+            "suggested_next_step": "Подготовить STAR-ответ на основе найденного примера.",
+        },
+        {
+            "competency_key": "kubernetes",
+            "competency_label": "Kubernetes",
+            "coverage_status": "missing",
+            "evidence_status": "missing",
+            "fact_status": None,
+            "evidence_count": 0,
+            "reason": "No confirmed Kubernetes evidence",
+            "suggested_next_step": "Собрать пример из опыта: ситуация, задача, действия, результат.",
+        },
+    ]
+
+
+def test_build_readiness_includes_structured_explanation() -> None:
+    service = InterviewReadinessService()
+
+    readiness = service.build_readiness(
+        competency_map={
+            "required_skills": [
+                {"key": "python", "label": "Python"},
+            ]
+        },
+        weak_areas=[
+            {
+                "code": "missing_confirmed_python",
+                "message": "No confirmed Python evidence",
+                "severity": "blocker",
+                "category": "technical",
+                "competency_key": "python",
+                "competency_label": "Python",
+            },
+            {
+                "code": "missing_scale_metrics",
+                "message": "No scale metrics",
+                "severity": "warning",
+                "category": "metrics",
+                "competency_key": "scale_metrics",
+            },
+        ],
+        evidence_links=[],
+    )
+
+    explanation = readiness["explanation"]
+
+    assert explanation == {
+        "summary": "Есть критические пробелы, которые нужно закрыть перед интервью.",
+        "positive_factors": [],
+        "negative_factors": [
+            "No confirmed Python evidence",
+            "No scale metrics",
+        ],
+        "next_best_actions": [
+            "Подтвердить опыт по компетенции: Python.",
+            "Добавить измеримый результат с цифрами.",
+        ],
     }
 
 

@@ -33,30 +33,62 @@ class InterviewQuestionService:
         analysis,
         evidence_snippets: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        required_skills = self._dedupe_competencies(
+        all_requirements = self._dedupe_competencies(
             [
                 *self._extract_requirement_items(analysis.must_have_json or [], source="must_have"),
                 *self._extract_requirement_items(analysis.strengths_json or [], source="strength"),
                 *self._extract_requirement_items(analysis.gaps_json or [], source="gap"),
             ],
         )
+        domain_requirements = [
+            item
+            for item in all_requirements
+            if str(item.get("type") or "").lower() == "domain"
+        ]
+        required_skills = [
+            item
+            for item in all_requirements
+            if str(item.get("type") or "skill").lower() == "skill"
+        ]
+        behavioral_traits = [
+            item
+            for item in all_requirements
+            if item.get("type") == "behavioral"
+        ]
+        experience_requirements = [
+            item
+            for item in all_requirements
+            if item.get("type") == "experience"
+        ]
         evidence_competencies = self._extract_evidence_competencies(
             evidence_snippets or [],
             vacancy_competencies=required_skills,
         )
         behavioral_signals = build_behavioral_signals(vacancy, analysis, required_skills)
         seniority = build_seniority_expectations(vacancy)
+        vacancy_context_text = " ".join(
+            [
+                str(getattr(vacancy, "title", "") or ""),
+                str(getattr(vacancy, "description_raw", "") or ""),
+            ]
+        )
         domain_focus_areas = self._build_domain_focus_areas(
             required_skills=required_skills,
+            domain_requirements=domain_requirements,
             vacancy=vacancy,
             analysis=analysis,
         )
 
         return {
+            "all_requirements": all_requirements,
             "required_skills": required_skills,
+            "domain_requirements": domain_requirements,
+            "behavioral_traits": behavioral_traits,
+            "experience_requirements": experience_requirements,
             "evidence_competencies": evidence_competencies,
             "behavioral_signals": behavioral_signals,
             "seniority_expectations": seniority,
+            "vacancy_context_text": vacancy_context_text,
             "domain_focus_areas": domain_focus_areas,
             "domain_expectations": domain_focus_areas,
         }
@@ -75,6 +107,9 @@ class InterviewQuestionService:
             for achievement in confirmed_achievements
         ]
         questions: list[dict[str, Any]] = []
+        vacancy_context_text = str(
+            competency_map.get("vacancy_context_text") or ""
+        ).strip()
 
         for skill in (competency_map.get("required_skills") or [])[:4]:
             prompt = self._technical_question_prompt(
@@ -88,22 +123,20 @@ class InterviewQuestionService:
                     answer_format="STAR_or_example",
                     competency_key=skill["key"],
                     competency_name=skill["label"],
+                    vacancy_context_text=vacancy_context_text,
                     evidence_candidates=evidence_candidates,
                 )
             )
 
         for signal in (competency_map.get("behavioral_signals") or [])[:2]:
-            signal_label = self._humanize_behavioral_signal(signal)
             questions.append(
                 self._build_question(
                     category="behavioral",
-                    prompt=(
-                        f"Приведите пример, где вы проявили {signal_label} "
-                        f"в рабочем проекте."
-                    ),
+                    prompt=self._behavioral_question_prompt(signal),
                     answer_format="STAR",
                     competency_key=build_competency_key(signal),
-                    competency_name=signal_label,
+                    competency_name=self._humanize_behavioral_signal(signal),
+                    vacancy_context_text=vacancy_context_text,
                     evidence_candidates=evidence_candidates,
                 )
             )
@@ -119,6 +152,7 @@ class InterviewQuestionService:
                     answer_format="STAR_or_project_context",
                     competency_key=competency["key"],
                     competency_name=competency["label"],
+                    vacancy_context_text=vacancy_context_text,
                     evidence_candidates=evidence_candidates,
                 )
             )
@@ -135,6 +169,7 @@ class InterviewQuestionService:
                     answer_format="STAR",
                     competency_key="leadership",
                     competency_name="лидерство",
+                    vacancy_context_text=vacancy_context_text,
                     evidence_candidates=evidence_candidates,
                 )
             )
@@ -155,6 +190,7 @@ class InterviewQuestionService:
                         answer_format="STAR",
                         competency_key=build_competency_key(top_achievement["title"]),
                         competency_name=top_achievement["title"],
+                        vacancy_context_text=vacancy_context_text,
                         evidence_candidates=[
                             self._achievement_to_evidence_item(top_achievement)
                         ],
@@ -173,6 +209,7 @@ class InterviewQuestionService:
                         answer_format="STAR_or_project_context",
                         competency_key=build_competency_key(str(top_evidence["title"])),
                         competency_name=str(top_evidence["title"]),
+                        vacancy_context_text=vacancy_context_text,
                         evidence_candidates=[top_evidence],
                     )
                 )
@@ -194,6 +231,7 @@ class InterviewQuestionService:
                         or weak_area.get("source_requirement")
                         or weak_label
                     ),
+                    vacancy_context_text=vacancy_context_text,
                     evidence_candidates=evidence_candidates,
                 )
             )
@@ -215,23 +253,15 @@ class InterviewQuestionService:
         questions: list[dict[str, Any]],
         confirmed_achievements: list[dict[str, Any]],
         evidence_snippets: list[dict[str, Any]] | None = None,
+        competency_map: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        evidence_candidates = evidence_snippets or [
-            self._achievement_to_evidence_item(achievement)
-            for achievement in confirmed_achievements
-        ]
         links: list[dict[str, Any]] = []
 
         for question in questions:
-            ranked = self._rank_evidence_items_for_question(
-                question=question,
-                evidence_items=evidence_candidates,
+            recommended_evidence = self._dedupe_ranked_evidence(
+                list(question.get("recommended_evidence") or [])
             )
-            ranked = self._filter_ranked_evidence_for_question(
-                category=str(question.get("category") or ""),
-                ranked=ranked,
-            )
-            for item in ranked[:2]:
+            for item in recommended_evidence[:2]:
                 links.append(
                     {
                         "question_id": question["question_id"],
@@ -244,24 +274,6 @@ class InterviewQuestionService:
                     }
                 )
 
-            question["recommended_evidence_ids"] = [
-                item["achievement_id"] for item in ranked[:2]
-            ]
-            question["recommended_evidence"] = [
-                {
-                    "achievement_id": item["achievement_id"],
-                    "title": item["title"],
-                    "score": item["score"],
-                    "reason": item["reason"],
-                    "source_type": item.get("source_type"),
-                    "fact_status": item.get("fact_status"),
-                    "skills": item.get("skills") or [],
-                    "match_confidence": item.get("match_confidence"),
-                    "match_type": item.get("match_type"),
-                }
-                for item in ranked[:2]
-            ]
-
         return links
 
     def _build_question(
@@ -272,6 +284,7 @@ class InterviewQuestionService:
         answer_format: str,
         competency_key: str | None,
         competency_name: str | None,
+        vacancy_context_text: str | None = None,
         evidence_candidates: list[dict[str, Any]],
     ) -> dict[str, Any]:
         question_id = self._build_question_id(
@@ -287,6 +300,7 @@ class InterviewQuestionService:
                 "prompt": prompt,
                 "competency_key": competency_key,
                 "competency_name": competency_name,
+                "vacancy_context_text": vacancy_context_text,
             },
             evidence_items=evidence_candidates,
         )
@@ -294,6 +308,7 @@ class InterviewQuestionService:
             category=category,
             ranked=ranked,
         )
+        ranked = self._dedupe_ranked_evidence(ranked)
         recommended_evidence_ids = [
             item["achievement_id"]
             for item in ranked[:2]
@@ -350,6 +365,26 @@ class InterviewQuestionService:
             },
         }
 
+    def _dedupe_ranked_evidence(
+        self,
+        ranked: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for item in ranked:
+            title_key = str(item.get("title") or "").strip().lower()
+            id_key = str(item.get("achievement_id") or "").strip().lower()
+
+            key = title_key or id_key
+            if not key or key in seen:
+                continue
+
+            seen.add(key)
+            deduped.append(item)
+
+        return deduped
+
     def _filter_ranked_evidence_for_question(
         self,
         *,
@@ -371,6 +406,8 @@ class InterviewQuestionService:
                 in {
                     "exact_requirement",
                     "keyword_overlap",
+                    "vacancy_context_overlap",
+                    "domain_cluster_overlap",
                 }
             ]
 
@@ -379,6 +416,7 @@ class InterviewQuestionService:
                 item
                 for item in filtered
                 if item.get("match_confidence") == "high"
+                and item.get("match_type") != "weak_overlap"
             ]
 
         return filtered
@@ -399,6 +437,16 @@ class InterviewQuestionService:
         query_tokens = tokenize_text(" ".join([prompt, competency_key, competency_name, category]))
         competency_tokens = tokenize_text(" ".join([competency_key, competency_name]))
         query_skills = set(extract_skill_tags(prompt, competency_key, competency_name, category))
+        requirement_text = " ".join(
+            [
+                str(question.get("competency_name") or ""),
+                str(question.get("source_requirement") or ""),
+            ]
+        )
+        requirement_cluster_tokens = self._domain_cluster_tokens(requirement_text)
+        exact_requirement_tokens = self._domain_exact_tokens(requirement_text)
+        vacancy_context_text = str(question.get("vacancy_context_text") or "")
+        vacancy_context_tokens = self._vacancy_context_tokens(vacancy_context_text)
 
         ranked: list[dict[str, Any]] = []
         for evidence in evidence_items:
@@ -411,11 +459,7 @@ class InterviewQuestionService:
             if evidence_category == "technologies" or evidence_title == "technology stack from resume":
                 continue
 
-            text = str(
-                evidence.get("snippet_text")
-                or evidence.get("title")
-                or achievement_search_text(evidence)
-            )
+            text = self._evidence_ranking_text(evidence)
             text_tokens = tokenize_text(text)
             overlap = len(query_tokens & text_tokens)
             competency_overlap = len(competency_tokens & text_tokens)
@@ -424,11 +468,45 @@ class InterviewQuestionService:
                 for skill in (evidence.get("skills") or [])
                 if str(skill).strip()
             }
+            skill_overlap = len(query_skills & evidence_skills)
+            evidence_cluster_tokens = self._domain_cluster_tokens(text)
+            requirement_overlap = len(
+                requirement_cluster_tokens & evidence_cluster_tokens
+            )
+            exact_domain_noun_overlap = len(
+                exact_requirement_tokens & text_tokens
+            )
+            context_overlap = len(vacancy_context_tokens & text_tokens)
+            domain_cluster_overlap = self._domain_cluster_overlap(
+                requirement_text=" ".join(
+                    [
+                        str(question.get("competency_name") or ""),
+                        str(question.get("source_requirement") or ""),
+                        str(question.get("prompt") or ""),
+                    ]
+                ),
+                vacancy_context_text=vacancy_context_text,
+                evidence_text=text,
+            )
             if not overlap and competency_key and competency_key not in text:
-                if not (query_skills & evidence_skills):
+                if (
+                    not (query_skills & evidence_skills)
+                    and context_overlap < 2
+                    and domain_cluster_overlap < 2
+                ):
                     continue
 
             score = float(overlap)
+            if skill_overlap:
+                score += min(skill_overlap, 4) * 1.25
+            if requirement_overlap:
+                score += min(requirement_overlap, 4) * 1.0
+            if exact_domain_noun_overlap:
+                score += min(exact_domain_noun_overlap, 4) * 1.25
+            if context_overlap >= 2:
+                score += min(context_overlap, 4) * 0.75
+            if domain_cluster_overlap >= 2:
+                score += min(domain_cluster_overlap, 4) * 0.75
             if competency_key and competency_key in text:
                 score += 3.0
             if competency_name and competency_name in text:
@@ -467,6 +545,8 @@ class InterviewQuestionService:
                 question=question,
                 evidence=evidence,
                 overlap=overlap,
+                context_overlap=context_overlap,
+                domain_cluster_overlap=domain_cluster_overlap,
                 competency_overlap=competency_overlap,
             )
             match_confidence = self._evidence_match_confidence(
@@ -474,6 +554,7 @@ class InterviewQuestionService:
                 overlap=overlap,
                 competency_overlap=competency_overlap,
                 match_type=match_type,
+                context_overlap=context_overlap,
                 evidence=evidence,
             )
 
@@ -491,6 +572,8 @@ class InterviewQuestionService:
                         question=question,
                         evidence=evidence,
                         overlap=overlap,
+                        context_overlap=context_overlap,
+                        domain_cluster_overlap=domain_cluster_overlap,
                         competency_overlap=competency_overlap,
                     ),
                 }
@@ -499,12 +582,133 @@ class InterviewQuestionService:
         ranked.sort(key=lambda item: item["score"], reverse=True)
         return ranked
 
+    def _evidence_ranking_text(self, evidence: dict[str, Any]) -> str:
+        star_summary = evidence.get("star_summary") or {}
+        return " ".join(
+            part
+            for part in [
+                str(evidence.get("title") or "").strip(),
+                str(evidence.get("snippet_text") or "").strip(),
+                " ".join(str(skill) for skill in (evidence.get("skills") or [])),
+                " ".join(
+                    str(star_summary.get(field) or "").strip()
+                    for field in ("situation", "task", "action", "result")
+                ),
+                achievement_search_text(evidence),
+            ]
+            if part
+        )
+
+    def _domain_exact_tokens(self, text: str) -> set[str]:
+        stopwords = {
+            "и", "или", "в", "во", "на", "по", "для", "с", "со", "от", "до",
+            "при", "об", "из", "за", "работа", "работы", "опыт", "требования",
+            "обязанности", "наличие", "знание", "умение", "готовность",
+        }
+        return {
+            token
+            for token in tokenize_text(text)
+            if token not in stopwords and len(token) >= 4
+        }
+
+    def _vacancy_context_tokens(self, text: str) -> set[str]:
+        tokens = tokenize_text(text)
+
+        stopwords = {
+            "и",
+            "или",
+            "в",
+            "во",
+            "на",
+            "по",
+            "для",
+            "с",
+            "со",
+            "к",
+            "от",
+            "до",
+            "при",
+            "об",
+            "обо",
+            "из",
+            "за",
+            "над",
+            "под",
+            "а",
+            "также",
+            "имеете",
+            "знаете",
+            "умеете",
+            "готовы",
+            "опыт",
+            "работы",
+            "работа",
+            "образование",
+            "высшее",
+            "среднее",
+            "техническое",
+            "экономическое",
+            "области",
+            "сфере",
+            "направлении",
+            "части",
+            "требования",
+            "навыки",
+            "знания",
+        }
+
+        return {token for token in tokens if token not in stopwords and len(token) >= 4}
+
+    def _token_stem(self, token: str) -> str:
+        text = str(token or "").strip().lower()
+        for suffix in (
+            "иями", "ями", "ами", "ого", "ему", "ому", "ыми", "ими",
+            "ной", "ной", "ные", "ная", "ное", "ых", "их",
+            "ов", "ев", "ей", "ам", "ям", "ах", "ях",
+            "ия", "ие", "ый", "ий", "ая", "ое", "ые",
+            "а", "я", "ы", "и", "е", "у", "ю", "ом", "ем",
+        ):
+            if len(text) > len(suffix) + 3 and text.endswith(suffix):
+                return text[: -len(suffix)]
+        return text
+
+    def _domain_cluster_tokens(self, text: str) -> set[str]:
+        stopwords = {
+            "и", "или", "в", "во", "на", "по", "для", "с", "со", "от", "до",
+            "при", "об", "из", "за", "работа", "работы", "опыт", "требования",
+            "обязанности", "наличие", "знание", "умение", "готовность",
+        }
+
+        tokens = tokenize_text(text)
+        return {
+            self._token_stem(token)
+            for token in tokens
+            if token not in stopwords and len(token) >= 4
+        }
+
+    def _domain_cluster_overlap(
+        self,
+        *,
+        requirement_text: str,
+        vacancy_context_text: str,
+        evidence_text: str,
+    ) -> int:
+        requirement_tokens = self._domain_cluster_tokens(requirement_text)
+        vacancy_tokens = self._domain_cluster_tokens(vacancy_context_text)
+        evidence_tokens = self._domain_cluster_tokens(evidence_text)
+
+        context_tokens = requirement_tokens | vacancy_tokens
+
+        return len(context_tokens & evidence_tokens)
+
     def _build_evidence_reason(
         self,
         *,
         question: dict[str, Any],
         evidence: dict[str, Any],
         overlap: int,
+        context_overlap: int = 0,
+        domain_cluster_overlap: int = 0,
         competency_overlap: int,
     ) -> str:
         parts: list[str] = []
@@ -515,6 +719,12 @@ class InterviewQuestionService:
             parts.append("Есть слабое контекстное совпадение")
         elif overlap == 1:
             parts.append("Есть слабое текстовое совпадение")
+
+        if context_overlap >= 2:
+            parts.append("Совпадает с контекстом вакансии")
+
+        if domain_cluster_overlap >= 2:
+            parts.append("Связано с предметной областью вакансии")
 
         if self._has_metric_signal(evidence):
             parts.append("Есть измеримый результат")
@@ -534,6 +744,7 @@ class InterviewQuestionService:
         overlap: int,
         competency_overlap: int,
         match_type: str = "",
+        context_overlap: int = 0,
         evidence: dict[str, Any],
     ) -> str:
         fact_status = str(evidence.get("fact_status") or "").lower()
@@ -555,11 +766,22 @@ class InterviewQuestionService:
                 return "medium"
             return "medium"
 
+        if match_type in {"vacancy_context_overlap", "domain_cluster_overlap"}:
+            if fact_status in {
+                EvidenceFactStatus.CONFIRMED,
+                EvidenceFactStatus.USER_PROVIDED,
+            }:
+                return "medium"
+            return "medium"
+
         if fact_status in {
             EvidenceFactStatus.CONFIRMED,
             EvidenceFactStatus.USER_PROVIDED,
         } and competency_overlap >= 2:
             return "high"
+
+        if context_overlap >= 2:
+            return "medium"
 
         if competency_overlap >= 2:
             return "medium"
@@ -608,12 +830,38 @@ class InterviewQuestionService:
         }
         return labels.get(normalized, signal or "рабочее качество")
 
+    def _behavioral_question_prompt(self, value: Any) -> str:
+        signal = str(value or "").strip()
+        normalized = signal.lower().replace(" ", "_")
+        prompts = {
+            "ownership": "Расскажите о ситуации, где вы взяли ответственность за рабочий результат.",
+            "communication": "Расскажите о ситуации, где коммуникация помогла решить рабочую задачу.",
+            "collaboration": "Расскажите о ситуации, где сотрудничество помогло команде добиться результата.",
+            "cross_functional_collaboration": (
+                "Расскажите о ситуации, где кросс-функциональное сотрудничество "
+                "помогло решить рабочую задачу."
+            ),
+            "mentoring": "Расскажите о ситуации, где вы помогли коллеге или команде вырасти.",
+            "learning_agility": "Расскажите о ситуации, где вам пришлось быстро разобраться в новой теме.",
+            "stakeholder_management": "Расскажите о ситуации, где вы выстроили работу со стейкхолдерами.",
+        }
+        if normalized in prompts:
+            return prompts[normalized]
+
+        signal_label = self._humanize_behavioral_signal(signal)
+        return (
+            f"Расскажите о ситуации, где качество «{signal_label}» "
+            "помогло решить рабочую задачу."
+        )
+
     def _evidence_match_type(
         self,
         *,
         question: dict[str, Any],
         evidence: dict[str, Any],
         overlap: int,
+        context_overlap: int = 0,
+        domain_cluster_overlap: int = 0,
         competency_overlap: int,
     ) -> str:
         competency_key = str(question.get("competency_key") or "").lower()
@@ -629,6 +877,12 @@ class InterviewQuestionService:
 
         if competency_name and competency_name in text:
             return "exact_requirement"
+
+        if context_overlap >= 2 and context_overlap >= domain_cluster_overlap:
+            return "vacancy_context_overlap"
+
+        if domain_cluster_overlap >= 2:
+            return "domain_cluster_overlap"
 
         if competency_overlap >= 2:
             return "keyword_overlap"
@@ -781,6 +1035,7 @@ class InterviewQuestionService:
                     {
                         "key": build_competency_key(label),
                         "label": label,
+                        "type": self._classify_requirement_type(label),
                         "source": source,
                         "weight": item.get("weight"),
                         "source_requirement": text,
@@ -807,8 +1062,119 @@ class InterviewQuestionService:
             if re.search(rf"(?<!\w){re.escape(tool)}(?!\w)", text, flags=re.IGNORECASE):
                 labels.append("CorelDRAW" if tool == "Corel Draw" else tool)
 
-        labels = self._dedupe_text(labels)
-        return labels or [text]
+        normalized_labels: list[str] = []
+        for label in self._dedupe_text(labels):
+            normalized_label = self._normalize_requirement_phrase(label)
+            if self._is_low_quality_requirement_label(normalized_label):
+                continue
+            normalized_labels.append(normalized_label)
+
+        labels = self._dedupe_text(normalized_labels)
+
+        if labels:
+            return labels
+
+        normalized_text = self._normalize_requirement_phrase(text)
+
+        if self._is_low_quality_requirement_label(normalized_text):
+            return []
+
+        return [normalized_text]
+
+    def _classify_requirement_type(
+        self,
+        label: str,
+    ) -> str:
+        lowered = str(label or "").strip().lower()
+
+        if re.search(r"опыт.*\d+\s*лет", lowered):
+            return "experience"
+
+        if lowered in {
+            "аккуратность",
+            "внимательность",
+            "ответственность",
+            "коммуникабельность",
+            "исполнительность",
+            "инициативность",
+        }:
+            return "behavioral"
+
+        domain_labels = {
+            "сантехника",
+            "бухгалтерия",
+            "юриспруденция",
+            "медицина",
+            "логистика",
+            "снабжение",
+            "закупки",
+            "дизайн",
+        }
+        if lowered in domain_labels:
+            return "domain"
+
+        return "skill"
+
+    def _normalize_requirement_phrase(self, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+
+        text = re.sub(
+            r"^(в области|в сфере|в направлении|в части)\s+",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        replacements = {
+            "снабжения": "снабжение",
+            "закупок": "закупки",
+            "логистики": "логистика",
+            "склада": "склад",
+        }
+
+        return replacements.get(text.lower(), text)
+
+    def _is_low_quality_requirement_label(self, label: str) -> bool:
+        text = str(label or "").strip().lower()
+        if not text:
+            return True
+
+        blocked_exact = {
+            "техническое",
+            "экономическое",
+            "управленческое",
+            "кадровое",
+            "финансовое",
+            "юридическое",
+            "производственное",
+            "складское",
+            "логистическое",
+            "административное",
+            "организационное",
+            "профессиональное",
+            "личностное",
+            "общее",
+            "основное",
+            "дополнительное",
+            "обязательное",
+            "желательное",
+            "опыт",
+            "знания",
+            "навыки",
+            "умения",
+            "компетенции",
+            "требования",
+        }
+
+        if text in blocked_exact:
+            return True
+
+        if len(text) <= 3:
+            return True
+
+        return False
 
     def _split_requirement_list(self, value: str) -> list[str]:
         parts = [
@@ -829,8 +1195,34 @@ class InterviewQuestionService:
             return f"Расскажите о вашем опыте работы в {label}."
         if "макет" in label.lower() and "печ" in label.lower():
             return "Как вы готовили макеты к печати?"
-        suffix = f" в контексте вакансии {vacancy_title}" if vacancy_title else ""
-        return f"Расскажите о практическом опыте с {label}{suffix}."
+        if re.search(r"(?<!водо)снабжен|закуп|поставщик", label, flags=re.IGNORECASE):
+            return "Расскажите о вашем опыте организации снабжения."
+        cleaned_vacancy_title = self._clean_vacancy_title(vacancy_title)
+        suffix = (
+            f" для позиции «{cleaned_vacancy_title}»"
+            if cleaned_vacancy_title
+            else ""
+        )
+        return f"Расскажите о практическом опыте по направлению «{label}»{suffix}."
+
+    def _clean_vacancy_title(self, value: Any) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" .,:;–—-")
+        if not text:
+            return ""
+
+        text = re.sub(
+            r"^(?:вакансия|вакансия:)\s+",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\s+(?:вакансия)$",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return text.strip(" .,:;–—-")
 
     def _is_software_tool_label(self, value: str) -> bool:
         normalized = value.strip().lower()
@@ -966,17 +1358,25 @@ class InterviewQuestionService:
         self,
         *,
         required_skills: list[dict[str, Any]],
+        domain_requirements: list[dict[str, Any]] | None = None,
         vacancy,
         analysis,
     ) -> list[str]:
-        normalized = [
+        items: list[str] = [
+            str(item.get("label") or "").strip()
+            for item in (domain_requirements or [])
+            if str(item.get("label") or "").strip()
+        ]
+        items.extend(
+            [
             str(item.get("label") or "").strip()
             for item in required_skills
             if str(item.get("label") or "").strip()
-        ]
+            ]
+        )
 
-        if normalized:
-            return dedupe_preserve_order(normalized)[:6]
+        if items:
+            return dedupe_preserve_order(items)[:6]
 
         return infer_domain_focus_areas(vacancy, analysis)
 
