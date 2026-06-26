@@ -5,13 +5,13 @@ STREAMLIT_ROOT = Path(__file__).resolve().parents[1] / "frontend" / "streamlit"
 if str(STREAMLIT_ROOT) not in sys.path:
     sys.path.insert(0, str(STREAMLIT_ROOT))
 
-from components.interview_prep_workspace import (  # type: ignore
+from components.interview_prep_formatters import (  # type: ignore
     _humanize_evidence_fact_status,
     _humanize_evidence_source,
     _humanize_reason,
-    _sanitize_evidence_text,
     _normalize_competency_label,
 )
+from components.interview_prep_helpers import _sanitize_evidence_text  # type: ignore
 
 
 def test_sanitize_evidence_text_removes_internal_provenance_marker() -> None:

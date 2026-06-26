@@ -1,3 +1,5 @@
+# frontend\streamlit\ui\state.py
+
 from __future__ import annotations
 
 from typing import Any
@@ -6,6 +8,8 @@ import streamlit as st
 
 
 def init_session_state() -> None:
+    if "main_navigation_page" not in st.session_state:
+        st.session_state.main_navigation_page = "Главная"
     if "source_file" not in st.session_state:
         st.session_state.source_file = None
     if "resume_source_mode" not in st.session_state:

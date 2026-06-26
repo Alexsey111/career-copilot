@@ -23,6 +23,10 @@ def _log_api_timing(method: str, url: str, started: float) -> None:
         st.warning(f"Slow API: {method} {url} — {elapsed:.2f}s")
 
 
+def _clear_api_read_cache() -> None:
+    st.cache_data.clear()
+
+
 @st.cache_data(show_spinner=False, ttl=10)
 def _cached_get_json(
     url: str,
@@ -332,7 +336,9 @@ class CareerCopilotApiClient:
                 timeout=timeout_seconds or self.timeout_seconds,
             )
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            _clear_api_read_cache()
+            return result
         finally:
             _log_api_timing("POST", url, started)
 
@@ -347,7 +353,9 @@ class CareerCopilotApiClient:
                 timeout=self.timeout_seconds,
             )
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            _clear_api_read_cache()
+            return result
         finally:
             _log_api_timing("PATCH", url, started)
 
@@ -361,6 +369,7 @@ class CareerCopilotApiClient:
                 timeout=self.timeout_seconds,
             )
             response.raise_for_status()
+            _clear_api_read_cache()
             if not response.content:
                 return {}
             return response.json()

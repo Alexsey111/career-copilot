@@ -17,6 +17,54 @@ from ui.formatting import (
 )
 from ui.labels import APPLICATION_REMINDER_LABELS
 
+
+def _humanize_activity_title(value: object) -> str:
+    text = str(value or "").strip()
+    lowered = text.lower()
+
+    labels = {
+        "application created": "Отклик создан",
+        "status changed to ready": "Отклик готов к ручной отправке",
+        "application submitted manually": "Отклик отмечен как отправленный",
+        "status changed": "Статус отклика изменён",
+    }
+
+    return labels.get(lowered, text or "Событие")
+
+
+def _humanize_activity_source(value: object) -> str:
+    text = str(value or "").strip().lower()
+    labels = {
+        "manual": "вручную",
+        "streamlit": "интерфейс Streamlit",
+        "api": "API",
+        "system": "система",
+    }
+    return labels.get(text, str(value or "—"))
+
+
+def _humanize_activity_description(value: object) -> str:
+    text = str(value or "").strip()
+    lowered = text.lower()
+
+    labels = {
+        "application record created in draft status": (
+            "Внутренняя запись отклика создана в статусе черновика."
+        ),
+        "user confirmed manual submission": (
+            "Пользователь подтвердил, что отклик был отправлен вручную."
+        ),
+        "marked ready via streamlit ui.": (
+            "Пакет документов помечен как готовый к ручной отправке."
+        ),
+        "marked ready via streamlit ui": (
+            "Пакет документов помечен как готовый к ручной отправке."
+        ),
+    }
+
+    return labels.get(lowered, text)
+
+
 def render_application_dashboard(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.header("Дашборд откликов")
     st.caption(
@@ -127,7 +175,7 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
         with col_applied:
             count_by_status = analytics.get("count_by_status") or {}
             st.metric(
-                "Отправлены+",
+                "Активные отклики",
                 sum(
                     count_by_status.get(status, 0)
                     for status in [
@@ -143,11 +191,14 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
         with col_conversion:
             conversion_to_applied = analytics.get("conversion_to_applied") or 0
-            st.metric("Конверсия в applied", f"{round(conversion_to_applied * 100)}%")
+            st.metric("Доля отправленных", f"{round(conversion_to_applied * 100)}%")
 
         with col_avg:
             avg = analytics.get("average_time_to_apply_hours")
-            st.metric("Среднее время до отклика", f"{avg}h" if avg is not None else "—")
+            st.metric(
+                "Среднее время подготовки",
+                f"{avg} ч" if avg is not None else "—",
+            )
 
         with col_offer:
             st.metric("Офферы", analytics.get("offers_count", 0))
@@ -311,7 +362,10 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
 
             with st.container(border=True):
                 st.markdown(f"**{changed_at}**")
-                st.write(f"{previous_status} -> {new_status}")
+                st.write(
+                    f"{format_application_status(previous_status)} → "
+                    f"{format_application_status(new_status)}"
+                )
                 if item.get("notes"):
                     st.caption(item.get("notes"))
     else:
@@ -352,7 +406,9 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
                 f"{format_application_status(meta_json.get('new_status'))}"
             )
         if meta_json.get("source"):
-            visible_parts.append(f"источник: {meta_json.get('source')}")
+            visible_parts.append(
+                f"источник: {_humanize_activity_source(meta_json.get('source'))}"
+            )
         if meta_json.get("external_link"):
             visible_parts.append("есть внешняя ссылка")
         if meta_json.get("applied_at"):
@@ -367,10 +423,13 @@ def render_application_dashboard(client: CareerCopilotApiClient, token: str | No
     if activity_log:
         for item in activity_log:
             with st.container(border=True):
-                st.markdown(f"**{item.get('title') or item.get('event_type') or 'Событие'}**")
+                title = _humanize_activity_title(
+                    item.get("title") or item.get("event_type") or "Событие"
+                )
+                st.markdown(f"**{title}**")
                 st.caption(format_optional_datetime(item.get("created_at")))
                 if item.get("description"):
-                    st.write(item.get("description"))
+                    st.write(_humanize_activity_description(item.get("description")))
                 _render_activity_meta(item.get("meta_json") or {})
     else:
         st.caption("Журнал действий пока пуст.")

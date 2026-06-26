@@ -1,3 +1,5 @@
+# frontend\streamlit\components\career_strategy_workspace.py
+
 from __future__ import annotations
 
 from typing import Any
@@ -43,6 +45,27 @@ def _translate_career_strategy_text(value: str | None) -> str:
         return ""
     text = str(value).strip()
     return CAREER_STRATEGY_TEXT_REPLACEMENTS.get(text, text)
+
+
+def _humanize_strategy_label(value: Any) -> str:
+    text = str(value or "").strip()
+    lowered = text.lower()
+
+    labels = {
+        "weak": "слабое",
+        "medium": "среднее",
+        "strong": "сильное",
+        "confirmed": "подтверждено",
+        "needs_confirmation": "требует подтверждения",
+        "unverified": "требует проверки",
+        "partial": "частично подтверждено",
+        "leadership": "лидерские компетенции",
+        "technology stack from resume": "технологии, найденные в резюме",
+        "evidence": "доказательство",
+        "recommendation": "рекомендация",
+    }
+
+    return labels.get(lowered, text or "—")
 
 
 def _render_application_patterns(patterns: dict[str, Any] | None) -> None:
@@ -112,11 +135,11 @@ def _render_evidence_coverage_trends(trends: dict[str, Any] | None) -> None:
     if most_reusable:
         st.markdown("#### Наиболее переиспользуемые доказательства")
         for item in most_reusable[:5]:
-            st.markdown(f"- **{item.get('title') or 'Evidence'}**")
+            st.markdown(f"- **{item.get('title') or 'Доказательство'}**")
             st.caption(
                 f"использований={_format_count(item.get('usage_count'))} · "
-                f"сила={item.get('evidence_strength') or '—'} · "
-                f"статус факта={item.get('fact_status') or '—'}"
+                f"сила={_humanize_strategy_label(item.get('evidence_strength'))} · "
+                f"статус факта={_humanize_strategy_label(item.get('fact_status'))}"
             )
             if item.get("reason"):
                 st.caption(_translate_career_strategy_text(str(item.get("reason"))))
@@ -124,14 +147,14 @@ def _render_evidence_coverage_trends(trends: dict[str, Any] | None) -> None:
     if unused:
         st.markdown("#### Неиспользованные доказательства")
         for item in unused[:5]:
-            st.markdown(f"- {item.get('title') or 'Evidence'}")
+            st.markdown(f"- {item.get('title') or 'Доказательство'}")
 
     if weak_clusters:
         st.markdown("#### Слабые кластеры доказательств")
         for item in weak_clusters[:5]:
             examples = ", ".join(item.get("example_evidence_titles") or []) or "—"
             st.markdown(
-                f"- {item.get('skill') or '—'}"
+                f"- {_humanize_strategy_label(item.get('skill'))}"
                 f" ({item.get('count', 0)})"
             )
             st.caption(f"Примеры: {examples}")
@@ -145,7 +168,7 @@ def _render_recommendations(recommendations: list[dict[str, Any]]) -> None:
 
     for item in recommendations:
         priority = str(item.get("priority") or "low").lower()
-        title = _translate_career_strategy_text(str(item.get("title") or "Recommendation"))
+        title = _translate_career_strategy_text(str(item.get("title") or "Рекомендация"))
         message = _translate_career_strategy_text(str(item.get("message") or ""))
         if priority == "high":
             st.error(title)

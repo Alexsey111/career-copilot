@@ -1336,7 +1336,18 @@ def _render_export_controls(
                     token=token,
                 )
             except Exception as exc:
-                st.caption(f"{label} недоступен: {exc}")
+                message = str(exc)
+
+                if "409" in message or "Conflict" in message:
+                    st.caption(
+                        f"{label} будет доступен после утверждения документа."
+                    )
+                else:
+                    st.caption(f"{label} пока недоступен.")
+
+                with st.expander("Технические детали", expanded=False):
+                    st.code(message)
+
                 continue
 
             st.download_button(
@@ -1367,6 +1378,56 @@ def _render_workflow_selection_status() -> None:
         "Для продолжения процесса ещё нужно выбрать: "
         + ", ".join(missing)
     )
+
+
+def _approved_document_id(state_key: str) -> str:
+    document = st.session_state.get(state_key)
+    if not isinstance(document, dict):
+        return ""
+    return str(document.get("id") or document.get("document_id") or "").strip()
+
+
+def _render_review_context_panel(
+    client: CareerCopilotApiClient,
+    *,
+    current_document_kind: str,
+    token: str | None,
+    key_suffix: str,
+) -> None:
+    if current_document_kind == "cover_letter":
+        resume_document_id = _approved_document_id("approved_resume")
+        if not resume_document_id:
+            return
+
+        st.info(
+            "Резюме уже выбрано и доступно для скачивания здесь. "
+            "Сейчас вы проверяете сопроводительное письмо."
+        )
+        _render_export_controls(
+            client,
+            document_id=resume_document_id,
+            document_kind="resume",
+            token=token,
+            key_suffix=f"{key_suffix}_selected_resume_context",
+        )
+        return
+
+    if current_document_kind == "resume":
+        cover_letter_document_id = _approved_document_id("approved_cover_letter")
+        if not cover_letter_document_id:
+            return
+
+        st.info(
+            "Сопроводительное письмо уже выбрано и доступно для скачивания здесь. "
+            "Сейчас вы проверяете резюме."
+        )
+        _render_export_controls(
+            client,
+            document_id=cover_letter_document_id,
+            document_kind="cover_letter",
+            token=token,
+            key_suffix=f"{key_suffix}_selected_cover_letter_context",
+        )
 
 
 def _return_to_document_selector(selection_state_key: str | None, document_kind: str) -> None:
@@ -1424,6 +1485,13 @@ def _render_action_bar(
     if not document_id:
         st.warning("Не удалось определить документ, панель действий недоступна.")
         return
+
+    _render_review_context_panel(
+        client,
+        current_document_kind=document_kind,
+        token=token,
+        key_suffix=key_suffix,
+    )
 
     st.caption(
         "Чтобы продолжить процесс, нужно отдельно выбрать "
@@ -1491,6 +1559,9 @@ def _render_action_bar(
                 st.session_state["application"] = None
                 st.session_state["interview_session"] = None
                 st.session_state["interview_answers_result"] = None
+                st.session_state["mvp_force_open_step"] = 9
+                st.session_state["pending_navigation_page"] = "MVP-сценарий"
+                _return_to_document_selector(selection_state_key, document_kind)
                 st.success("Документ утверждён. Экспорт доступен ниже.")
                 _render_workflow_selection_status()
             st.rerun()
@@ -1511,6 +1582,8 @@ def _render_action_bar(
         st.session_state["application"] = None
         st.session_state["interview_session"] = None
         st.session_state["interview_answers_result"] = None
+        st.session_state["mvp_force_open_step"] = 9
+        st.session_state["pending_navigation_page"] = "MVP-сценарий"
 
         st.success("Документ выбран как черновик. Отклик будет создан с пометкой «требует проверки».")
         _render_workflow_selection_status()
@@ -1672,20 +1745,24 @@ def render_document_review_workspace_selector(
     }
 
     selected_document_id = st.session_state.get(selection_state_key)
+
+    preferred_kind = st.session_state.pop(f"{selection_state_key}_preferred_kind", None)
+
+    preferred_document = next(
+        (
+            doc for doc in available_documents
+            if preferred_kind and doc.document_kind == preferred_kind
+        ),
+        None,
+    )
+
+    if preferred_document is not None:
+        selected_document_id = preferred_document.document_id
+
     if selected_document_id not in options:
-        preferred_kind = st.session_state.pop(f"{selection_state_key}_preferred_kind", None)
-        preferred_document = next(
-            (
-                doc for doc in available_documents
-                if preferred_kind and doc.document_kind == preferred_kind
-            ),
-            None,
-        )
-        selected_document_id = (
-            preferred_document.document_id
-            if preferred_document is not None
-            else options[0]
-        )
+        selected_document_id = options[0]
+
+    st.session_state[selection_state_key] = selected_document_id
 
     selected_document_id = st.selectbox(
         "Выберите документ",

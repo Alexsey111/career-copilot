@@ -31,11 +31,32 @@ _demo_module = importlib.util.module_from_spec(_demo_spec)
 _demo_spec.loader.exec_module(_demo_module)
 get_demo_scenarios = _demo_module.get_demo_scenarios
 
+DEMO_SCENARIO_LABELS = {
+    "scenario_a_ready_application": "Сценарий A — готовый отклик",
+    "scenario_b_unsupported_claims": "Сценарий B — неподтверждённые утверждения",
+    "scenario_c_interview_gap_risk": "Сценарий C — пробелы перед интервью",
+    "scenario_d_low_confidence_evidence": "Сценарий D — слабая доказательная база",
+}
+
+DEMO_SCENARIO_DESCRIPTIONS = {
+    "scenario_a_ready_application": (
+        "Отклик с утверждёнными документами и без блокеров."
+    ),
+    "scenario_b_unsupported_claims": (
+        "Документ или письмо содержит утверждения, которые нужно подтвердить."
+    ),
+    "scenario_c_interview_gap_risk": (
+        "Подготовка к интервью показывает вопросы по слабым зонам."
+    ),
+    "scenario_d_low_confidence_evidence": (
+        "Доказательства требуют проверки перед использованием как сильных фактов."
+    ),
+}
+
 def render_system_health(client: CareerCopilotApiClient, *, token: str | None) -> None:
-    st.header("Состояние системы")
+    st.header("Диагностика")
     st.caption(
-        "Оперативный снимок для пилотных демо: backend, база данных, "
-        "seeded-данные, счётчики и текущее активное приложение в контексте."
+        "Технический экран для проверки backend, базы данных, демо-данных и текущего состояния приложения."
     )
 
     backend_check = client.check_backend()
@@ -53,8 +74,16 @@ def render_system_health(client: CareerCopilotApiClient, *, token: str | None) -
     try:
         diagnostics = client.get_system_health_diagnostics(token=token)
     except httpx.HTTPStatusError as exc:
-        st.error(f"Backend returned HTTP {exc.response.status_code}")
-        st.code(exc.response.text)
+        if exc.response.status_code == 401:
+            st.warning("Сессия входа истекла или токен больше недействителен.")
+            st.info("Нажмите «Выйти» в левой панели и войдите заново.")
+            with st.expander("Технические детали", expanded=False):
+                st.code(exc.response.text)
+            return
+
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        with st.expander("Технические детали", expanded=False):
+            st.code(exc.response.text)
         return
     except httpx.RequestError as exc:
         st.error("Не удалось подключиться к backend")
@@ -156,9 +185,15 @@ def render_system_health(client: CareerCopilotApiClient, *, token: str | None) -
         for scenario in scenario_identifiers:
             if not isinstance(scenario, dict):
                 continue
-            label = str(scenario.get("label") or scenario.get("code") or "Scenario")
             code = str(scenario.get("code") or "").strip()
-            description = str(scenario.get("description") or "").strip()
+            label = DEMO_SCENARIO_LABELS.get(
+                code,
+                str(scenario.get("label") or code or "Демо-сценарий"),
+            )
+            description = DEMO_SCENARIO_DESCRIPTIONS.get(
+                code,
+                str(scenario.get("description") or "").strip(),
+            )
             with st.container(border=True):
                 st.markdown(f"**{label}**")
                 if code:
@@ -166,7 +201,7 @@ def render_system_health(client: CareerCopilotApiClient, *, token: str | None) -
                 if description:
                     st.write(description)
 
-    with st.expander("Команды сброса и проверки", expanded=False):
+    with st.expander("Технические команды для разработчика", expanded=False):
         st.code(
             "python scripts/reset_demo_environment.py\n"
             "python scripts/check_demo_trust_states.py",

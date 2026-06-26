@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import httpx
 import streamlit as st
-import streamlit.components.v1 as st_components
 
 from api_client import CareerCopilotApiClient
 from components import (
     render_document_review_workspace_tab,
     render_interview_prep_workspace_tab,
 )
+from components.document_review_workspace import _render_export_controls
 from ui.formatting import format_application_status
 from ui.formatting import format_optional_datetime
 
@@ -63,20 +63,27 @@ def _format_status_history_entry(item: dict[str, object]) -> str:
     return transition
 
 
-def _scroll_to_step9_top() -> None:
-    st_components.html(
-        """
-        <script>
-        const anchor = window.parent.document.getElementById("step-9-document-review");
-        if (anchor) {
-            anchor.scrollIntoView({behavior: "smooth", block: "start"});
-        } else {
-            window.parent.scrollTo({top: 0, behavior: "smooth"});
-        }
-        </script>
-        """,
-        height=0,
-    )
+def _render_application_tracking_inline(
+    client: CareerCopilotApiClient,
+    *,
+    application_id: str,
+    token: str | None,
+) -> None:
+    st.markdown("### История статусов")
+
+    try:
+        timeline = client.get_json(f"/applications/{application_id}/timeline", token=token)
+    except Exception as exc:
+        st.caption(f"История статусов пока недоступна: {exc}")
+        return
+
+    if isinstance(timeline, list) and timeline:
+        for item in timeline:
+            if isinstance(item, dict):
+                st.markdown(f"- {_format_status_history_entry(item)}")
+        return
+
+    st.caption("История статусов пока недоступна.")
 
 
 def _provenance_labels_from_review_summary(summary: dict) -> list[str]:
@@ -140,8 +147,14 @@ def _render_resume_provenance_preview(
         st.markdown(f"- ✓ {label}")
 
 
-def render_resume_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("7. Генерация адаптированного резюме")
+def render_resume_generation_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("7. Генерация адаптированного резюме")
 
     vacancy = st.session_state.vacancy
     if not vacancy:
@@ -233,6 +246,8 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
         st.success("Адаптированное резюме сгенерировано")
+        st.session_state["mvp_force_open_step"] = 8
+        st.rerun()
 
     if st.session_state.generated_resume:
         resume = st.session_state.generated_resume
@@ -275,8 +290,14 @@ def render_resume_generation_step(client: CareerCopilotApiClient, token: str | N
             st.info("Статус документа: черновик. Следующий шаг — проверка и подтверждение.")
 
 
-def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("8. Генерация сопроводительного письма")
+def render_cover_letter_generation_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("8. Генерация сопроводительного письма")
 
     vacancy = st.session_state.vacancy
     if not vacancy:
@@ -339,11 +360,12 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
             return
 
         st.session_state.generated_cover_letter = result
-        st.json(result)
         st.session_state.approved_resume = None
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
         st.success("Сопроводительное письмо сгенерировано")
+        st.session_state["mvp_force_open_step"] = 9
+        st.rerun()
 
     if st.session_state.generated_cover_letter:
         letter = st.session_state.generated_cover_letter
@@ -396,9 +418,77 @@ def render_cover_letter_generation_step(client: CareerCopilotApiClient, token: s
             st.info("Статус документа: черновик. Следующий шаг — проверка и подтверждение.")
 
 
-def render_document_approval_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
+def _render_selected_documents_panel(
+    client: CareerCopilotApiClient,
+    *,
+    token: str | None,
+) -> None:
+    approved_resume = st.session_state.get("approved_resume")
+    approved_cover_letter = st.session_state.get("approved_cover_letter")
+
+    if not approved_resume and not approved_cover_letter:
+        return
+
+    st.markdown("### Выбранные документы")
+
+    col_resume, col_letter = st.columns(2)
+
+    with col_resume:
+        with st.container(border=True):
+            st.markdown("#### Резюме")
+            if isinstance(approved_resume, dict):
+                document_id = str(
+                    approved_resume.get("id")
+                    or approved_resume.get("document_id")
+                    or ""
+                ).strip()
+                st.success("Выбрано ✅")
+                if document_id:
+                    _render_export_controls(
+                        client,
+                        document_id=document_id,
+                        document_kind="resume",
+                        token=token,
+                        key_suffix="step9_selected_resume",
+                    )
+                else:
+                    st.caption("document_id недоступен.")
+            else:
+                st.caption("Пока не выбрано.")
+
+    with col_letter:
+        with st.container(border=True):
+            st.markdown("#### Сопроводительное письмо")
+            if isinstance(approved_cover_letter, dict):
+                document_id = str(
+                    approved_cover_letter.get("id")
+                    or approved_cover_letter.get("document_id")
+                    or ""
+                ).strip()
+                st.success("Выбрано ✅")
+                if document_id:
+                    _render_export_controls(
+                        client,
+                        document_id=document_id,
+                        document_kind="cover_letter",
+                        token=token,
+                        key_suffix="step9_selected_cover_letter",
+                    )
+                else:
+                    st.caption("document_id недоступен.")
+            else:
+                st.caption("Пока не выбрано.")
+
+
+def render_document_approval_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
     st.markdown('<div id="step-9-document-review"></div>', unsafe_allow_html=True)
-    st.subheader("9. Проверка и подтверждение документов")
+    if show_title:
+        st.subheader("9. Проверка и подтверждение документов")
 
     resume_ready = bool(st.session_state.get("approved_resume"))
     cover_letter_ready = bool(st.session_state.get("approved_cover_letter"))
@@ -417,34 +507,54 @@ def render_document_approval_step(client: CareerCopilotApiClient, token: str | N
             "Готово ✅" if cover_letter_ready else "Не выбрано",
         )
 
-    if not resume_ready or not cover_letter_ready:
-        st.info(
-            "Для перехода к шагу 10 нужно выбрать оба документа: "
-            "резюме и сопроводительное письмо."
-        )
+    _render_selected_documents_panel(client, token=token)
+
+    selection_key = "document_review_workspace_step9_selection"
+
+    if resume_ready and not cover_letter_ready:
+        st.session_state[f"{selection_key}_preferred_kind"] = "cover_letter"
+        st.session_state.pop(selection_key, None)
+        st.session_state.pop(f"{selection_key}_picker", None)
+
+    elif cover_letter_ready and not resume_ready:
+        st.session_state[f"{selection_key}_preferred_kind"] = "resume"
+        st.session_state.pop(selection_key, None)
+        st.session_state.pop(f"{selection_key}_picker", None)
+
+    if resume_ready and not cover_letter_ready:
+        st.markdown("### Следующее действие")
+        st.info("Резюме выбрано и доступно для скачивания выше. Теперь ниже открыт выбор сопроводительного письма.")
+    elif cover_letter_ready and not resume_ready:
+        st.markdown("### Следующее действие")
+        st.info("Сопроводительное письмо выбрано и доступно для скачивания выше. Теперь ниже открыт выбор резюме.")
+    elif not resume_ready and not cover_letter_ready:
+        st.markdown("### Следующее действие")
+        st.info("Сначала выберите резюме, затем сопроводительное письмо.")
     else:
         st.success("Оба документа выбраны. Можно переходить к шагу 10.")
 
-    if st.session_state.pop("document_review_step9_return_notice", False):
-        _scroll_to_step9_top()
-        if not resume_ready or not cover_letter_ready:
-            st.info("Документ выбран. Теперь выберите второй документ ниже.")
-        else:
-            st.success("Документ выбран. Оба документа готовы для шага 10.")
+    st.session_state.pop("document_review_step9_return_notice", None)
 
     vacancy = st.session_state.vacancy or {}
     current_vacancy_id = vacancy.get("vacancy_id") or vacancy.get("id")
+    st.markdown('<div id="step-9-document-picker"></div>', unsafe_allow_html=True)
     render_document_review_workspace_tab(
         client,
         token=token,
-        selection_state_key="document_review_workspace_step9_selection",
+        selection_state_key=selection_key,
         current_vacancy_id=str(current_vacancy_id) if current_vacancy_id else None,
         show_only_current_vacancy=True,
     )
 
 
-def render_application_creation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("10. Сохранить отклик в трекере")
+def render_application_creation_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("10. Сохранить отклик в трекере")
 
     vacancy = st.session_state.vacancy
     if not vacancy:
@@ -548,6 +658,8 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
 
         st.session_state.application = result
         st.success("Отклик сохранён в трекере")
+        st.session_state["mvp_force_open_step"] = 11
+        st.rerun()
 
         if result.get("review_required"):
             st.warning("Не финализировано / требуется review.")
@@ -595,8 +707,14 @@ def render_application_creation_step(client: CareerCopilotApiClient, token: str 
             )
 
 
-def render_application_status_update_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("11. Я отправил отклик вручную")
+def render_application_status_update_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("11. Отправка и отслеживание отклика")
 
     application = st.session_state.application
     if not application:
@@ -622,6 +740,11 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
 
     current_status = application.get("status")
     st.caption(f"Текущий статус: {_humanize_application_status(current_status)}")
+    st.info(
+        "Система не отправляет отклик автоматически. "
+        "Сначала подготовьте пакет документов, затем вручную отправьте отклик на HH "
+        "или другой площадке и отметьте это здесь."
+    )
     with st.expander("Технические детали", expanded=False):
         st.caption(f"application_id: {application_id}")
         st.caption(f"current_status: {current_status}")
@@ -796,6 +919,36 @@ def render_application_status_update_step(client: CareerCopilotApiClient, token:
                 }
             )
 
+        st.divider()
+        _render_application_tracking_inline(
+            client,
+            application_id=str(application_id),
+            token=token,
+        )
+
+
+def _render_application_tracking_inline(
+    client: CareerCopilotApiClient,
+    *,
+    application_id: str,
+    token: str | None,
+) -> None:
+    st.markdown("### История отклика")
+
+    try:
+        timeline = client.get_json(f"/applications/{application_id}/timeline", token=token)
+    except Exception as exc:
+        st.caption(f"История статусов пока недоступна: {exc}")
+        return
+
+    if not isinstance(timeline, list) or not timeline:
+        st.caption("История статусов пока пуста.")
+        return
+
+    for item in timeline:
+        if isinstance(item, dict):
+            st.markdown(f"- {_format_status_history_entry(item)}")
+
 
 def render_application_tracking_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
     st.subheader("12. Статус отклика")
@@ -840,8 +993,14 @@ def render_application_tracking_step(client: CareerCopilotApiClient, token: str 
             st.markdown(f"- {_format_status_history_entry(item)}")
 
 
-def render_interview_preparation_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("13. Подготовка к интервью")
+def render_interview_preparation_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("12. Подготовка к интервью")
     st.caption(
         "Новый deterministic prep-слой вынесен в отдельный workspace. "
         "Здесь остался короткий вход без дублирования логики ответов на mock interview."

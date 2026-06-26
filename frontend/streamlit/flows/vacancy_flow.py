@@ -6,6 +6,7 @@ import re
 
 import httpx
 import streamlit as st
+import streamlit.components.v1 as components
 
 from api_client import CareerCopilotApiClient
 
@@ -42,6 +43,20 @@ def _vacancy_source_label(source: str | None) -> str:
     return str(source or "—")
 
 
+def _scroll_to_vacancy_analysis_step() -> None:
+    components.html(
+        """
+        <script>
+            const target = window.parent.document.getElementById("step-6-vacancy-analysis");
+            if (target) {
+                target.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        </script>
+        """,
+        height=0,
+    )
+
+
 def _humanize_fact_status(value: object) -> str:
     status = str(value or "").strip().lower()
     return {
@@ -61,6 +76,28 @@ def _humanize_strength(value: object) -> str:
         "medium": "частичное подтверждение",
         "weak": "слабое подтверждение",
     }.get(strength, "требует проверки")
+
+
+def _humanize_gap_severity(value: object) -> str:
+    severity = str(value or "").strip().lower()
+    return {
+        "critical": "высокий риск",
+        "high": "высокий риск",
+        "medium": "средний риск",
+        "low": "низкий риск",
+        "none": "существенных рисков не найдено",
+    }.get(severity, str(value or "—"))
+
+
+def _humanize_readiness_recommendation(value: object) -> str:
+    recommendation = str(value or "").strip()
+    normalized = recommendation.lower()
+
+    return {
+        "ready to apply": "Готово к отклику",
+        "apply with caution": "Отклик с осторожностью",
+        "needs work": "Требует доработки",
+    }.get(normalized, recommendation or "—")
 
 
 def _humanize_requirement_reason(reason: object) -> str:
@@ -104,7 +141,12 @@ def _render_fit_summary(coverage: dict) -> None:
         st.markdown(f"✕ Нет подтверждённого опыта: {item.get('requirement') or 'требование вакансии'}")
 
 
-def _render_vacancy_import_status(notice: dict) -> None:
+def _render_vacancy_import_status(
+    client: CareerCopilotApiClient,
+    *,
+    notice: dict,
+    token: str | None,
+) -> None:
     st.success("✅ Вакансия успешно импортирована")
     st.markdown(f"**Источник:** {_vacancy_source_label(notice.get('source'))}")
     st.markdown(f"**Название:** {notice.get('title') or '—'}")
@@ -113,6 +155,67 @@ def _render_vacancy_import_status(notice: dict) -> None:
 
     with st.expander("Технические детали", expanded=False):
         st.caption(f"vacancy_id: {notice.get('vacancy_id') or '—'}")
+
+    vacancy_id = str(notice.get("vacancy_id") or "").strip()
+
+    if vacancy_id:
+        if st.session_state.get("vacancy_analysis"):
+            st.success("Вакансия уже проанализирована. Можно переходить к шагу 7.")
+        elif st.button(
+            "Проанализировать эту вакансию",
+            type="primary",
+            width="stretch",
+            key="analyze_vacancy_from_step5",
+        ):
+            _run_vacancy_analysis_from_import_notice(
+                client,
+                vacancy_id=vacancy_id,
+                token=token,
+            )
+
+
+def _run_vacancy_analysis_from_import_notice(
+    client: CareerCopilotApiClient,
+    *,
+    vacancy_id: str,
+    token: str | None,
+) -> None:
+    try:
+        result = client.post_json(
+            f"/vacancies/{vacancy_id}/analyze",
+            {},
+            token=token,
+        )
+    except httpx.HTTPStatusError as exc:
+        st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
+        with st.expander("Технические детали", expanded=False):
+            st.code(exc.response.text)
+        return
+    except httpx.RequestError as exc:
+        st.error("Не удалось подключиться к backend")
+        with st.expander("Технические детали", expanded=False):
+            st.code(str(exc))
+        return
+    except ValueError as exc:
+        st.error("Backend вернул неожиданный ответ")
+        with st.expander("Технические детали", expanded=False):
+            st.code(str(exc))
+        return
+
+    if not isinstance(result, dict):
+        st.error("Backend вернул неожиданный формат ответа")
+        with st.expander("Технические детали", expanded=False):
+            st.json(result)
+        return
+
+    st.session_state.vacancy_analysis = result
+    st.session_state.generated_resume = None
+    st.session_state.generated_cover_letter = None
+    st.session_state.approved_resume = None
+    st.session_state.approved_cover_letter = None
+    st.session_state.application = None
+    st.success("Вакансия проанализирована. Можно переходить к генерации резюме.")
+    st.rerun()
 
 
 def _render_hh_vacancy_import(client: CareerCopilotApiClient, token: str | None) -> None:
@@ -364,18 +467,33 @@ def _render_manual_vacancy_import(client: CareerCopilotApiClient, token: str | N
             return
 
         st.session_state.vacancy = result
-        st.session_state.vacancy_import_notice = None
+        st.session_state.vacancy_import_notice = {
+            "message": "Вакансия импортирована вручную",
+            "vacancy_id": result.get("vacancy_id") or result.get("id"),
+            "title": result.get("title"),
+            "company": result.get("company"),
+            "source": result.get("source"),
+            "description_length": result.get("description_length"),
+        }
         st.session_state.vacancy_analysis = None
         _reset_downstream_vacancy_state()
         st.success("Вакансия импортирована")
+        st.toast("Вакансия импортирована", icon="✅")
+        st.rerun()
 
 
-def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("5. Импорт вакансии")
+def render_vacancy_import_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("5. Импорт вакансии")
 
     notice = st.session_state.get("vacancy_import_notice")
     if isinstance(notice, dict):
-        _render_vacancy_import_status(notice)
+        _render_vacancy_import_status(client, notice=notice, token=token)
 
     achievements = st.session_state.achievements
     if not achievements:
@@ -434,8 +552,15 @@ def render_vacancy_import_step(client: CareerCopilotApiClient, token: str | None
             )
 
 
-def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("6. Анализ вакансии")
+def render_vacancy_analysis_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("6. Анализ вакансии")
+    st.markdown('<div id="step-6-vacancy-analysis"></div>', unsafe_allow_html=True)
 
     vacancy = st.session_state.vacancy
     if not vacancy:
@@ -452,34 +577,11 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
         st.caption(f"vacancy_id: {vacancy_id}")
 
     if st.button("Проанализировать вакансию", type="primary", width="stretch"):
-        try:
-            result = client.post_json(f"/vacancies/{vacancy_id}/analyze",
-                {}, token=token)
-        except httpx.HTTPStatusError as exc:
-            st.error(f"Backend вернул ошибку HTTP {exc.response.status_code}")
-            st.code(exc.response.text)
-            return
-        except httpx.RequestError as exc:
-            st.error("Не удалось подключиться к backend")
-            st.code(str(exc))
-            return
-        except ValueError as exc:
-            st.error("Backend вернул неожиданный ответ")
-            st.code(str(exc))
-            return
-
-        if not isinstance(result, dict):
-            st.error("Backend вернул неожиданный формат ответа")
-            st.json(result)
-            return
-
-        st.session_state.vacancy_analysis = result
-        st.session_state.generated_resume = None
-        st.session_state.generated_cover_letter = None
-        st.session_state.approved_resume = None
-        st.session_state.approved_cover_letter = None
-        st.session_state.application = None
-        st.success("Вакансия проанализирована")
+        _run_vacancy_analysis_from_import_notice(
+            client,
+            vacancy_id=str(vacancy_id),
+            token=token,
+        )
 
     if st.session_state.vacancy_analysis:
         analysis = st.session_state.vacancy_analysis
@@ -492,10 +594,10 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
             st.metric("Совпадение", analysis.get("match_score"))
 
         with col_center:
-            st.metric("Must-have", len(analysis.get("must_have") or []))
+            st.metric("Обязательные требования", len(analysis.get("must_have") or []))
 
         with col_right:
-            st.metric("Nice-to-have", len(analysis.get("nice_to_have") or []))
+            st.metric("Желательные требования", len(analysis.get("nice_to_have") or []))
 
         with st.expander("Технические детали", expanded=False):
             st.caption(f"analysis_id: {analysis.get('analysis_id')}")
@@ -509,7 +611,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
         col_must, col_nice = st.columns(2)
 
         with col_must:
-            st.markdown("#### Must-have требования")
+            st.markdown("#### Обязательные требования")
             if must_have:
                 for item in must_have:
                     st.markdown(f"- {item.get('text', item)}")
@@ -517,7 +619,7 @@ def render_vacancy_analysis_step(client: CareerCopilotApiClient, token: str | No
                 st.caption("Не найдено")
 
         with col_nice:
-            st.markdown("#### Nice-to-have требования")
+            st.markdown("#### Желательные требования")
             if nice_to_have:
                 for item in nice_to_have:
                     st.markdown(f"- {item.get('text', item)}")
@@ -600,7 +702,7 @@ def _render_vacancy_intelligence_block(
         return
 
     recommendation = str(fit.get("readiness_recommendation") or "—")
-    gap_severity = str(fit.get("gap_severity") or "—")
+    gap_severity = _humanize_gap_severity(fit.get("gap_severity"))
 
     if recommendation == "Ready to apply":
         st.success("Готово к отклику")
@@ -611,17 +713,17 @@ def _render_vacancy_intelligence_block(
 
     col_overall, col_skills, col_evidence, col_experience, col_leadership = st.columns(5)
     with col_overall:
-        st.metric("Общий fit", fit.get("overall_fit_score", 0))
+        st.metric("Соответствие вакансии", fit.get("overall_fit_score", 0))
     with col_skills:
         st.metric("Навыки", fit.get("skills_fit", 0))
     with col_evidence:
-        st.metric("Доказательства", fit.get("evidence_fit", 0))
+        st.metric("Подтверждённый опыт", fit.get("evidence_fit", 0))
     with col_experience:
-        st.metric("Опыт", fit.get("experience_fit", 0))
+        st.metric("Опыт работы", fit.get("experience_fit", 0))
     with col_leadership:
-        st.metric("Лидерство", fit.get("leadership_fit", 0))
+        st.metric("Лидерские компетенции", fit.get("leadership_fit", 0))
 
-    st.caption(f"Серьёзность пробелов: {gap_severity}")
+    st.caption(f"Основной риск: {gap_severity}")
     if fit.get("analysis_version"):
         with st.expander("Технические детали", expanded=False):
             st.caption(f"analysis_version: {fit.get('analysis_version')}")
@@ -680,8 +782,8 @@ def _render_vacancy_intelligence_block(
                             if snippet_text:
                                 st.write(snippet_text)
 
-    _render_coverage_group("Сильные доказательства", coverage.get("strong") or [], "strong")
-    _render_coverage_group("Средние доказательства", coverage.get("medium") or [], "medium")
-    _render_coverage_group("Без подтверждённых доказательств", coverage.get("missing") or [], "missing")
+    _render_coverage_group("Хорошо подтверждено", coverage.get("strong") or [], "strong")
+    _render_coverage_group("Частично подтверждено", coverage.get("medium") or [], "medium")
+    _render_coverage_group("Пока не подтверждено", coverage.get("missing") or [], "missing")
 
 

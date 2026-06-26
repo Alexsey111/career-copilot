@@ -79,8 +79,29 @@ def _humanize_achievement_evidence_note(
     return note, evidence_ids
 
 
-def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("1. Источник резюме / профиля")
+def _use_active_resume_and_continue(
+    client: CareerCopilotApiClient,
+    token: str | None,
+    active_resume: dict,
+) -> None:
+    st.session_state.source_file = active_resume
+    restored = _restore_resume_pipeline_state(client, token)
+    if not restored and not st.session_state.get("resume_import"):
+        _reset_downstream_resume_state()
+    st.session_state["reuse_existing_resume"] = True
+    st.session_state["mvp_force_open_step"] = 2
+    st.success("Активное резюме выбрано. Можно продолжать.")
+    st.rerun()
+
+
+def render_resume_upload_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("1. Источник резюме / профиля")
 
     active_resume = None
     try:
@@ -106,6 +127,13 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
                     "lineage_group_id": active_resume.get("lineage_group_id"),
                 }
             )
+        if st.button(
+            "Использовать текущее резюме и продолжить",
+            type="primary",
+            width="stretch",
+            key="use_active_resume_direct",
+        ):
+            _use_active_resume_and_continue(client, token, active_resume)
     else:
         st.warning(
             "Активное резюме пока не найдено. Можно загрузить файл, создать профиль вручную "
@@ -128,7 +156,9 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
         options.append("Использовать текущее")
     options.extend(["Загрузить новое", "Создать вручную", "Импортировать GitHub"])
     if st.session_state.resume_source_mode not in options:
-        st.session_state.resume_source_mode = options[0]
+        st.session_state.resume_source_mode = (
+            "Использовать текущее" if active_resume else options[0]
+        )
 
     mode = st.radio(
         "Как продолжить?",
@@ -143,20 +173,13 @@ def render_resume_upload_step(client: CareerCopilotApiClient, token: str | None 
             "Повторная загрузка файла не нужна."
         )
 
-        if st.button("Использовать текущее резюме и продолжить", type="primary", width="stretch"):
-            st.session_state.source_file = active_resume
-            restored = _restore_resume_pipeline_state(client, token)
-            if not restored and not st.session_state.get("resume_import"):
-                _reset_downstream_resume_state()
-            st.session_state["reuse_existing_resume"] = True
-            if restored and st.session_state.get("achievements"):
-                st.success("Активное резюме выбрано. Готовое состояние восстановлено, можно переходить к вакансии.")
-            else:
-                st.success(
-                    "Активное резюме выбрано. Если импорт уже был выполнен ранее, "
-                    "шаги анализа можно пропустить и перейти к вакансии."
-                )
-            st.rerun()
+        if st.button(
+            "Использовать текущее резюме и продолжить",
+            type="primary",
+            width="stretch",
+            key="use_active_resume_from_mode",
+        ):
+            _use_active_resume_and_continue(client, token, active_resume)
         return
 
     if mode == "Создать вручную":
@@ -420,8 +443,14 @@ def render_github_public_intake_step(client: CareerCopilotApiClient, token: str 
     st.success("GitHub evidence импортирован. Факты помечены как needs_confirmation.")
 
 
-def render_resume_import_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("2. Импорт резюме")
+def render_resume_import_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("2. Импорт резюме")
 
     source_file = st.session_state.source_file
     if not source_file:
@@ -544,8 +573,14 @@ def render_resume_import_step(client: CareerCopilotApiClient, token: str | None 
                 st.text(text_preview)
 
 
-def render_structured_profile_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("3. Извлечение структурированного профиля")
+def render_structured_profile_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("3. Извлечение структурированного профиля")
 
     resume_import = st.session_state.resume_import
     if not resume_import:
@@ -665,8 +700,14 @@ def render_structured_profile_step(client: CareerCopilotApiClient, token: str | 
             st.json(profile)
 
 
-def render_achievements_step(client: CareerCopilotApiClient, token: str | None = None) -> None:
-    st.subheader("4. Извлечение достижений")
+def render_achievements_step(
+    client: CareerCopilotApiClient,
+    token: str | None = None,
+    *,
+    show_title: bool = True,
+) -> None:
+    if show_title:
+        st.subheader("4. Извлечение достижений")
 
     resume_import = st.session_state.resume_import
     if not resume_import:

@@ -1,3 +1,5 @@
+# frontend\streamlit\ui\formatting.py
+
 from __future__ import annotations
 
 from html import escape

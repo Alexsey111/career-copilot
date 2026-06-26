@@ -578,6 +578,7 @@ def render_evidence_workspace_tab(
             f"· {_strength_label(snippets_by_id[value].get('evidence_strength'))} "
             f"· {_fact_status_badge(snippets_by_id[value].get('fact_status'))}"
         ),
+        key="evidence_workspace_selected_snippet_id",
     )
 
     if not selected_snippet_id:
