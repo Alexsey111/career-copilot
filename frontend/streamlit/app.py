@@ -15,7 +15,7 @@ from pages.applications import render_application_dashboard
 from pages.home import render_home
 from pages.system_health import render_system_health
 from pages.trust_panel import render_trust_panel
-from ui.navigation import apply_pending_navigation
+from ui.navigation import apply_pending_navigation, navigate_to_page
 from ui.auth import render_sidebar
 from ui.state import init_session_state
 
@@ -81,12 +81,25 @@ def main() -> None:
     recommended_page, recommended_reason = _get_recommended_navigation_page()
 
     st.sidebar.markdown("## Навигация")
-    selected_page = st.sidebar.radio(
-        "Раздел",
-        options=list(pages.keys()),
-        key="main_navigation_page",
-        format_func=lambda page: f"⭐ {page}" if page == recommended_page else page,
-    )
+
+    page_options = list(pages.keys())
+    selected_page = st.session_state.get("main_navigation_page", "Главная")
+    if selected_page not in page_options:
+        selected_page = "Главная"
+        st.session_state["main_navigation_page"] = selected_page
+
+    for page in page_options:
+        label = f"⭐ {page}" if page == recommended_page else page
+        button_type = "primary" if page == selected_page else "secondary"
+
+        if st.sidebar.button(
+            label,
+            key=f"main_nav_button_{page}",
+            width="stretch",
+            type=button_type,
+        ):
+            navigate_to_page(page)
+
     st.sidebar.caption(f"⭐ Рекомендуется сейчас: {recommended_reason}.")
 
     if selected_page == "Главная":

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.interview_prep import has_leadership_tokens
 from app.domain.skills.utils import get_related_skills, keyword_present
+from app.services.semantic_requirement_matcher import SemanticRequirementMatcher
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
@@ -37,6 +38,7 @@ class VacancyFitService:
         self.analysis_repo = vacancy_analysis_repository or VacancyAnalysisRepository()
         self.profile_repo = candidate_profile_repository or CandidateProfileRepository()
         self.evidence_repo = evidence_snippet_repository or EvidenceSnippetRepository()
+        self.semantic_matcher = SemanticRequirementMatcher()
 
     async def build_vacancy_fit(
         self,
@@ -361,7 +363,18 @@ class VacancyFitService:
         for related in get_related_skills(keyword):
             if keyword_present(related, corpus):
                 return True
-        return False
+
+        return self._semantic_corpus_satisfies_keyword(keyword, corpus)
+
+    def _semantic_corpus_satisfies_keyword(self, keyword: str, corpus: str) -> bool:
+        if not str(corpus or "").strip():
+            return False
+
+        result = self.semantic_matcher.match(
+            keyword,
+            [corpus],
+        )
+        return result.matched and result.confidence >= 0.6
 
     def _experience_satisfies_keyword(self, keyword: str, corpus: str) -> bool:
         if not corpus.strip():
@@ -371,7 +384,8 @@ class VacancyFitService:
         for related in get_related_skills(keyword):
             if keyword_present(related, corpus):
                 return True
-        return False
+
+        return self._semantic_corpus_satisfies_keyword(keyword, corpus)
 
     def _find_evidence_matches(
         self,
@@ -598,6 +612,56 @@ class VacancyFitService:
         if overall_fit_score >= 75 and evidence_fit >= 65:
             return "Ready to apply"
         return "Apply with caution"
+
+    def _semantic_requirement_supported(
+        self,
+        *,
+        requirement: str,
+        candidate_terms: list[str],
+        min_confidence: float = 0.6,
+    ) -> bool:
+        result = self.semantic_matcher.match(
+            requirement,
+            candidate_terms,
+        )
+        return result.matched and result.confidence >= min_confidence
+
+    def _requirement_supported_by_skills(
+        self,
+        *,
+        requirement: str,
+        selected_skill_keys: set[str],
+    ) -> bool:
+        requirement_key = self._normalize_display_skill(requirement).strip().lower()
+        if requirement_key in selected_skill_keys:
+            return True
+
+        selected_text = " ".join(selected_skill_keys)
+        requirement_lower = requirement_key
+
+        support_markers = {
+            "pytest": ("pytest", "test", "testing", "testclient"),
+            "api": ("fastapi", "backend", "api"),
+            "fastapi": ("fastapi", "backend", "api"),
+            "backend": ("fastapi", "backend", "api"),
+            "docker": ("docker", "container", "infrastructure"),
+            "cicd": ("ci", "cd", "cicd", "pipeline"),
+            "ci/cd": ("ci", "cd", "cicd", "pipeline"),
+            "postgresql": ("postgres", "postgresql", "sqlalchemy"),
+            "sqlalchemy": ("postgres", "postgresql", "sqlalchemy"),
+            "workflow automation": ("workflow", "automation", "nocode", "no-code"),
+            "git": ("git", "github", "repository", "version control"),
+            "python": ("python",),
+        }
+
+        for marker, support_tokens in support_markers.items():
+            if marker in requirement_lower and any(token in selected_text for token in support_tokens):
+                return True
+
+        return self._semantic_requirement_supported(
+            requirement=requirement,
+            candidate_terms=list(selected_skill_keys),
+        )
 
     def _build_requirement_reason(
         self,

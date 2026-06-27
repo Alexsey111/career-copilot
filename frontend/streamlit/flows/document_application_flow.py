@@ -11,6 +11,7 @@ from components import (
     render_interview_prep_workspace_tab,
 )
 from components.document_review_workspace import _render_export_controls
+from ui.navigation import navigate_to_mvp_step
 from ui.formatting import format_application_status
 from ui.formatting import format_optional_datetime
 
@@ -128,7 +129,7 @@ def _render_resume_provenance_preview(
         return
 
     try:
-        summary = client.get_document_review_summary(document_id, token=token)
+        summary = client.get_document_review_details(document_id, token=token)
     except Exception as exc:
         st.caption("Информация об использованных доказательствах пока недоступна.")
         with st.expander("Технические детали", expanded=False):
@@ -246,8 +247,7 @@ def render_resume_generation_step(
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
         st.success("Адаптированное резюме сгенерировано")
-        st.session_state["mvp_force_open_step"] = 8
-        st.rerun()
+        navigate_to_mvp_step(8)
 
     if st.session_state.generated_resume:
         resume = st.session_state.generated_resume
@@ -364,8 +364,7 @@ def render_cover_letter_generation_step(
         st.session_state.approved_cover_letter = None
         st.session_state.application = None
         st.success("Сопроводительное письмо сгенерировано")
-        st.session_state["mvp_force_open_step"] = 9
-        st.rerun()
+        navigate_to_mvp_step(9)
 
     if st.session_state.generated_cover_letter:
         letter = st.session_state.generated_cover_letter
@@ -658,8 +657,7 @@ def render_application_creation_step(
 
         st.session_state.application = result
         st.success("Отклик сохранён в трекере")
-        st.session_state["mvp_force_open_step"] = 11
-        st.rerun()
+        navigate_to_mvp_step(11)
 
         if result.get("review_required"):
             st.warning("Не финализировано / требуется review.")

@@ -1,3 +1,5 @@
+# app\services\text_polish\humanizer.py
+
 from __future__ import annotations
 
 import re
@@ -18,6 +20,22 @@ def dedupe_preserve_order(values: list[str]) -> list[str]:
         result.append(str(value).strip())
 
     return result
+
+
+def deterministic_variant_key(*values: str) -> int:
+    corpus = "|".join(str(value or "") for value in values)
+    return sum(ord(ch) for ch in corpus) % 1000
+
+
+def pick_deterministic_phrase(
+    variants: list[str],
+    *,
+    key_values: list[str],
+) -> str:
+    if not variants:
+        return ""
+    key = deterministic_variant_key(*key_values)
+    return variants[key % len(variants)]
 
 
 def lowercase_sentence_start(value: str) -> str:
@@ -73,12 +91,23 @@ def to_activity_case(value: str) -> str:
 
 
 def cover_letter_activity_list(value: str) -> str:
-    phrases = [
-        to_activity_case(part)
+    raw_parts = [
+        re.sub(r"\s+", " ", part).strip(" .;-–—•")
         for part in re.split(r"\s*;\s*", str(value or ""))
-        if str(part or "").strip()
+        if str(part or "").strip(" .;-–—•")
     ]
-    phrases = dedupe_preserve_order([phrase for phrase in phrases if phrase])
+
+    fixed_parts: list[str] = []
+    for part in raw_parts:
+        lowered = part.casefold()
+        if lowered in {"судебное сопровождение", "судебного сопровождения"}:
+            fixed_parts.append("судебным сопровождением")
+        elif lowered in {"консультирование клиентов", "консультирования клиентов"}:
+            fixed_parts.append("консультированием клиентов")
+        else:
+            fixed_parts.append(to_activity_case(part))
+
+    phrases = dedupe_preserve_order([phrase for phrase in fixed_parts if phrase])
     return join_cover_letter_phrases(phrases)
 
 
@@ -123,6 +152,45 @@ def cover_letter_activity_verb(
     ):
         return "занимался"
     return "занимался"
+
+
+def infer_candidate_gender_from_text(
+    *,
+    full_name: str | None = None,
+    text: str = "",
+) -> str:
+    corpus = " ".join([str(full_name or ""), str(text or "")]).casefold()
+
+    female_markers = (
+        "подготовила",
+        "снизила",
+        "разработала",
+        "занималась",
+        "вела",
+        "участвовала",
+        "готова",
+    )
+    male_markers = (
+        "подготовил",
+        "снизил",
+        "разработал",
+        "занимался",
+        "вел",
+        "вёл",
+        "участвовал",
+        "готов",
+    )
+
+    if any(marker in corpus for marker in female_markers):
+        return "female"
+    if any(marker in corpus for marker in male_markers):
+        return "male"
+
+    first_name = str(full_name or "").strip().split(" ")[0].casefold()
+    if first_name.endswith(("а", "я")):
+        return "female"
+
+    return "male"
 
 
 def cover_letter_role_instrumental(vacancy_title: str) -> str:
@@ -260,6 +328,38 @@ class CoverLetterHumanizer:
             selected_achievements=selected_achievements,
         )
 
+    def experience_opening_phrase(
+        self,
+        *,
+        vacancy_title: str,
+        experience_value: str,
+    ) -> str:
+        return pick_deterministic_phrase(
+            [
+                "За время работы",
+                "В своей практике",
+                "В профессиональной деятельности",
+            ],
+            key_values=[vacancy_title, experience_value],
+        )
+
+    def candidate_gender(
+        self,
+        *,
+        full_name: str | None = None,
+        text: str = "",
+    ) -> str:
+        return infer_candidate_gender_from_text(
+            full_name=full_name,
+            text=text,
+        )
+
+    def ready_word(self, *, gender: str) -> str:
+        return "готова" if gender == "female" else "готов"
+
+    def glad_word(self, *, gender: str) -> str:
+        return "рада" if gender == "female" else "рад"
+
     def role_instrumental(self, vacancy_title: str) -> str:
         return cover_letter_role_instrumental(vacancy_title)
 
@@ -282,6 +382,25 @@ class CoverLetterHumanizer:
 
     def project_result_sentence(self, project_value: str) -> str:
         return f"Среди реализованных проектов и инициатив — {project_value}."
+
+    def closing_contact_sentence(
+        self,
+        *,
+        gender: str,
+        vacancy_title: str,
+        focus: str = "",
+    ) -> str:
+        glad = self.glad_word(gender=gender)
+        return pick_deterministic_phrase(
+            [
+                f"Буду {glad} обсудить, чем мой опыт может быть полезен вашей команде.",
+                "С удовольствием подробнее расскажу о своём опыте на интервью.",
+                "Буду признательна за возможность обсудить, как мой опыт может быть полезен вашей команде."
+                if gender == "female"
+                else "Буду признателен за возможность обсудить, как мой опыт может быть полезен вашей команде.",
+            ],
+            key_values=[gender, vacancy_title, focus],
+        )
 
     def achievement_result_sentence(self, achievements: list[str]) -> str:
         return (

@@ -17,14 +17,14 @@ def apply_pending_navigation() -> None:
 
 
 def navigate_to_page(page_name: str) -> None:
+    st.session_state[MAIN_NAVIGATION_KEY] = page_name
     st.session_state[PENDING_NAVIGATION_KEY] = page_name
     st.rerun()
 
 
 def navigate_to_mvp_step(step_number: int) -> None:
-    st.session_state[PENDING_NAVIGATION_KEY] = "MVP-сценарий"
     st.session_state[MVP_FORCE_STEP_KEY] = int(step_number)
-    st.rerun()
+    navigate_to_page("MVP-сценарий")
 
 
 def get_forced_mvp_step() -> int | None:

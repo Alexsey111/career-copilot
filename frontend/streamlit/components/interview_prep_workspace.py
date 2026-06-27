@@ -18,6 +18,7 @@ from components.interview_prep_formatters import (
     _humanize_answer_quality_grade,
     _humanize_competency_value,
     _humanize_display_text,
+    _compact_interview_label,
     _humanize_evidence_fact_status,
     _humanize_evidence_source,
     _humanize_prep_status,
@@ -166,16 +167,21 @@ def _render_readiness_panel(readiness: dict[str, Any] | None) -> None:
             )
 
         for step in steps:
+            title = str(step.get("title") or "").strip()
+            compact_title = _compact_interview_label(title)
+            expected_gain = int(step.get("expected_gain") or 0)
+
             with st.container(border=True):
-                st.markdown(
-                    f"**Шаг {step.get('order')}**"
-                )
+                col_title, col_gain = st.columns([4, 1])
 
-                st.write(step.get("title"))
+                with col_title:
+                    st.markdown(f"**□ Шаг {step.get('order')}: {compact_title}**")
+                    if title and title != compact_title:
+                        with st.expander("Полная формулировка", expanded=False):
+                            st.write(title)
 
-                st.caption(
-                    f"Ожидаемый прирост: +{step.get('expected_gain', 0)}"
-                )
+                with col_gain:
+                    st.metric("Прирост", f"+{expected_gain}")
 
 
 def _render_competency_coverage(
@@ -287,58 +293,86 @@ def _render_competency_map(competency_map: dict[str, Any] | None) -> None:
     competency_map = competency_map or {}
 
     st.markdown("### Карта компетенций")
-    col_skills, col_behavioral = st.columns(2)
+    col_required, col_behavioral, col_level, col_focus = st.columns(4)
 
-    with col_skills:
-        st.markdown("#### Обязательные навыки")
-        required_skills = competency_map.get("required_skills") or []
-        if required_skills:
-            for item in required_skills:
-                st.markdown(f"- {_humanize_display_text(item.get('label') or item.get('key'))}")
-        else:
-            st.caption("Обязательные навыки не извлечены.")
+    with col_required:
+        with st.container(border=True):
+            st.markdown("#### Обязательные")
+            required_skills = competency_map.get("required_skills") or []
+            domain_requirements = competency_map.get("domain_requirements") or []
 
-        domain_requirements = competency_map.get("domain_requirements") or []
-        if domain_requirements:
-            st.markdown("**Предметная область**")
-            for item in domain_requirements:
+            if not required_skills and not domain_requirements:
+                st.caption("Не извлечены.")
+
+            for item in required_skills[:6]:
+                raw_label = item.get("label") or item.get("key")
+                compact_label = _compact_interview_label(raw_label)
+                st.markdown(f"- {compact_label}")
+
+            for item in domain_requirements[:3]:
                 label = item.get("label") if isinstance(item, dict) else item
                 if label:
-                    st.markdown(f"- {_humanize_display_text(label)}")
+                    st.markdown(f"- {_compact_interview_label(label)}")
+
+            hidden_count = max(len(required_skills) + len(domain_requirements) - 9, 0)
+            if hidden_count:
+                with st.expander(f"Ещё {hidden_count}", expanded=False):
+                    for item in required_skills[6:]:
+                        raw_label = item.get("label") or item.get("key")
+                        st.markdown(f"- {_humanize_display_text(raw_label)}")
+                    for item in domain_requirements[3:]:
+                        label = item.get("label") if isinstance(item, dict) else item
+                        if label:
+                            st.markdown(f"- {_humanize_display_text(label)}")
 
     with col_behavioral:
-        st.markdown("#### Поведенческие сигналы")
-        behavioral_signals = competency_map.get("behavioral_signals") or []
-        if behavioral_signals:
-            for signal in behavioral_signals:
+        with st.container(border=True):
+            st.markdown("#### Поведенческие")
+            behavioral_signals = competency_map.get("behavioral_signals") or []
+            if not behavioral_signals:
+                st.caption("Не извлечены.")
+            for signal in behavioral_signals[:6]:
                 st.markdown(f"- {_humanize_competency_value(signal)}")
-        else:
-            st.caption("Поведенческие сигналы не извлечены.")
+            if len(behavioral_signals) > 6:
+                with st.expander(f"Ещё {len(behavioral_signals) - 6}", expanded=False):
+                    for signal in behavioral_signals[6:]:
+                        st.markdown(f"- {_humanize_competency_value(signal)}")
 
-    col_seniority, col_domain = st.columns(2)
+    with col_level:
+        with st.container(border=True):
+            st.markdown("#### Уровень")
+            seniority = competency_map.get("seniority_expectations") or {}
+            if seniority:
+                st.metric(
+                    "Грейд",
+                    _humanize_seniority_level(seniority.get("level")),
+                )
+                signals = seniority.get("signals") or []
+                for signal in signals[:4]:
+                    st.markdown(f"- {_humanize_competency_value(signal)}")
+                if len(signals) > 4:
+                    with st.expander(f"Ещё {len(signals) - 4}", expanded=False):
+                        for signal in signals[4:]:
+                            st.markdown(f"- {_humanize_competency_value(signal)}")
+            else:
+                st.caption("Не извлечён.")
 
-    with col_seniority:
-        st.markdown("#### Ожидания по уровню")
-        seniority = competency_map.get("seniority_expectations") or {}
-        if seniority:
-            st.write(f"Уровень: {_humanize_seniority_level(seniority.get('level'))}")
-            for signal in seniority.get("signals") or []:
-                st.markdown(f"- {_humanize_competency_value(signal)}")
-        else:
-            st.caption("Ожидания по уровню не извлечены.")
-
-    with col_domain:
-        st.markdown("#### Фокус интервью")
-        domain_focus_areas = (
-            competency_map.get("domain_focus_areas")
-            or competency_map.get("domain_expectations")
-            or []
-        )
-        if domain_focus_areas:
-            for item in domain_focus_areas:
-                st.markdown(f"- {_humanize_display_text(item)}")
-        else:
-            st.caption("Фокус интервью не извлечён.")
+    with col_focus:
+        with st.container(border=True):
+            st.markdown("#### Фокус")
+            domain_focus_areas = (
+                competency_map.get("domain_focus_areas")
+                or competency_map.get("domain_expectations")
+                or []
+            )
+            if not domain_focus_areas:
+                st.caption("Не извлечён.")
+            for item in domain_focus_areas[:6]:
+                st.markdown(f"- {_compact_interview_label(item)}")
+            if len(domain_focus_areas) > 6:
+                with st.expander(f"Ещё {len(domain_focus_areas) - 6}", expanded=False):
+                    for item in domain_focus_areas[6:]:
+                        st.markdown(f"- {_humanize_display_text(item)}")
 
 
 def _render_suggested_answer(answer: dict[str, Any] | None) -> None:
@@ -436,7 +470,9 @@ def _question_dedupe_key(question: dict[str, Any]) -> str:
 
 
 def _render_compact_question_card(question: dict[str, Any]) -> None:
-    prompt = _humanize_display_text(question.get("prompt") or "Вопрос")
+    raw_prompt = question.get("prompt") or "Вопрос"
+    prompt = _compact_interview_label(raw_prompt, max_length=120)
+    full_prompt = _humanize_display_text(raw_prompt)
     answer_format = question.get("answer_format")
     competency_name = _normalize_competency_label(
         question.get("competency_name") or question.get("competency_key")
@@ -446,12 +482,15 @@ def _render_compact_question_card(question: dict[str, Any]) -> None:
 
     with st.container(border=True):
         st.markdown(f"**{prompt}**")
+        if full_prompt and full_prompt != prompt:
+            with st.expander("Полный текст вопроса", expanded=False):
+                st.write(full_prompt)
 
         meta_parts = []
         if answer_format:
             meta_parts.append(f"Формат: {_humanize_answer_format(answer_format)}")
         if competency_name:
-            meta_parts.append(f"Компетенция: {_humanize_display_text(competency_name)}")
+            meta_parts.append(f"Компетенция: {_compact_interview_label(competency_name)}")
         if meta_parts:
             st.caption(" · ".join(meta_parts))
 
@@ -464,7 +503,7 @@ def _render_compact_question_card(question: dict[str, Any]) -> None:
                 _render_suggested_answer_body(suggested_answer)
 
         with col_evidence:
-            with st.expander(f"Доказательства ({len(evidence)})", expanded=False):
+            with st.expander(_evidence_count_label(len(evidence)), expanded=False):
                 _render_question_evidence_summary(
                     evidence=evidence,
                     insufficient_grounding=_is_insufficient_grounding(suggested_answer),
@@ -487,19 +526,45 @@ def _render_question_answer_quality_summary(answer: dict[str, Any] | None) -> No
     score = quality.get("score")
     grade = _humanize_answer_quality_grade(quality.get("grade"))
 
-    col_score, col_grade = st.columns(2)
-    with col_score:
-        st.metric("Оценка ответа", _format_score(score))
-    with col_grade:
-        st.metric("Уровень", grade)
-
     improvements = [
         str(item).strip()
         for item in (quality.get("improvements") or [])
         if str(item).strip()
     ]
+
     if improvements:
-        st.caption("Что улучшить: " + "; ".join(improvements[:2]))
+        st.warning("Почему оценка снижена")
+        for item in improvements[:3]:
+            st.markdown(f"- {_humanize_display_text(item)}")
+    elif score is not None:
+        st.success("Критичных замечаний к черновику ответа не найдено.")
+
+    col_score, col_grade = st.columns(2)
+    with col_score:
+        st.metric(_score_status_label(score), _format_score(score))
+    with col_grade:
+        st.metric("Уровень", grade)
+
+
+def _evidence_count_label(count: int) -> str:
+    if count <= 0:
+        return "🔴 нет подтверждений"
+    if count == 1:
+        return "🟡 1 подтверждение"
+    return f"🟢 {count} подтверждения"
+
+
+def _score_status_label(score: Any) -> str:
+    try:
+        score_value = int(float(score))
+    except (TypeError, ValueError):
+        return "Оценка ответа"
+
+    if score_value >= 75:
+        return "🟢 Оценка ответа"
+    if score_value >= 50:
+        return "🟡 Оценка ответа"
+    return "🔴 Оценка ответа"
 
 
 def _render_suggested_answer_body(answer: dict[str, Any] | None) -> None:
@@ -691,10 +756,37 @@ def _render_evidence_links(evidence_links: list[dict[str, Any]]) -> None:
     st.dataframe(rows, width="stretch", hide_index=True)
 
 
-def _render_weak_areas(weak_areas: list[dict[str, Any]]) -> None:
+def _render_weak_areas(
+    weak_areas: list[dict[str, Any]],
+    *,
+    readiness: dict[str, Any] | None = None,
+) -> None:
     st.markdown("### Слабые зоны")
+
+    readiness = readiness or {}
+    readiness_score = readiness.get("score")
+
+    try:
+        score_value = int(float(readiness_score))
+    except (TypeError, ValueError):
+        score_value = None
+
     if not weak_areas:
-        st.success("Детерминированные слабые зоны не обнаружены.")
+        if score_value is not None and score_value < 50:
+            st.warning("Почему готовность пока низкая")
+            st.markdown(
+                "Система не нашла отдельных проблемных компетенций, "
+                "но пока недостаточно подтверждённых примеров опыта. "
+                "Поэтому готовность к интервью оценивается как низкая."
+            )
+            st.markdown("**Что сделать:**")
+            st.markdown("- подтвердить релевантные достижения;")
+            st.markdown("- подготовить STAR-примеры под требования вакансии;")
+            st.markdown("- добавить конкретные действия и результаты;")
+            st.markdown("- подтвердить документы, сертификаты или навыки, если они есть.")
+            return
+
+        st.success("Отдельных слабых зон не обнаружено.")
         return
 
     for item in weak_areas:
@@ -1056,37 +1148,11 @@ def render_interview_prep_workspace_tab(
     st.divider()
     _render_question_group(selected_session.get("questions") or [])
     st.divider()
-    with st.expander("Происхождение доказательств по вопросам", expanded=False):
-        questions = selected_session.get("questions") or []
-        if not questions:
-            st.caption("Вопросов пока нет.")
-        else:
-            for question in questions:
-                with st.container(border=True):
-                    st.markdown(
-                        f"**{_humanize_display_text(question.get('prompt') or 'Вопрос')}**"
-                    )
-                    if question.get("answer_format"):
-                        st.caption(
-                            f"Формат ответа: {_humanize_answer_format(question.get('answer_format'))}"
-                        )
-                    if question.get("competency_name") or question.get("competency_key"):
-                        competency_name = _normalize_competency_label(
-                            question.get("competency_name") or question.get("competency_key")
-                        )
-                        st.caption(
-                            "Компетенция: "
-                            f"{_humanize_display_text(competency_name)}"
-                        )
-                    _render_question_supporting_evidence(
-                        client,
-                        question=question,
-                        selected_session=selected_session,
-                        token=token,
-                    )
-    st.divider()
     _render_evidence_links(selected_session.get("evidence_links") or [])
     st.divider()
-    _render_weak_areas(selected_session.get("weak_areas") or [])
+    _render_weak_areas(
+        selected_session.get("weak_areas") or [],
+        readiness=readiness,
+    )
 
     # Raw JSON intentionally hidden to keep the operator view compact.

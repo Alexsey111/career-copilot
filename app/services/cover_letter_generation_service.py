@@ -35,6 +35,7 @@ from app.services.document_feedback import build_claim, build_warning
 from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
+from app.services.document_evidence_selection_service import DocumentEvidenceSelectionService
 from app.services.vacancy_fit_context_service import VacancyFitContextService
 from app.domain.evidence_alignment import (
     humanize_experience_phrase,
@@ -139,6 +140,7 @@ class CoverLetterGenerationService:
             extraction_service=self.evidence_extraction_service,
         )
         self.cover_letter_humanizer = CoverLetterHumanizer()
+        self.document_evidence_selection_service = DocumentEvidenceSelectionService()
         self.achievement_verbalizer = AchievementVerbalizer()
         self.narrative_builder = NarrativeBuilder()
 
@@ -308,6 +310,15 @@ class CoverLetterGenerationService:
             selected_achievements=selected_achievements,
         )
         vacancy_evidence_alignment = vacancy_fit_context["vacancy_evidence_alignment"]
+        document_evidence_selection = (
+            self.document_evidence_selection_service.build_from_document_parts(
+                selected_achievements=selected_achievements,
+                selected_evidence_ids=selected_evidence_ids,
+                evidence_selection_reason=selected_evidence_reason,
+                vacancy_evidence_alignment=vacancy_evidence_alignment,
+                top_alignment_evidence=[],
+            )
+        )
         vacancy_fit_narrative = vacancy_fit_context["vacancy_fit_narrative"]
 
         opening = self._build_opening(
@@ -337,6 +348,7 @@ class CoverLetterGenerationService:
             candidate_experiences=profile.experiences,
             selected_skills=profile_skills,
             matched_keywords=matched_keywords,
+            selected_achievements=selected_achievements,
         )
         polished_sections = self.cover_letter_humanizer.polish_sections(
             opening=opening,
@@ -423,19 +435,23 @@ class CoverLetterGenerationService:
             missing_keywords=missing_keywords,
             matched_requirements=analysis.strengths_json,
             gap_requirements=analysis.gaps_json,
-            selected_achievements=selected_achievements,
+            selected_achievements=document_evidence_selection.selected_achievements,
             claims_needing_confirmation=claims_needing_confirmation,
             warnings=warnings,
             source="hybrid" if use_ai_enhancement else "extracted",
             based_on_achievements=[
-                item.get("id") for item in selected_achievements if item.get("id")
+                item.get("id")
+                for item in document_evidence_selection.selected_achievements
+                if item.get("id")
             ],
             selected_achievement_ids=[
-                item.get("id") for item in selected_achievements if item.get("id")
+                item.get("id")
+                for item in document_evidence_selection.selected_achievements
+                if item.get("id")
             ],
             based_on_analysis_id=str(analysis.id),
-            selected_evidence_ids=selected_evidence_ids,
-            evidence_selection_reason=selected_evidence_reason or selection_rationale,
+            selected_evidence_ids=document_evidence_selection.selected_evidence_ids,
+            evidence_selection_reason=document_evidence_selection.evidence_selection_reason,
             confidence=confidence_assessment.confidence,
             confidence_level=confidence_assessment.confidence_level.value,
             generation_prompt_version=(
@@ -849,7 +865,7 @@ class CoverLetterGenerationService:
         elif requirement_focus:
             parts.append(
                 f"Особенно близки задачи, связанные с {requirement_focus}. "
-                "Буду рад обсудить, какие направления команды лучше всего ложатся на мой опыт."
+                "Буду рада обсудить, какие направления команды лучше всего связаны с моим опытом."
             )
         elif experience_value:
             parts.append(
@@ -888,8 +904,8 @@ class CoverLetterGenerationService:
         # Fallback, если ничего не добавилось
         if not parts:
             parts.append(
-                "Эта роль мне интересна, и я буду рад обсудить, какие задачи команды "
-                "могут лучше всего лечь на мой текущий опыт."
+                "Эта роль мне интересна, и я буду рада обсудить, "
+                "какие задачи команды лучше всего связаны с моим текущим опытом."
             )
 
         return " ".join(parts)
@@ -1200,9 +1216,24 @@ class CoverLetterGenerationService:
         candidate_experiences: list[Any] | None = None,
         selected_skills: list[str] | None = None,
         matched_keywords: list[str] | None = None,
+        selected_achievements: list[dict] | None = None,
     ) -> str:
         vacancy_title = clean_vacancy_title(vacancy_title)
-        company_phrase = f" в {company}" if company else ""
+        gender = self.cover_letter_humanizer.candidate_gender(
+            full_name=None,
+            text=" ".join(
+                [
+                    *[str(skill) for skill in selected_skills or []],
+                    *[
+                        str(item.get("title") or "")
+                        for item in selected_achievements or []
+                        if isinstance(item, dict)
+                    ],
+                ]
+            ),
+        )
+        ready = self.cover_letter_humanizer.ready_word(gender=gender)
+        glad = self.cover_letter_humanizer.glad_word(gender=gender)
         if self._is_supply_management_context(
             vacancy_title=vacancy_title,
             matched_keywords=matched_keywords or [],
@@ -1212,10 +1243,9 @@ class CoverLetterGenerationService:
             ],
         ):
             return (
-                "Готов применять накопленный опыт в организации закупок, контроле поставок, "
+                f"{ready.capitalize()} применять накопленный опыт в организации закупок, контроле поставок, "
                 "работе с поставщиками и снижении затрат на снабжение. "
-                f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
-                f"{vacancy_title}{company_phrase}."
+                f"Буду {glad} обсудить, чем мой опыт может быть полезен вашей команде."
             )
         focus = self._closing_focus_from_requirements(
             vacancy_title=vacancy_title,
@@ -1224,15 +1254,13 @@ class CoverLetterGenerationService:
         )
         if focus:
             return (
-                f"Готов применять накопленный опыт в области {focus}. "
-                f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
-                f"{vacancy_title}{company_phrase}."
+                f"{ready.capitalize()} применять накопленный опыт в задачах, связанных с {focus}. "
+                f"Буду {glad} обсудить, чем мой опыт может быть полезен вашей команде."
             )
         return (
-            "Готов применять свой опыт для аккуратного выполнения задач, "
+            f"{ready.capitalize()} применять свой опыт для аккуратного выполнения задач, "
             "ответственности за результат и быстрого включения в процессы. "
-            f"Буду рад обсудить, чем мой опыт может быть полезен на позиции "
-            f"{vacancy_title}{company_phrase}."
+            f"Буду {glad} обсудить, чем мой опыт может быть полезен вашей команде."
         )
 
     def _closing_focus_from_requirements(
@@ -1255,10 +1283,28 @@ class CoverLetterGenerationService:
             and not self._looks_like_closing_noise(value, vacancy_key=vacancy_key)
         ]
         phrases = [
-            humanize_experience_phrase(value)
+            self._closing_focus_phrase(value)
             for value in self._dedupe_preserve_order(useful)[:2]
         ]
         return self.cover_letter_humanizer.join_experience_phrases(phrases)
+
+    def _closing_focus_phrase(self, value: str) -> str:
+        normalized = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        lowered = normalized.casefold()
+
+        replacements = {
+            "гражданское право": "гражданским правом",
+            "договорное право": "договорным правом",
+            "договорная работа": "договорной работой",
+            "претензионная работа": "претензионной работой",
+            "документооборот": "документооборотом",
+            "арбитраж": "арбитражной практикой",
+            "legal research": "правовым анализом",
+        }
+        if lowered in replacements:
+            return replacements[lowered]
+
+        return humanize_experience_phrase(normalized)
 
     def _looks_like_closing_noise(self, value: str, *, vacancy_key: str) -> bool:
         normalized = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")

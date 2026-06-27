@@ -12,9 +12,13 @@ from app.domain.interview_prep import (
     has_leadership_tokens,
     has_metric_text,
 )
+from app.services.semantic_requirement_matcher import SemanticRequirementMatcher
 
 
 class InterviewReadinessService:
+    def __init__(self) -> None:
+        self.semantic_matcher = SemanticRequirementMatcher()
+
     def build_weak_areas(
         self,
         *,
@@ -467,6 +471,15 @@ class InterviewReadinessService:
             for achievement in confirmed_achievements:
                 text = achievement_search_text(achievement)
                 text_tokens = self._tokenize(text)
+                achievement_terms = [
+                    text,
+                    str(achievement.get("title") or ""),
+                    str(achievement.get("situation") or ""),
+                    str(achievement.get("task") or ""),
+                    str(achievement.get("action") or ""),
+                    str(achievement.get("result") or ""),
+                    str(achievement.get("metric_text") or ""),
+                ]
                 if (
                     skill["key"] in text
                     or skill_tokens & text_tokens
@@ -481,6 +494,10 @@ class InterviewReadinessService:
                         skill_label=str(skill.get("label") or ""),
                         evidence_text=text,
                         competency_map=competency_map,
+                    )
+                    or self._semantic_skill_match(
+                        skill_label=skill_text,
+                        candidate_terms=achievement_terms,
                     )
                 ):
                     matched.add(skill["key"])
@@ -497,6 +514,13 @@ class InterviewReadinessService:
                     for item in (evidence.get("skills") or [])
                     if str(item).strip()
                 }
+                evidence_terms = [
+                    text,
+                    str(evidence.get("title") or ""),
+                    str(evidence.get("snippet_text") or ""),
+                    str(evidence.get("evidence_note") or ""),
+                    *[str(item) for item in (evidence.get("skills") or [])],
+                ]
                 if (
                     skill["key"] in text
                     or skill["key"] in evidence_skills
@@ -513,6 +537,10 @@ class InterviewReadinessService:
                         skill_label=str(skill.get("label") or ""),
                         evidence_text=text,
                         competency_map=competency_map,
+                    )
+                    or self._semantic_skill_match(
+                        skill_label=skill_text,
+                        candidate_terms=evidence_terms,
                     )
                 ):
                     matched.add(skill["key"])
@@ -805,6 +833,13 @@ class InterviewReadinessService:
                 for item in (evidence.get("skills") or [])
                 if str(item).strip()
             }
+            evidence_terms = [
+                text,
+                str(evidence.get("title") or ""),
+                str(evidence.get("snippet_text") or ""),
+                str(evidence.get("evidence_note") or ""),
+                *[str(item) for item in (evidence.get("skills") or [])],
+            ]
 
             if (
                 skill_key in text
@@ -813,6 +848,10 @@ class InterviewReadinessService:
                 or self._has_vacancy_context_match(
                     evidence_text=text,
                     vacancy_context_tokens=vacancy_context_tokens or set(),
+                )
+                or self._semantic_skill_match(
+                    skill_label=skill_label,
+                    candidate_terms=evidence_terms,
                 )
             ):
                 return True
@@ -834,6 +873,19 @@ class InterviewReadinessService:
                 star_summary.get("result"),
             ]
         ).lower()
+
+    def _semantic_skill_match(
+        self,
+        *,
+        skill_label: str,
+        candidate_terms: list[str],
+        min_confidence: float = 0.6,
+    ) -> bool:
+        result = self.semantic_matcher.match(
+            skill_label,
+            candidate_terms,
+        )
+        return result.matched and result.confidence >= min_confidence
 
     def _has_metric_signal(self, evidence: dict[str, Any]) -> bool:
         text = self._evidence_search_text(evidence)

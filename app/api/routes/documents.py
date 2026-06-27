@@ -429,6 +429,8 @@ async def get_document_review_summary(
         selected_achievement_ids=summary["selected_achievement_ids"],
         selected_evidence_ids=summary["selected_evidence_ids"],
         evidence_selection_reason=summary["evidence_selection_reason"],
+        selected_evidence=summary["selected_evidence"],
+        unused_evidence=summary["unused_evidence"],
         matched_keywords=summary["matched_keywords"],
         missing_keywords=summary["missing_keywords"],
         selection_rationale=summary["selection_rationale"],

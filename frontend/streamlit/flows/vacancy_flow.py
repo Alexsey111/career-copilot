@@ -123,24 +123,6 @@ def _humanize_requirement_reason(reason: object) -> str:
     return text
 
 
-def _render_fit_summary(coverage: dict) -> None:
-    strong = coverage.get("strong") or []
-    medium = coverage.get("medium") or []
-    missing = coverage.get("missing") or []
-
-    st.markdown("#### Почему система считает вас релевантным")
-    if not strong and not medium and not missing:
-        st.caption("Сопоставление с доказательствами пока недоступно.")
-        return
-
-    for item in strong[:4]:
-        st.markdown(f"✓ Есть подтверждённый опыт: {item.get('requirement') or 'требование вакансии'}")
-    for item in medium[:3]:
-        st.markdown(f"⚠ Требует дополнительного подтверждения: {item.get('requirement') or 'требование вакансии'}")
-    for item in missing[:3]:
-        st.markdown(f"✕ Нет подтверждённого опыта: {item.get('requirement') or 'требование вакансии'}")
-
-
 def _render_vacancy_import_status(
     client: CareerCopilotApiClient,
     *,
@@ -729,7 +711,6 @@ def _render_vacancy_intelligence_block(
             st.caption(f"analysis_version: {fit.get('analysis_version')}")
 
     coverage = fit.get("evidence_coverage") or {}
-    _render_fit_summary(coverage)
 
     required = coverage.get("required") or []
     if required:

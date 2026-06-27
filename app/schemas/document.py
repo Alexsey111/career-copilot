@@ -164,6 +164,8 @@ class DocumentReviewSummaryResponse(StrictBaseModel):
     selected_achievement_ids: list[str] = Field(default_factory=list)
     selected_evidence_ids: list[str] = Field(default_factory=list)
     evidence_selection_reason: list[dict] = Field(default_factory=list)
+    selected_evidence: list[dict] = Field(default_factory=list)
+    unused_evidence: list[dict] = Field(default_factory=list)
     matched_keywords: list[str] = Field(default_factory=list)
     missing_keywords: list[str] = Field(default_factory=list)
     selection_rationale: list[dict] = Field(default_factory=list)

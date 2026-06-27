@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.semantic_requirement_matcher import SemanticRequirementMatcher
 from app.domain.document_quality import (
     DocumentQualityIssue,
     ImprovementRoadmap,
@@ -59,14 +60,21 @@ IMPROVEMENT_LABELS = {
 
 
 class DocumentQualityService:
+    def __init__(
+        self,
+        semantic_matcher: SemanticRequirementMatcher | None = None,
+    ) -> None:
+        self.semantic_matcher = semantic_matcher or SemanticRequirementMatcher()
+
     def evaluate_resume(
         self,
         *,
         content_json: dict[str, Any],
         rendered_text: str | None = None,
     ) -> DocumentQualityReport:
-        sections = content_json.get("sections", {})
+        sections = self._sections_with_quality_context(content_json)
         text = rendered_text or ""
+        sections["_rendered_text"] = text
 
         metrics = {
             "vacancy_alignment": self._score_vacancy_alignment(sections, max_score=25),
@@ -93,8 +101,9 @@ class DocumentQualityService:
         rendered_text: str | None = None,
         resume_text: str | None = None,
     ) -> DocumentQualityReport:
-        sections = content_json.get("sections", {})
+        sections = self._sections_with_quality_context(content_json)
         text = rendered_text or ""
+        sections["_rendered_text"] = text
 
         metrics = {
             "relevance": self._score_vacancy_alignment(sections, max_score=30),
@@ -113,16 +122,111 @@ class DocumentQualityService:
             sections=sections,
         )
 
+    def _sections_with_quality_context(self, content_json: dict[str, Any]) -> dict[str, Any]:
+        sections = dict(content_json.get("sections", {}) or {})
+        meta = dict(content_json.get("meta", {}) or {})
+        provenance = dict(content_json.get("provenance", {}) or {})
+
+        for key in (
+            "selected_evidence_ids",
+            "evidence_selection_reason",
+            "selected_evidence_reason",
+            "vacancy_evidence_alignment",
+            "top_alignment_evidence",
+        ):
+            if sections.get(key):
+                continue
+            value = meta.get(key)
+            if value is None:
+                value = provenance.get(key)
+            if value:
+                sections[key] = value
+
+        if not sections.get("selected_evidence_reason") and sections.get("evidence_selection_reason"):
+            sections["selected_evidence_reason"] = sections["evidence_selection_reason"]
+
+        return sections
+
     def _score_vacancy_alignment(self, sections: dict[str, Any], *, max_score: int) -> int:
-        matched = sections.get("matched_keywords") or []
-        missing = sections.get("missing_keywords") or []
+        matched = [
+            str(item).strip()
+            for item in sections.get("matched_keywords") or []
+            if str(item).strip()
+        ]
+        missing = [
+            str(item).strip()
+            for item in sections.get("missing_keywords") or []
+            if str(item).strip()
+        ]
 
         total = len(matched) + len(missing)
-        if total == 0:
-            return int(max_score * 0.4)
+        profile_signal_score = self._profile_signal_alignment_baseline(
+            sections=sections,
+            max_score=max_score,
+        )
 
-        ratio = len(matched) / total
-        return round(max_score * ratio)
+        if total == 0:
+            return profile_signal_score or int(max_score * 0.4)
+
+        semantic_terms = self._semantic_profile_terms(sections)
+
+        semantic_supported = 0
+        for keyword in missing:
+            if self._formal_requirement_requires_direct_evidence(keyword):
+                continue
+
+            match = self.semantic_matcher.match(keyword, semantic_terms)
+            if match.matched and match.confidence >= 0.70:
+                semantic_supported += 1
+
+        effective_matched = len(matched) + semantic_supported
+        ratio = effective_matched / total
+        semantic_score = round(max_score * ratio)
+        return max(semantic_score, profile_signal_score)
+
+    def _profile_signal_alignment_baseline(
+        self,
+        *,
+        sections: dict[str, Any],
+        max_score: int,
+    ) -> int:
+        skills = [
+            str(item).strip()
+            for item in sections.get("skills") or []
+            if str(item).strip()
+        ]
+        selected_achievements = [
+            item
+            for item in sections.get("selected_achievements") or []
+            if isinstance(item, dict) and str(item.get("title") or "").strip()
+        ]
+        evidence_reason = [
+            item
+            for item in sections.get("evidence_selection_reason")
+            or sections.get("selected_evidence_reason")
+            or []
+            if isinstance(item, dict)
+        ]
+        top_alignment_evidence = [
+            item
+            for item in sections.get("top_alignment_evidence") or []
+            if isinstance(item, dict)
+        ]
+
+        score = 0
+
+        if skills:
+            score += 2
+        if len(skills) >= 3:
+            score += 2
+        if selected_achievements:
+            score += 2
+        if evidence_reason or top_alignment_evidence:
+            score += 2
+
+        # Это именно baseline, не полноценное соответствие вакансии.
+        # Не даём ему превысить ~40% блока alignment.
+        return min(score, int(max_score * 0.4))
 
     def _score_evidence_density(self, sections: dict[str, Any], *, max_score: int) -> int:
         achievements = sections.get("selected_achievements") or []
@@ -495,6 +599,24 @@ class DocumentQualityService:
             "potential_gain": max(max_score - score, 0),
         }
 
+    def _raw_keyword_alignment_score(self, sections: dict[str, Any], *, max_score: int) -> int:
+        matched = [
+            str(item).strip()
+            for item in sections.get("matched_keywords") or []
+            if str(item).strip()
+        ]
+        missing = [
+            str(item).strip()
+            for item in sections.get("missing_keywords") or []
+            if str(item).strip()
+        ]
+
+        total = len(matched) + len(missing)
+        if total == 0:
+            return int(max_score * 0.4)
+
+        return round(max_score * (len(matched) / total))
+
     def _build_improvement_roadmap(
         self,
         *,
@@ -557,10 +679,18 @@ class DocumentQualityService:
     ) -> list[DocumentQualityRecommendation]:
         recommendations: list[DocumentQualityRecommendation] = []
 
-        if metrics.get("vacancy_alignment", 0) < 15:
-            missing_keywords = (
-                sections.get("missing_keywords")
-                or []
+        missing_keywords = sections.get("missing_keywords") or []
+        vacancy_gap_diagnostics = self._vacancy_gap_diagnostics(
+            missing_keywords,
+            sections=sections,
+        )
+        missing_count = int(vacancy_gap_diagnostics.get("missing_count") or 0)
+        alignment_score = int(metrics.get("vacancy_alignment") or 0)
+
+        if alignment_score < 18 or missing_count > 0:
+            raw_alignment_score = self._raw_keyword_alignment_score(
+                sections,
+                max_score=25,
             )
             rec = DocumentQualityRecommendation(
                 code="improve_vacancy_alignment",
@@ -572,16 +702,13 @@ class DocumentQualityService:
                 metric="vacancy_alignment",
                 impact=self._recommendation_impact(
                     metric="vacancy_alignment",
-                    score=metrics.get("vacancy_alignment", 0),
+                    score=raw_alignment_score,
                     max_score=25,
                 ),
             )
             if missing_keywords:
                 rec.details = {
-                    "vacancy_gap_diagnostics": self._vacancy_gap_diagnostics(
-                        missing_keywords,
-                        sections=sections,
-                    )
+                    "vacancy_gap_diagnostics": vacancy_gap_diagnostics
                 }
             rec.actions.extend(
                 [
@@ -913,6 +1040,7 @@ class DocumentQualityService:
                 gap["keyword"]
                 for gap in gaps
             ],
+            "missing_count": len(missing_keywords),
             "total_missing": len(missing_keywords),
             "priority": priority,
             "gaps": gaps,
@@ -965,99 +1093,6 @@ class DocumentQualityService:
             ),
             "matched_sources": [],
         }
-
-    def _gap_profile_match(
-        self,
-        keyword: str,
-        sections: dict[str, Any],
-    ) -> list[str]:
-        normalized_keyword = str(keyword or "").strip().casefold()
-        if not normalized_keyword:
-            return []
-
-        matched_sources: list[str] = []
-
-        def _append(source: str) -> None:
-            if source not in matched_sources:
-                matched_sources.append(source)
-
-        matched_keywords = [
-            str(item).strip().casefold()
-            for item in (sections.get("matched_keywords") or [])
-            if str(item).strip()
-        ]
-        if normalized_keyword in matched_keywords:
-            _append("matched_keywords")
-
-        skills = [
-            str(item).strip().casefold()
-            for item in (sections.get("skills") or [])
-            if str(item).strip()
-        ]
-        if normalized_keyword in skills:
-            _append("skills")
-
-        selected_achievements = [
-            item
-            for item in (sections.get("selected_achievements") or [])
-            if isinstance(item, dict)
-        ]
-        for item in selected_achievements:
-            blob = " ".join(
-                str(value or "").casefold()
-                for value in (
-                    item.get("title"),
-                    item.get("name"),
-                    item.get("text"),
-                    item.get("reason"),
-                    item.get("metric_text"),
-                    item.get("action"),
-                    item.get("result"),
-                )
-            )
-            if normalized_keyword in blob:
-                _append("selected_achievements")
-                break
-
-        top_alignment_evidence = [
-            item
-            for item in (sections.get("top_alignment_evidence") or [])
-            if isinstance(item, dict)
-        ]
-        for item in top_alignment_evidence:
-            blob = " ".join(
-                str(value or "").casefold()
-                for value in (
-                    item.get("title"),
-                    item.get("reason"),
-                    item.get("skills"),
-                    item.get("snippet_text"),
-                )
-            )
-            if normalized_keyword in blob:
-                _append("top_alignment_evidence")
-                break
-
-        evidence_relevance = [
-            item
-            for item in (sections.get("evidence_relevance") or [])
-            if isinstance(item, dict)
-        ]
-        for item in evidence_relevance:
-            blob = " ".join(
-                str(value or "").casefold()
-                for value in (
-                    item.get("title"),
-                    item.get("reason"),
-                    item.get("skills"),
-                    item.get("snippet_text"),
-                )
-            )
-            if normalized_keyword in blob:
-                _append("evidence_relevance")
-                break
-
-        return matched_sources
 
     def _gap_importance(self, keyword: str) -> str:
         text = keyword.lower()
@@ -1261,3 +1296,86 @@ class DocumentQualityService:
             for token in re.split(r"[^a-zа-яё0-9]+", text.casefold())
             if len(token) >= 4 and token not in stopwords
         }
+
+    def _semantic_profile_terms(self, sections: dict[str, Any]) -> list[str]:
+        terms: list[str] = []
+
+        rendered_text = str(sections.get("_rendered_text") or "").strip()
+        if rendered_text:
+            terms.append(rendered_text)
+
+        for key in (
+            "skills",
+            "matched_keywords",
+            "top_alignment_evidence",
+            "evidence_relevance",
+            "selected_evidence_reason",
+        ):
+            values = sections.get(key) or []
+            for item in values:
+                if isinstance(item, str):
+                    terms.append(item)
+                elif isinstance(item, dict):
+                    for field in (
+                        "title",
+                        "label",
+                        "keyword",
+                        "reason",
+                        "evidence",
+                        "snippet_text",
+                        "requirement",
+                    ):
+                        value = str(item.get(field) or "").strip()
+                        if value:
+                            terms.append(value)
+
+                    for skill in item.get("skills") or []:
+                        if str(skill).strip():
+                            terms.append(str(skill).strip())
+
+        for achievement in sections.get("selected_achievements") or []:
+            if not isinstance(achievement, dict):
+                continue
+            for field in (
+                "title",
+                "situation",
+                "task",
+                "action",
+                "result",
+                "metric_text",
+            ):
+                value = str(achievement.get(field) or "").strip()
+                if value:
+                    terms.append(value)
+
+        return self._dedupe_text_terms(terms)
+
+    def _dedupe_text_terms(self, values: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+
+        for value in values:
+            cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+            key = cleaned.casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(cleaned)
+
+        return result
+
+    def _formal_requirement_requires_direct_evidence(self, value: str) -> bool:
+        lowered = str(value or "").casefold().replace("ё", "е")
+        return any(
+            marker in lowered
+            for marker in (
+                "диплом",
+                "образование",
+                "сертификат",
+                "сертификация",
+                "аккредитация",
+                "лицензия",
+                "удостоверение",
+                "допуск",
+            )
+        )

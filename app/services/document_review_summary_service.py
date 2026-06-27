@@ -43,6 +43,12 @@ class DocumentReviewSummaryService:
             meta.get("evidence_selection_reason"),
             selected_achievements,
         )
+        selected_evidence = self._build_selected_evidence(
+            selected_achievements=selected_achievements,
+            selected_evidence_ids=selected_evidence_ids,
+            evidence_selection_reason=evidence_selection_reason,
+        )
+        matched_keywords = self._extract_matched_keywords(sections)
 
         provenance.setdefault("source", meta.get("source"))
         provenance.setdefault("generation_mode", content.get("draft_mode"))
@@ -71,7 +77,9 @@ class DocumentReviewSummaryService:
             "selected_achievement_ids": selected_achievement_ids,
             "selected_evidence_ids": selected_evidence_ids,
             "evidence_selection_reason": evidence_selection_reason,
-            "matched_keywords": sections.get("matched_keywords", []),
+            "selected_evidence": selected_evidence,
+            "unused_evidence": [],
+            "matched_keywords": matched_keywords,
             "missing_keywords": sections.get("missing_keywords", []),
             "selection_rationale": sections.get("selection_rationale", []),
             "provenance": provenance,
@@ -203,6 +211,149 @@ class DocumentReviewSummaryService:
                 }
             )
         return reasons
+
+    def _build_selected_evidence(
+        self,
+        *,
+        selected_achievements: list[dict],
+        selected_evidence_ids: list[str],
+        evidence_selection_reason: list[dict],
+    ) -> list[dict]:
+        achievements = [
+            item
+            for item in selected_achievements or []
+            if isinstance(item, dict)
+        ]
+        evidence_by_id = {
+            str(item.get("id") or "").strip(): item
+            for item in achievements
+            if str(item.get("id") or "").strip()
+        }
+
+        result: list[dict] = []
+        index_by_id: dict[str, int] = {}
+        index_by_title: dict[str, int] = {}
+
+        def append_item(
+            *,
+            evidence_id: str | None,
+            title: str | None,
+            reason: str | None,
+            fact_status: str | None,
+            source_type: str = "achievement",
+            metric_text: str | None = None,
+        ) -> None:
+            normalized_id = str(evidence_id or "").strip()
+            normalized_title = str(title or "").strip()
+            title_key = normalized_title.casefold()
+
+            if not normalized_id and not normalized_title:
+                return
+
+            existing_index = (
+                index_by_id.get(normalized_id)
+                if normalized_id
+                else None
+            )
+            if existing_index is None and title_key:
+                existing_index = index_by_title.get(title_key)
+
+            item = {
+                "id": normalized_id or normalized_title,
+                "title": normalized_title or normalized_id,
+                "source_type": source_type,
+                "reason": reason,
+                "fact_status": fact_status,
+                "metric_text": metric_text,
+            }
+
+            if existing_index is not None:
+                existing = result[existing_index]
+                for key, value in item.items():
+                    if value and (
+                        not existing.get(key)
+                        or key == "title"
+                        and str(existing.get(key) or "").strip() == normalized_id
+                    ):
+                        existing[key] = value
+                if title_key:
+                    index_by_title[title_key] = existing_index
+                return
+
+            result.append(item)
+            index = len(result) - 1
+            if normalized_id:
+                index_by_id[normalized_id] = index
+            if title_key:
+                index_by_title[title_key] = index
+
+        for evidence_id in selected_evidence_ids or []:
+            normalized_id = str(evidence_id or "").strip()
+            if not normalized_id:
+                continue
+            achievement = evidence_by_id.get(normalized_id, {})
+            append_item(
+                evidence_id=normalized_id,
+                title=achievement.get("title"),
+                reason=achievement.get("reason"),
+                fact_status=achievement.get("fact_status"),
+                metric_text=achievement.get("metric_text"),
+            )
+
+        for reason_item in evidence_selection_reason or []:
+            if not isinstance(reason_item, dict):
+                continue
+
+            evidence_id = str(reason_item.get("evidence_id") or "").strip()
+            achievement_id = str(reason_item.get("achievement_id") or "").strip()
+            title = str(reason_item.get("title") or reason_item.get("item") or "").strip()
+            achievement = (
+                evidence_by_id.get(evidence_id)
+                or evidence_by_id.get(achievement_id)
+                or {}
+            )
+
+            append_item(
+                evidence_id=evidence_id or achievement_id or title,
+                title=achievement.get("title") or title,
+                reason=reason_item.get("reason") or achievement.get("reason"),
+                fact_status=reason_item.get("fact_status") or achievement.get("fact_status"),
+                source_type=reason_item.get("source_type") or "achievement",
+                metric_text=achievement.get("metric_text"),
+            )
+
+        for achievement in achievements:
+            append_item(
+                evidence_id=str(achievement.get("id") or "").strip(),
+                title=str(achievement.get("title") or "").strip(),
+                reason=achievement.get("reason"),
+                fact_status=achievement.get("fact_status"),
+                metric_text=achievement.get("metric_text"),
+            )
+
+        return result
+
+    def _extract_matched_keywords(self, sections: dict) -> list[str]:
+        matched = self._dedupe_strings(sections.get("matched_keywords") or [])
+        if matched:
+            return matched
+
+        return self._dedupe_strings(sections.get("skills") or [])
+
+    @staticmethod
+    def _dedupe_strings(values) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+
+        for value in values or []:
+            normalized = str(value or "").strip()
+            key = normalized.casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(normalized)
+
+        return result
 
     @staticmethod
     def _confidence_item_from_selected_achievement(item: dict) -> dict:

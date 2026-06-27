@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from uuid import UUID
 
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 import streamlit as st
 
 from api_client import CareerCopilotApiClient
+from ui.navigation import navigate_to_mvp_step
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +61,118 @@ def _humanize_evidence_strength(value: Any) -> str:
         "medium": "частичное подтверждение",
         "weak": "слабое подтверждение",
     }.get(strength, "требует проверки")
+
+
+def _is_uuid_like(value: Any) -> bool:
+    try:
+        UUID(str(value or "").strip())
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _human_text_from_mapping(item: dict[str, Any]) -> str:
+    for key in (
+        "title",
+        "name",
+        "text",
+        "snippet_text",
+        "metric_text",
+        "result",
+        "description",
+        "skills",
+        "skills_json",
+    ):
+        raw_value = item.get(key)
+        if isinstance(raw_value, list):
+            for skill in raw_value:
+                value = _clean_evidence_title(skill)
+                if value:
+                    return value
+            continue
+        value = _clean_evidence_title(item.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _clean_evidence_title(value: Any) -> str:
+    title = str(value or "").strip()
+    if not title or _is_uuid_like(title):
+        return ""
+
+    lowered = title.casefold()
+    if lowered in {
+        "technology stack from resume",
+        "skills from resume",
+        "resume technology stack",
+    }:
+        return ""
+
+    for separator in (" - ", " — ", " – "):
+        if separator in title:
+            parts = [
+                part.strip()
+                for part in title.split(separator)
+                if part.strip() and not _is_uuid_like(part)
+            ]
+            if parts:
+                return parts[0]
+
+    return title
+
+
+def _warning_message(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(
+            value.get("message")
+            or value.get("detail")
+            or value.get("title")
+            or value.get("code")
+            or ""
+        ).strip()
+    return str(value or "").strip()
+
+
+def _dedupe_mappings_by_title_or_id(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    index_by_id: dict[str, int] = {}
+    index_by_title: dict[str, int] = {}
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = _human_text_from_mapping(item)
+        item_id = str(item.get("id") or item.get("evidence_id") or "").strip()
+        title_key = title.casefold()
+        if not item_id and not title_key:
+            continue
+
+        existing_index = index_by_id.get(item_id) if item_id else None
+        if existing_index is None and title_key:
+            existing_index = index_by_title.get(title_key)
+
+        if existing_index is not None:
+            existing = result[existing_index]
+            for key, value in item.items():
+                if value and (
+                    not existing.get(key)
+                    or key == "title"
+                    and _is_uuid_like(existing.get(key))
+                ):
+                    existing[key] = value
+            if title_key:
+                index_by_title[title_key] = existing_index
+            continue
+
+        result.append(item)
+        index = len(result) - 1
+        if item_id:
+            index_by_id[item_id] = index
+        if title_key:
+            index_by_title[title_key] = index
+
+    return result
 
 
 def _humanize_selection_reason(reason: Any) -> str:
@@ -283,7 +397,7 @@ def _find_rationale_for_item(
 
 
 def _humanize_readiness_message(message: Any) -> str:
-    text = str(message or "").strip()
+    text = _warning_message(message)
     lowered = text.casefold()
     if not text:
         return "—"
@@ -976,7 +1090,7 @@ def _render_confidence_risk_panel(summary: dict[str, Any]) -> None:
         if label and label not in risk_signals:
             risk_signals.append(label)
     for warning in warnings:
-        label = _risk_item_label(warning)
+        label = _risk_item_label(_warning_message(warning))
         if label and label not in risk_signals:
             risk_signals.append(label)
 
@@ -1080,6 +1194,9 @@ def _render_selected_achievements_panel(summary: dict[str, Any]) -> None:
     selected_achievements = summary.get("selected_achievements") or []
     rationale_items = summary.get("selection_rationale") or []
 
+    if summary.get("selected_evidence"):
+        return
+
     st.markdown("#### Выбранные достижения")
     if not selected_achievements:
         st.caption("Выбранных достижений нет.")
@@ -1121,12 +1238,24 @@ def _render_evidence_used_panel(
     summary: dict[str, Any],
     token: str | None,
 ) -> None:
+    selected_evidence = [
+        item
+        for item in (summary.get("selected_evidence") or [])
+        if isinstance(item, dict)
+    ]
     selected_evidence_ids = [
         str(value).strip()
         for value in (summary.get("selected_evidence_ids") or [])
         if str(value).strip()
     ]
-    if not selected_evidence_ids:
+    if not selected_evidence_ids and selected_evidence:
+        selected_evidence_ids = [
+            str(item.get("id") or "").strip()
+            for item in selected_evidence
+            if str(item.get("id") or "").strip()
+        ]
+
+    if not selected_evidence_ids and not selected_evidence:
         st.markdown("#### Использованные доказательства")
         st.caption("Для этого документа пока не привязаны подтверждённые доказательства.")
         return
@@ -1141,19 +1270,35 @@ def _render_evidence_used_panel(
 
     rows: list[dict[str, Any]] = []
     detail_rows: list[dict[str, Any]] = []
-    for evidence_id in selected_evidence_ids:
+    evidence_items = _dedupe_mappings_by_title_or_id(selected_evidence or [
+        {"id": evidence_id}
+        for evidence_id in selected_evidence_ids
+    ])
+
+    for evidence_item in evidence_items:
+        evidence_id = str(evidence_item.get("id") or "").strip()
         achievement = achievements_by_id.get(evidence_id, {})
+        snippet: dict[str, Any] = {}
+        if evidence_id:
+            try:
+                snippet = client.get_evidence_snippet(evidence_id, token=token)
+            except Exception:
+                snippet = {}
+
         title = (
-            achievement.get("title")
-            or achievement.get("text")
-            or achievement.get("name")
+            _human_text_from_mapping(evidence_item)
+            or _human_text_from_mapping(snippet)
+            or _human_text_from_mapping(achievement)
             or "Подтверждённый опыт"
         )
-        reason = str(achievement.get("reason") or "").strip()
+        reason = str(evidence_item.get("reason") or achievement.get("reason") or "").strip()
         if not reason:
             reason = _find_rationale_for_item(str(title), rationale_items) or "—"
 
-        fact_status = str(achievement.get("fact_status") or "").strip() or "—"
+        fact_status = (
+            str(evidence_item.get("fact_status") or achievement.get("fact_status") or "").strip()
+            or "—"
+        )
         rows.append(
             {
                 "Опыт": title,
@@ -1166,12 +1311,11 @@ def _render_evidence_used_panel(
             "evidence_id": evidence_id,
             "title": title,
             "reason": reason,
+            "fact_status": fact_status,
+            "metric_text": evidence_item.get("metric_text"),
+            "source_type": evidence_item.get("source_type"),
         }
-        try:
-            snippet = client.get_evidence_snippet(evidence_id, token=token)
-        except Exception as exc:
-            detail_row["lookup_error"] = str(exc)
-        else:
+        if snippet:
             detail_row["evidence_strength"] = snippet.get("evidence_strength") or "—"
             detail_row["fact_status"] = snippet.get("fact_status") or fact_status
             detail_row["usage_count"] = snippet.get("usage_count", 0)
@@ -1206,24 +1350,35 @@ def _render_evidence_used_panel(
         all_snippets = []
 
     selected_ids = set(selected_evidence_ids)
-    unused_rows = [
+    selected_titles = {
+        str(detail.get("title") or "").strip().casefold()
+        for detail in detail_rows
+        if str(detail.get("title") or "").strip()
+    }
+    unused_rows = _dedupe_mappings_by_title_or_id([
         item
         for item in all_snippets
         if isinstance(item, dict)
         and str(item.get("id") or "").strip()
+        and _human_text_from_mapping(item)
         and str(item.get("id") or "").strip() not in selected_ids
-    ]
+        and _human_text_from_mapping(item).casefold() not in selected_titles
+    ])
 
     st.markdown("#### Что не было использовано")
     if not unused_rows:
         st.caption("Неприменённых проектных доказательств для этого документа не найдено.")
     else:
         for item in unused_rows[:5]:
-            title = item.get("title") or "Подтверждающий опыт"
+            title = _human_text_from_mapping(item) or "Подтверждающий опыт"
             st.markdown(f"- **{title}**")
             st.caption(f"Причина: {_unused_reason(item, focus=focus)}")
 
     with st.expander("Почему система так решила", expanded=False):
+        st.caption(
+            "Для документа были выбраны наиболее релевантные подтверждённые достижения, "
+            "которые лучше всего покрывают требования вакансии."
+        )
         for detail in detail_rows:
             with st.container(border=True):
                 st.markdown(f"**{detail.get('title') or 'Подтверждённый опыт'}**")
@@ -1493,9 +1648,10 @@ def _render_action_bar(
         key_suffix=key_suffix,
     )
 
-    st.caption(
-        "Чтобы продолжить процесс, нужно отдельно выбрать "
-        "резюме и сопроводительное письмо."
+    st.info(
+        "Важно: чтобы перейти дальше, нужно выбрать два документа отдельно: "
+        "резюме и сопроводительное письмо. "
+        "После выбора первого документа система предложит выбрать второй."
     )
 
     col_approve, col_enhance, col_back = st.columns(3)
@@ -1559,12 +1715,10 @@ def _render_action_bar(
                 st.session_state["application"] = None
                 st.session_state["interview_session"] = None
                 st.session_state["interview_answers_result"] = None
-                st.session_state["mvp_force_open_step"] = 9
-                st.session_state["pending_navigation_page"] = "MVP-сценарий"
                 _return_to_document_selector(selection_state_key, document_kind)
                 st.success("Документ утверждён. Экспорт доступен ниже.")
                 _render_workflow_selection_status()
-            st.rerun()
+                navigate_to_mvp_step(9)
 
     if use_draft_clicked:
         document_payload = {
@@ -1582,13 +1736,11 @@ def _render_action_bar(
         st.session_state["application"] = None
         st.session_state["interview_session"] = None
         st.session_state["interview_answers_result"] = None
-        st.session_state["mvp_force_open_step"] = 9
-        st.session_state["pending_navigation_page"] = "MVP-сценарий"
 
         st.success("Документ выбран как черновик. Отклик будет создан с пометкой «требует проверки».")
         _render_workflow_selection_status()
         _return_to_document_selector(selection_state_key, document_kind)
-        st.rerun()
+        navigate_to_mvp_step(9)
 
     if enhance_clicked:
         if document_kind == "resume":
@@ -1656,7 +1808,7 @@ def render_document_review_workspace(
         return
 
     try:
-        summary = client.get_document_review_summary(document_id, token=token)
+        summary = client.get_document_review_details(document_id, token=token)
     except Exception as exc:
         st.error(f"Не удалось загрузить сводку проверки: {exc}")
         summary = {}

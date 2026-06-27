@@ -392,6 +392,10 @@ class CareerCopilotApiClient:
             token=token,
         )
 
+    def get_document_review_details(self, document_id: str | None, token: str | None = None) -> dict[str, Any]:
+        cleaned_document_id = self._require_entity_id(document_id)
+        return self.get_json(f"/documents/{cleaned_document_id}/review-summary", token=token)
+
     def get_review_summary(
         self,
         *,

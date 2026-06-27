@@ -1,3 +1,5 @@
+# frontend\streamlit\components\interview_prep_formatters.py
+
 from __future__ import annotations
 
 import re
@@ -282,3 +284,30 @@ def _format_session_cleanup_label(
         f"{index}. {prep_status} · {readiness} · app …{app_suffix} · "
         f"{created_date} · {session_id[:8]}{current_marker}"
     )
+
+
+def _compact_interview_label(value: Any, *, max_length: int = 88) -> str:
+    text = _humanize_display_text(value).strip()
+    if not text:
+        return "—"
+
+    lowered = text.casefold()
+
+    shortcut_rules = [
+        ("диплом о высшем медицинском образовании", "Высшее медицинское образование"),
+        ("действующий сертификат", "Действующий сертификат / аккредитация"),
+        ("свидетельство аккредитации", "Действующий сертификат / аккредитация"),
+        ("предрейсов", "Предрейсовые / послерейсовые осмотры"),
+        ("послерейсов", "Предрейсовые / послерейсовые осмотры"),
+        ("медицинского освидетельствования", "Медицинское освидетельствование"),
+        ("пользователь пк", "Пользователь ПК"),
+    ]
+
+    for needle, label in shortcut_rules:
+        if needle in lowered:
+            return label
+
+    if len(text) <= max_length:
+        return text
+
+    return text[: max_length - 1].rstrip(" .,;:") + "…"

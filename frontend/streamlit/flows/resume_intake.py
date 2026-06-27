@@ -9,6 +9,7 @@ import httpx
 import streamlit as st
 
 from api_client import CareerCopilotApiClient
+from ui.navigation import navigate_to_mvp_step
 from ui.state import (
     _reset_downstream_resume_state,
     _split_csv,
@@ -33,6 +34,16 @@ def _restore_resume_pipeline_state(client: CareerCopilotApiClient, token: str | 
             restored = True
 
     return restored
+
+
+def _next_step_after_resume_reuse() -> int:
+    if st.session_state.get("achievements"):
+        return 5
+    if st.session_state.get("structured_profile"):
+        return 4
+    if st.session_state.get("resume_import"):
+        return 3
+    return 2
 
 
 def _humanize_achievement_evidence_note(
@@ -89,9 +100,9 @@ def _use_active_resume_and_continue(
     if not restored and not st.session_state.get("resume_import"):
         _reset_downstream_resume_state()
     st.session_state["reuse_existing_resume"] = True
-    st.session_state["mvp_force_open_step"] = 2
+    next_step = _next_step_after_resume_reuse()
     st.success("Активное резюме выбрано. Можно продолжать.")
-    st.rerun()
+    navigate_to_mvp_step(next_step)
 
 
 def render_resume_upload_step(

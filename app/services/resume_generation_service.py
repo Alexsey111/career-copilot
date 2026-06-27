@@ -42,11 +42,13 @@ from app.services.document_compat import (
 )
 from app.services.document_feedback import build_claim, build_warning
 from app.services.document_builders import build_resume_content
+from app.services.document_evidence_selection_service import DocumentEvidenceSelectionService
 from app.services.evidence_bank_service import EVIDENCE_BANK_SOURCE_TYPES, EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
 from app.services.profile_structuring_service import ProfileStructuringService
 from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryService
+from app.services.semantic_requirement_matcher import SemanticRequirementMatcher
 from app.services.resume_renderer import render_resume
 from app.services.vacancy_fit_context_service import VacancyFitContextService
 from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
@@ -330,6 +332,8 @@ class ResumeGenerationService:
         )
         self.achievement_verbalizer = AchievementVerbalizer()
         self.narrative_builder = NarrativeBuilder()
+        self.semantic_matcher = SemanticRequirementMatcher()
+        self.document_evidence_selection_service = DocumentEvidenceSelectionService()
 
     async def generate_resume(
         self,
@@ -541,6 +545,15 @@ class ResumeGenerationService:
             evidence_snippets=evidence_snippets,
             experience_items=experience_items,
         )
+        document_evidence_selection = (
+            self.document_evidence_selection_service.build_from_document_parts(
+                selected_achievements=selected_achievements,
+                selected_evidence_ids=selected_evidence_ids,
+                evidence_selection_reason=selected_evidence_reason,
+                vacancy_evidence_alignment=tailoring["vacancy_evidence_alignment"],
+                top_alignment_evidence=tailoring["top_alignment_evidence"],
+            )
+        )
 
         vacancy_fit_context = VacancyFitContextService().build(
             matched_keywords=matched_keywords,
@@ -651,7 +664,7 @@ class ResumeGenerationService:
             education=education_items,
             courses=course_items,
             internships=internship_items,
-            selected_achievements=selected_achievements,
+            selected_achievements=document_evidence_selection.selected_achievements,
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
             matched_requirements=analysis.strengths_json,
@@ -661,14 +674,21 @@ class ResumeGenerationService:
             warnings=warnings,
             source="hybrid" if use_ai_enhancement else "extracted",
             based_on_achievements=[
-                item["id"] for item in selected_achievements if item.get("id")
+                item["id"]
+                for item in document_evidence_selection.selected_achievements
+                if item.get("id")
             ],
             selected_achievement_ids=[
-                item["id"] for item in selected_achievements if item.get("id")
+                item["id"]
+                for item in document_evidence_selection.selected_achievements
+                if item.get("id")
             ],
             based_on_analysis_id=str(analysis.id),
-            selected_evidence_ids=selected_evidence_ids,
-            evidence_selection_reason=selected_evidence_reason or selection_rationale,
+            selected_evidence_ids=document_evidence_selection.selected_evidence_ids,
+            evidence_selection_reason=(
+                document_evidence_selection.evidence_selection_reason
+                or selection_rationale
+            ),
             confidence=confidence_assessment.confidence,
             confidence_level=confidence_assessment.confidence_level.value,
             generation_prompt_version=(
@@ -2496,21 +2516,31 @@ class ResumeGenerationService:
         requires_direct_evidence = self._requires_direct_competency_evidence(
             competency
         )
-        best: tuple[int, dict[str, Any]] | None = None
-        fallback_best: tuple[int, dict[str, Any]] | None = None
+        best: tuple[float, dict[str, Any]] | None = None
+        fallback_best: tuple[float, dict[str, Any]] | None = None
+
         for snippet in evidence_snippets:
-            text = " ".join(
-                [
-                    str(snippet.get("title") or ""),
-                    str(snippet.get("snippet_text") or ""),
-                    " ".join(str(skill) for skill in snippet.get("skills") or []),
-                ]
-            ).lower()
-            score = sum(1 for token in competency_tokens if token in text)
+            candidate_terms = [
+                str(snippet.get("title") or ""),
+                str(snippet.get("snippet_text") or ""),
+                *[str(skill) for skill in snippet.get("skills") or []],
+            ]
+            text = " ".join(candidate_terms).lower()
+
+            score = float(sum(1 for token in competency_tokens if token in text))
             marker_score = sum(
                 1 for marker in competency_markers if marker in text
             )
-            if competency_markers and marker_score <= 0:
+
+            semantic_result = self.semantic_matcher.match(
+                competency,
+                candidate_terms,
+            )
+            semantic_score = 0.0
+            if semantic_result.matched:
+                semantic_score = semantic_result.confidence * 5.0
+
+            if competency_markers and marker_score <= 0 and not semantic_score:
                 if requires_direct_evidence:
                     continue
                 if score > 0 and (
@@ -2520,14 +2550,17 @@ class ResumeGenerationService:
                 continue
 
             score += marker_score * 4
+            score += semantic_score
             score += self._category_competency_bonus(
                 competency=competency,
                 evidence=snippet,
             )
             if score <= 0:
                 continue
+
             if best is None or score > best[0]:
                 best = (score, snippet)
+
         if best:
             return best[1]
         if requires_direct_evidence:
