@@ -296,6 +296,12 @@ class CoverLetterHumanizer:
     def polish_section(self, value: str) -> str:
         cleaned = re.sub(r"[ \t]+", " ", str(value or "")).strip()
         cleaned = re.sub(r"\s+([,.!?;:])", r"\1", cleaned)
+        gender = self.candidate_gender(full_name=None, text=cleaned)
+        if gender == "female":
+            cleaned = cleaned.replace(
+                "Отдельно готов обсудить план быстрого погружения:",
+                "Отдельно готова обсудить план быстрого погружения:",
+            )
         return cleaned
 
     def polish_sections(

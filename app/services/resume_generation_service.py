@@ -40,6 +40,7 @@ from app.services.document_compat import (
     ensure_keyword_set,
     ensure_selected_achievement,
 )
+from app.services.document_evidence_guards import filter_user_facing_achievements
 from app.services.document_feedback import build_claim, build_warning
 from app.services.document_builders import build_resume_content
 from app.services.document_evidence_selection_service import DocumentEvidenceSelectionService
@@ -554,6 +555,9 @@ class ResumeGenerationService:
                 top_alignment_evidence=tailoring["top_alignment_evidence"],
             )
         )
+        user_facing_selected_achievements = filter_user_facing_achievements(
+            document_evidence_selection.selected_achievements
+        )
 
         vacancy_fit_context = VacancyFitContextService().build(
             matched_keywords=matched_keywords,
@@ -568,8 +572,10 @@ class ResumeGenerationService:
             profile=profile,
             vacancy_title=vacancy.title,
             selected_skills=selected_skills,
-            selected_achievements=selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
             matched_keywords=matched_keywords,
+            top_alignment_evidence=tailoring["top_alignment_evidence"],
+            vacancy_aligned_summary=tailoring["vacancy_aligned_summary"],
         )
 
         claims_needing_confirmation = self._build_claims_needing_confirmation(
@@ -613,14 +619,14 @@ class ResumeGenerationService:
             missing_keywords=missing_keywords,
         )
 
-        selected_achievements = self.narrative_builder.add_project_narratives(
-            selected_achievements
+        user_facing_selected_achievements = self.narrative_builder.add_project_narratives(
+            user_facing_selected_achievements
         )
 
         project_sections: list[dict[str, Any]] = []
         if not experience_items:
             project_sections = self.narrative_builder.build_project_sections(
-                selected_achievements
+                user_facing_selected_achievements
             )
         education_items = self._build_education_items(
             profile,
@@ -664,7 +670,7 @@ class ResumeGenerationService:
             education=education_items,
             courses=course_items,
             internships=internship_items,
-            selected_achievements=document_evidence_selection.selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
             matched_requirements=analysis.strengths_json,
@@ -1713,6 +1719,8 @@ class ResumeGenerationService:
         selected_skills: list[str],
         selected_achievements: list[dict],
         matched_keywords: list[str],
+        top_alignment_evidence: list[dict[str, Any]],
+        vacancy_aligned_summary: str,
     ) -> list[str]:
         bullets: list[str] = []
         clean_title = clean_vacancy_title(vacancy_title)
@@ -1722,13 +1730,28 @@ class ResumeGenerationService:
                 f"Профессиональный фокус: {self._normalize_profile_focus(profile.headline)}."
             )
 
-        if matched_keywords:
+        alignment_phrases = [
+            str(item.get("summary_phrase") or "").strip()
+            for item in top_alignment_evidence
+            if str(item.get("summary_phrase") or "").strip()
+        ]
+        alignment_phrases = self._dedupe_preserve_order(alignment_phrases)
+
+        if alignment_phrases:
+            bullets.append(
+                "Ключевой профиль опыта: "
+                + ", ".join(alignment_phrases[:3])
+                + "."
+            )
+        elif vacancy_aligned_summary:
+            bullets.append(vacancy_aligned_summary)
+        elif matched_keywords and not alignment_phrases:
             bullets.append(
                 f"Опыт, релевантный позиции {clean_title}: "
                 f"{', '.join(matched_keywords[:6])}."
             )
 
-        if selected_skills:
+        if selected_skills and not alignment_phrases:
             bullets.append(
                 f"Дополнительные навыки из резюме: {', '.join(selected_skills[:8])}."
             )
@@ -2183,7 +2206,7 @@ class ResumeGenerationService:
             selected_achievements=selected_achievements,
         )
         focus_limit = 4 if is_supply_management_context else 3
-        focus = format_summary_focus_phrases(focus_phrases[:focus_limit])
+        focus = self._render_resume_summary_focus(focus_phrases[:focus_limit])
 
         # PR-38: Универсальный шаблон summary на основе стажа
         total_years = self._calculate_total_experience_years(experience_items)
@@ -2200,9 +2223,9 @@ class ResumeGenerationService:
                 years_text = f"{total_years} год"
             elif total_years % 10 in [2, 3, 4] and total_years % 100 not in [12, 13, 14]:
                 years_text = f"{total_years} года"
-            summary_start = f"{summary_role} с опытом более {years_text} в сфере {focus}."
+            summary_start = f"{summary_role} с опытом более {years_text} в {focus}."
         else:
-            summary_start = f"{summary_role} с опытом {focus}."
+            summary_start = f"{summary_role} с опытом в {focus}."
 
         achievement_sentence = self._build_resume_achievement_sentence(
             selected_achievements,
@@ -2226,6 +2249,58 @@ class ResumeGenerationService:
                 "ускорение ",
             )
         )
+
+    def _render_resume_summary_focus(self, focus_phrases: list[str]) -> str:
+        phrases = [
+            self._resume_summary_focus_phrase(value)
+            for value in focus_phrases
+            if str(value or "").strip()
+        ]
+        phrases = self._dedupe_preserve_order([item for item in phrases if item])
+
+        if not phrases:
+            return "релевантных профессиональных задач"
+        if len(phrases) == 1:
+            return phrases[0]
+        if len(phrases) == 2:
+            return f"{phrases[0]} и {phrases[1]}"
+        return f"{', '.join(phrases[:-1])} и {phrases[-1]}"
+
+    def _resume_summary_focus_phrase(self, value: str) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        if not text:
+            return ""
+
+        replacements = {
+            "управление ": "управлении ",
+            "координация ": "координации ",
+            "планирование ": "планировании ",
+            "ведение ": "ведении ",
+            "взаимодействие ": "взаимодействии ",
+            "организация ": "организации ",
+            "контроль ": "контроле ",
+            "разработка ": "разработке ",
+            "настройка ": "настройке ",
+            "интеграция ": "интеграции ",
+            "подготовка ": "подготовке ",
+            "сопровождение ": "сопровождении ",
+            "анализ ": "анализе ",
+        }
+
+        lowered = text.casefold()
+        for source, target in replacements.items():
+            if lowered.startswith(source):
+                text = target + text[len(source):]
+                break
+
+        text = re.sub(
+            r"\bкоманды\s+(\d+)\s+человек\b",
+            r"команды до \1 человек",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        return text[:1].lower() + text[1:]
 
     def _build_supply_management_summary(
         self,

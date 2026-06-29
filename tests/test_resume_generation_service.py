@@ -653,7 +653,7 @@ CorelDRAW
         "Брендинг",
     ]
     assert summary.startswith(
-        "Графический дизайнер с опытом более 5 лет в сфере "
+        "Графический дизайнер с опытом более 5 лет в "
         "графического дизайна, подготовки макетов к печати "
         "и работы с графическими редакторами."
     )
@@ -756,6 +756,11 @@ def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
             }
         ],
         matched_keywords=["Python"],
+        top_alignment_evidence=[
+            {"summary_phrase": "ведение проектной документации"},
+            {"summary_phrase": "коммерческие проекты"},
+        ],
+        vacancy_aligned_summary="Внедрял процессы и координировал проекты.",
     )
 
     joined = "\n".join(bullets)
@@ -763,8 +768,11 @@ def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
     assert "Профессиональный фокус" in joined
     assert "Python Automation & AI Workflow Engineer" not in joined
     assert "devloher" not in joined
-    assert "Опыт, релевантный позиции" in joined
-    assert "Дополнительные навыки" in joined
+    assert "Ключевой профиль опыта" in joined
+    assert "ведение проектной документации" in joined
+    assert "коммерческие проекты" in joined
+    assert "Опыт, релевантный позиции" not in joined
+    assert "Дополнительные навыки" not in joined
     assert "Профессиональный результат для отклика" in joined
     assert "Подтверждённые пересечения" not in joined
     assert "Подтверждённый профессиональный опыт" not in joined
@@ -774,6 +782,39 @@ def test_resume_summary_bullets_are_russian_and_not_internal_copy() -> None:
     assert "Broader skill base" not in joined
     assert "Relevant project experience" not in joined
     assert "Recent role" not in joined
+
+
+def test_summary_bullets_prefer_top_alignment_evidence() -> None:
+    service = ResumeGenerationService()
+
+    profile = SimpleNamespace(
+        headline="Project Manager",
+    )
+
+    bullets = service._build_summary_bullets(
+        profile=profile,
+        vacancy_title="Руководитель проектов",
+        selected_skills=["Agile", "Jira"],
+        selected_achievements=[
+            {
+                "title": "Запустила 8 проектов в срок",
+                "fact_status": "confirmed",
+                "reason": "confirmed_profile",
+            }
+        ],
+        matched_keywords=["Agile", "Jira"],
+        top_alignment_evidence=[
+            {"summary_phrase": "ведение проектной документации"},
+            {"summary_phrase": "управление коммерческими проектами"},
+        ],
+        vacancy_aligned_summary="fallback summary",
+    )
+
+    joined = " ".join(bullets).lower()
+
+    assert "ведение проектной документации" in joined
+    assert "управление коммерческими проектами" in joined
+    assert "fallback summary" not in joined
 
 
 def test_normalize_profile_focus_does_not_invent_ai_role_label() -> None:
@@ -2481,42 +2522,42 @@ def test_resume_vacancy_summary_builds_human_narrative_for_legal_and_medical_rol
 
     # PR-38: Summary без стажа т.к. нет дат в experience_items
     assert accounting_summary.startswith(
-        "Бухгалтер с опытом ведения первичной бухгалтерской документации, "
-        "работы с актами и счетами, "
-        "сверки взаиморасчётов с контрагентами."
+        "Бухгалтер с опытом в ведении первичной бухгалтерской документации "
     )
+    assert "Работа с актами, счетами, накладными и счетами-фактурами" in accounting_summary
+    assert "Сверка взаиморасчётов с контрагентами" in accounting_summary
     assert "Ведение первичной бухгалтерской документации Работа с актами" not in accounting_summary
 
     assert supervisor_summary.startswith(
-        "Супервайзер по мерчандайзингу с опытом управления сменой 25 сотрудников, "
-        "контроля приёмки и отгрузки, "
-        "работы с планограммами."
+        "Супервайзер по мерчандайзингу с опытом в управлении сменой 25 сотрудников "
     )
+    assert "Контроль приёмки и отгрузки" in supervisor_summary
+    assert "Работа с планограммами" in supervisor_summary
     assert "Управление сменой 25 сотрудников Контроль" not in supervisor_summary
 
     assert warehouse_summary.startswith(
-        "Кладовщик с опытом организации складских процессов, "
-        "приёмки и отгрузки товаров, "
-        "комплектации заказов."
+        "Кладовщик с опытом в организации складских процессов "
     )
+    assert "Приёмка и отгрузка товаров" in warehouse_summary
+    assert "Комплектация заказов" in warehouse_summary
     assert "Организация складских процессов Приёмка" not in warehouse_summary
 
     assert logistics_summary.startswith(
-        "Логист с опытом планирования маршрутов, "
-        "координации доставки, "
-        "взаимодействия с перевозчиками."
+        "Логист с опытом в планировании маршрутов "
     )
+    assert "Координация доставки" in logistics_summary
+    assert "Взаимодействие с перевозчиками" in logistics_summary
     assert "Планирование маршрутов Координация" not in logistics_summary
 
     assert legal_summary.startswith(
-        "Юрист с опытом подготовки договоров, судебного сопровождения и консультирования клиентов."
+        "Юрист с опытом в подготовке договоров, судебное сопровождение и консультирование клиентов."
     )
     assert "За время работы подготовила более 250 договоров." in legal_summary
     assert "Подготовка договоров Судебное сопровождение" not in legal_summary
     assert "Среди подтверждённых результатов" not in legal_summary
 
     assert medical_summary.startswith(
-        "Врач-терапевт с опытом диагностики пациентов, назначения лечения и ведения медицинской документации."
+        "Врач-терапевт с опытом в диагностика пациентов, назначение лечения и ведении медицинской документации."
     )
     assert "За время работы провёл более 5000 консультаций." in medical_summary
     assert "Диагностика пациентов Назначение лечения" not in medical_summary

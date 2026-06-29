@@ -649,7 +649,21 @@ def test_technical_question_cleans_generic_vacancy_word_from_title() -> None:
 
     assert prompt == (
         "Расскажите о практическом опыте по направлению "
-        "«обслуживание инженерных систем» для позиции «Сантехник»."
+        "«Обслуживание инженерных систем» для позиции «Сантехник»."
+    )
+
+
+def test_technical_question_uses_canonical_question_label() -> None:
+    service = InterviewQuestionService()
+
+    prompt = service._technical_question_prompt(
+        skill_label="Коммерческие проекты",
+        vacancy_title="Project Manager",
+    )
+
+    assert prompt == (
+        "Расскажите о практическом опыте по направлению "
+        "«Опыт управления коммерческими проектами» для позиции «Project Manager»."
     )
 
 

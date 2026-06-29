@@ -7,9 +7,33 @@ from typing import Any
 from app.schemas.json_contracts import ClaimItem, WarningItem
 from app.domain.document_models import SelectedAchievement
 from app.services.document_validation_service import validate_document_content
-from app.services.document_serialization import to_jsonable, serialize_achievement
+from app.services.document_serialization import to_jsonable
 from app.domain.trace_models import GenerationTrace
 from app.services.trace_serialization import serialize_trace
+
+
+def _normalize_document_fact_status(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"confirmed", "user_provided"}:
+        return "confirmed"
+    if normalized in {"needs_confirmation", "partial", "pending"}:
+        return "needs_confirmation"
+    if normalized == "inferred":
+        return "inferred"
+    return "needs_confirmation"
+
+
+def _normalize_fact_statuses_in_items(items: list[dict]) -> list[dict]:
+    normalized_items: list[dict] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        normalized["fact_status"] = _normalize_document_fact_status(
+            normalized.get("fact_status")
+        )
+        normalized_items.append(normalized)
+    return normalized_items
 
 
 def build_document_provenance(
@@ -98,6 +122,10 @@ def build_resume_content(
         generated_at=generated_at,
     )
 
+    normalized_selected_achievements = _normalize_fact_statuses_in_items(
+        to_jsonable(selected_achievements)
+    )
+
     payload = {
         "document_kind": "resume",
         "draft_mode": draft_mode,
@@ -118,10 +146,7 @@ def build_resume_content(
             "courses": to_jsonable(courses or []),
             "internships": to_jsonable(internships or []),
             "project_sections": to_jsonable(project_sections or []),
-            "selected_achievements": [
-                serialize_achievement(item)
-                for item in selected_achievements
-            ],
+            "selected_achievements": normalized_selected_achievements,
             "matched_keywords": matched_keywords,
             "missing_keywords": missing_keywords,
             "matched_requirements": to_jsonable(matched_requirements),
@@ -198,6 +223,10 @@ def build_cover_letter_content(
         generated_at=generated_at,
     )
 
+    normalized_selected_achievements = _normalize_fact_statuses_in_items(
+        to_jsonable(selected_achievements)
+    )
+
     payload = {
         "document_kind": "cover_letter",
         "draft_mode": draft_mode,
@@ -213,10 +242,7 @@ def build_cover_letter_content(
             "missing_keywords": missing_keywords,
             "matched_requirements": to_jsonable(matched_requirements),
             "gap_requirements": to_jsonable(gap_requirements),
-            "selected_achievements": [
-                serialize_achievement(item)
-                for item in selected_achievements
-            ],
+            "selected_achievements": normalized_selected_achievements,
             "claims_needing_confirmation": to_jsonable(claims_needing_confirmation),
             "warnings": to_jsonable(warnings),
         },

@@ -985,7 +985,21 @@ def _confidence_item_label(value: Any) -> str:
         return "Опыт работы с серверным слоем данных подтверждён"
     if any(token in lowered for token in ("docker", "github", "repository", "git")):
         return "Инженерные артефакты проекта подтверждены"
-    return f"Подтверждено: {text}"
+    return f"Подтверждено: {_canonical_review_label(text)}"
+
+
+def _canonical_review_label(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    lowered = text.casefold()
+    replacements = {
+        "коммерческие проекты": "Опыт управления коммерческими проектами",
+        "жилые проекты": "Опыт управления жилыми проектами",
+    }
+
+    return replacements.get(lowered, text)
 
 
 def _risk_item_label(value: Any) -> str:
@@ -1038,7 +1052,7 @@ def _risk_item_label(value: Any) -> str:
         return "Лидерство и управленческая ответственность не подтверждены"
     if any(token in lowered for token in ("postgresql", "redis", "database")):
         return "Глубина опыта по базе данных и инфраструктуре требует проверки"
-    return f"Требует проверки: {text}"
+    return f"Требует проверки: {_canonical_review_label(text)}"
 
 
 def _render_confidence_risk_panel(summary: dict[str, Any]) -> None:

@@ -31,6 +31,7 @@ from app.services.document_compat import (
     ensure_keyword_set,
     ensure_selected_achievement,
 )
+from app.services.document_evidence_guards import filter_user_facing_achievements
 from app.services.document_feedback import build_claim, build_warning
 from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
@@ -319,6 +320,9 @@ class CoverLetterGenerationService:
                 top_alignment_evidence=[],
             )
         )
+        user_facing_selected_achievements = filter_user_facing_achievements(
+            document_evidence_selection.selected_achievements
+        )
         vacancy_fit_narrative = vacancy_fit_context["vacancy_fit_narrative"]
 
         opening = self._build_opening(
@@ -329,7 +333,7 @@ class CoverLetterGenerationService:
         )
         relevance_paragraph = self._build_relevance_paragraph(
             matched_keywords=matched_keywords,
-            selected_achievements=selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
             selected_evidence=selected_cover_letter_evidence,
             missing_keywords=missing_keywords,
             profile_skills=profile_skills,
@@ -348,7 +352,7 @@ class CoverLetterGenerationService:
             candidate_experiences=profile.experiences,
             selected_skills=profile_skills,
             matched_keywords=matched_keywords,
-            selected_achievements=selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
         )
         polished_sections = self.cover_letter_humanizer.polish_sections(
             opening=opening,
@@ -359,16 +363,16 @@ class CoverLetterGenerationService:
         relevance_paragraph = polished_sections["relevance_paragraph"]
         closing = polished_sections["closing"]
         claims_needing_confirmation = self._build_claims_needing_confirmation(
-            selected_achievements=selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
         )
         selection_rationale = self._build_selection_rationale(
             matched_keywords=matched_keywords,
-            selected_achievements=selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
         )
         warnings = self._build_warnings(
             matched_keywords=matched_keywords,
             missing_keywords=missing_keywords,
-            selected_achievements=selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
             selected_evidence_reason=selected_evidence_reason,
         )
 
@@ -435,7 +439,7 @@ class CoverLetterGenerationService:
             missing_keywords=missing_keywords,
             matched_requirements=analysis.strengths_json,
             gap_requirements=analysis.gaps_json,
-            selected_achievements=document_evidence_selection.selected_achievements,
+            selected_achievements=user_facing_selected_achievements,
             claims_needing_confirmation=claims_needing_confirmation,
             warnings=warnings,
             source="hybrid" if use_ai_enhancement else "extracted",

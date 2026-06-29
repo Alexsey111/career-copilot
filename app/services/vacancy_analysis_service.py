@@ -24,6 +24,12 @@ from app.repositories.candidate_profile_repository import CandidateProfileReposi
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.models.entities import VacancyAnalysis
+from app.services.requirement_canonicalizer import (
+    canonicalize_requirement,
+    canonicalize_requirements,
+    split_atomic_requirements,
+)
+from app.services.semantic_requirement_matcher import SemanticRequirementMatcher
 
 
 REQUIREMENT_START_HEADINGS = {
@@ -139,6 +145,7 @@ class VacancyAnalysisService:
         self.profile_repo = (
             candidate_profile_repository or CandidateProfileRepository()
         )
+        self.semantic_matcher = SemanticRequirementMatcher()
 
     async def analyze_vacancy(
         self,
@@ -560,7 +567,14 @@ class VacancyAnalysisService:
                 if self._has_requirement_stop_tail(cleaned):
                     break
 
-        return self._dedupe_preserve_order(items)
+        requirements = self._dedupe_preserve_order(items)
+        requirements = [
+            child
+            for group in (self._split_atomic_requirement(item) for item in requirements)
+            for child in group
+        ]
+        requirements = self._run_semantic_requirement_matcher(requirements)
+        return self._dedupe_preserve_order(requirements)
 
     def _fallback_requirement_candidates(self, lines: list[str]) -> list[str]:
         candidates: list[str] = []
@@ -591,7 +605,14 @@ class VacancyAnalysisService:
             if self._has_requirement_stop_tail(cleaned):
                 break
 
-        return self._dedupe_preserve_order(candidates)
+        requirements = self._dedupe_preserve_order(candidates)
+        requirements = [
+            child
+            for group in (self._split_atomic_requirement(item) for item in requirements)
+            for child in group
+        ]
+        requirements = self._run_semantic_requirement_matcher(requirements)
+        return self._dedupe_preserve_order(requirements)
 
     def _clean_lines(self, text: str) -> list[str]:
         # Some clients/sources may store literal "\n" sequences instead of real newlines.
@@ -658,6 +679,26 @@ class VacancyAnalysisService:
             return parts
 
         return [value]
+
+    def _split_atomic_requirement(self, value: str) -> list[str]:
+        return [
+            item.display
+            for item in canonicalize_requirements(split_atomic_requirements(value))
+        ]
+
+    def _is_bad_atomic_requirement_fragment(self, value: str) -> bool:
+        return canonicalize_requirement(value).is_noise
+
+    def _run_semantic_requirement_matcher(self, requirements: list[str]) -> list[str]:
+        if not requirements:
+            return []
+
+        # Validation-only pass: keeps the downstream pipeline unchanged while
+        # reusing the service-level semantic matcher on atomic requirements.
+        for requirement in requirements:
+            self.semantic_matcher.match(requirement, requirements)
+
+        return requirements
 
     def _normalize_requirement_items(self, value: str) -> list[str]:
         cleaned = self._strip_requirement_tail(value)

@@ -23,6 +23,7 @@ from app.domain.interview_prep import (
     infer_domain_focus_areas,
     tokenize_text,
 )
+from app.services.requirement_canonicalizer import canonicalize_requirement
 
 
 class InterviewQuestionService:
@@ -111,7 +112,13 @@ class InterviewQuestionService:
             competency_map.get("vacancy_context_text") or ""
         ).strip()
 
-        for skill in (competency_map.get("required_skills") or [])[:4]:
+        technical_skills = [
+            item
+            for item in (competency_map.get("required_skills") or [])
+            if self._is_interview_technical_requirement(item)
+        ]
+
+        for skill in technical_skills[:4]:
             prompt = self._technical_question_prompt(
                 skill_label=str(skill["label"]),
                 vacancy_title=str(getattr(vacancy, "title", "") or ""),
@@ -384,6 +391,22 @@ class InterviewQuestionService:
             deduped.append(item)
 
         return deduped
+
+    def _is_interview_technical_requirement(self, item: dict[str, Any]) -> bool:
+        label = str(item.get("label") or "").strip()
+        item_type = str(item.get("type") or "skill").strip().lower()
+        canonical = canonicalize_requirement(label)
+
+        if item_type in {"education", "certification", "experience", "behavioral"}:
+            return False
+
+        if canonical.is_noise:
+            return False
+
+        if canonical.category in {"education", "certification", "experience", "behavioral"}:
+            return False
+
+        return True
 
     def _filter_ranked_evidence_for_question(
         self,
@@ -1190,7 +1213,9 @@ class InterviewQuestionService:
         ]
 
     def _technical_question_prompt(self, *, skill_label: str, vacancy_title: str) -> str:
-        label = skill_label.strip()
+        canonical = canonicalize_requirement(skill_label)
+        label = canonical.question_label or canonical.display or skill_label.strip()
+        label = label[:1].upper() + label[1:] if label else skill_label.strip()
         if self._is_software_tool_label(label):
             return f"Расскажите о вашем опыте работы в {label}."
         if "макет" in label.lower() and "печ" in label.lower():

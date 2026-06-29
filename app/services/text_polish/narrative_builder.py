@@ -17,6 +17,7 @@ from app.services.text_polish.humanizer import (
     join_cover_letter_phrases,
     join_experience_phrases,
 )
+from app.services.requirement_canonicalizer import requirement_is_user_facing_learning_topic
 from app.services.text_polish.achievement_verbalizer import (
     AchievementStyle,
     verbalize_achievement_phrase,
@@ -80,6 +81,11 @@ def build_gap_mitigation_paragraph(
             and str(item.get("label") or "").strip().lower() not in LOW_SIGNAL_GAP_TOPICS
         ]
     )
+    gap_items = [
+        gap
+        for gap in gap_items
+        if gap_is_user_facing_learning_topic(gap)
+    ]
     gap_items = sorted(
         gap_items,
         key=score_gap_for_cover_letter,
@@ -244,6 +250,12 @@ def cover_letter_experience_value(
 
 
 def render_gap_topics(critical_gaps: list[str]) -> str | None:
+    critical_gaps = [
+        gap
+        for gap in critical_gaps
+        if gap_is_user_facing_learning_topic(gap)
+    ]
+
     topics = [
         gap_topic_label(gap)
         for gap in critical_gaps[:2]
@@ -266,13 +278,79 @@ def gap_topic_label(gap: str) -> str:
     return normalized
 
 
+SOFT_GAP_MARKERS = (
+    "коммуникабель",
+    "вниматель",
+    "ответствен",
+    "исполнитель",
+    "обучаем",
+    "стрессоустойчив",
+    "аккурат",
+    "доброжелатель",
+    "скорост",
+    "компетент",
+    "инициатив",
+    "пунктуаль",
+)
+
+
+def is_soft_gap_phrase(value: str) -> bool:
+    lowered = re.sub(r"\s+", " ", str(value or "")).strip().lower()
+    if not lowered:
+        return False
+
+    marker_count = sum(marker in lowered for marker in SOFT_GAP_MARKERS)
+
+    # Одна фраза вроде "ответственность" может быть поведенческой компетенцией,
+    # но не должна удалять mixed technical gap. Удаляем явные списки soft skills.
+    return marker_count >= 2
+
+
+def is_requirement_list_gap(value: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not cleaned:
+        return False
+
+    lowered = cleaned.lower()
+
+    # Длинные требования-списки ломают письмо и должны быть разбиты раньше,
+    # а не попадать в "план быстрого погружения".
+    if len(cleaned) > 90:
+        return True
+
+    if cleaned.count(",") >= 3:
+        return True
+
+    if ";" in cleaned and any(
+        marker in lowered for marker in ("счета", "опыт работы", "требуется", "приветствуется")
+    ):
+        return True
+
+    return False
+
+
+def gap_is_user_facing_learning_topic(value: str) -> bool:
+    return (
+        requirement_is_user_facing_learning_topic(value)
+        and not is_soft_gap_phrase(value)
+        and not is_requirement_list_gap(value)
+    )
+
+
 def gap_mitigation_allowed(item: dict[str, Any]) -> bool:
     classification = str(item.get("classification") or "").strip().lower()
     if not classification:
         classification = classify_requirement_phrase(
             str(item.get("label") or "")
         )
-    return classification not in {"education", "certification"}
+    if classification in {"education", "certification", "experience", "behavioral"}:
+        return False
+
+    label = str(item.get("label") or "").strip()
+    if not gap_is_user_facing_learning_topic(label):
+        return False
+
+    return True
 
 
 def score_gap_for_cover_letter(label: str) -> int:
@@ -1145,6 +1223,15 @@ class NarrativeBuilder:
 
     def gap_mitigation_allowed(self, item: dict[str, Any]) -> bool:
         return gap_mitigation_allowed(item)
+
+    def is_soft_gap_phrase(self, value: str) -> bool:
+        return is_soft_gap_phrase(value)
+
+    def is_requirement_list_gap(self, value: str) -> bool:
+        return is_requirement_list_gap(value)
+
+    def gap_is_user_facing_learning_topic(self, value: str) -> bool:
+        return gap_is_user_facing_learning_topic(value)
 
     def score_gap_for_cover_letter(self, label: str) -> int:
         return score_gap_for_cover_letter(label)

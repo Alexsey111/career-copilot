@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.vacancy_analysis_service import (
     NICE_TO_HAVE_START_HEADINGS,
     REQUIREMENT_START_HEADINGS,
@@ -326,6 +328,64 @@ def test_extract_section_items_handles_inline_colon_headings() -> None:
     assert nice_to_have == ["Redis", "Docker"]
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Python, FastAPI, Docker", ["Python", "FastAPI", "Docker"]),
+        ("1С 8.3, Контур", ["1С 8.3", "Контур"]),
+        (
+            "скорость, внимательность, коммуникабельность",
+            ["Скорость", "Внимательность", "Коммуникабельность"],
+        ),
+        (
+            "ведение договоров; претензионная работа",
+            ["Ведение договоров", "Претензионная работа"],
+        ),
+        ("FastAPI / REST API", ["FastAPI", "REST API"]),
+        ("Требования: Python, FastAPI, Docker", ["Python", "FastAPI", "Docker"]),
+        ('ООО "Ромашка", Контур', ['ООО "Ромашка"', "Контур"]),
+        ("Python, python, PYTHON", ["Python"]),
+    ],
+)
+def test_split_atomic_requirement_splits_and_dedupes_requirement_lists(
+    value: str,
+    expected: list[str],
+) -> None:
+    service = VacancyAnalysisService()
+
+    assert service._split_atomic_requirement(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Python, FastAPI, PostgreSQL", ["Python", "FastAPI", "PostgreSQL"]),
+        ("1С, Контур, банк-клиент", ["1С", "Контур", "Банк-клиент"]),
+        (
+            "договорная работа, претензионная работа",
+            ["Договорная работа", "Претензионная работа"],
+        ),
+        (
+            "МИС, ЭМК, маршрутизация пациентов",
+            ["МИС", "ЭМК", "Маршрутизация пациентов"],
+        ),
+        (
+            "WMS, адресное хранение, ТСД",
+            ["WMS", "Адресное хранение", "ТСД"],
+        ),
+        ("Figma, Photoshop, Illustrator", ["Figma", "Photoshop", "Illustrator"]),
+        ("Бухгалтер", ["Бухгалтер"]),
+    ],
+)
+def test_split_atomic_requirement_handles_domain_regressions(
+    value: str,
+    expected: list[str],
+) -> None:
+    service = VacancyAnalysisService()
+
+    assert service._split_atomic_requirement(value) == expected
+
+
 def test_extract_section_items_handles_heading_prefixes_without_colons() -> None:
     service = VacancyAnalysisService()
 
@@ -354,7 +414,7 @@ def test_extract_section_items_handles_heading_prefixes_without_colons() -> None
     )
 
     assert must_have == ["Python", "FastAPI"]
-    assert nice_to_have == ["опыт Redis и Docker"]
+    assert nice_to_have == ["Опыт Redis и Docker"]
 
 
 def test_extract_section_items_normalizes_generic_requirement_phrases() -> None:
@@ -377,10 +437,10 @@ def test_extract_section_items_normalizes_generic_requirement_phrases() -> None:
     )
 
     assert must_have == [
-        "знание профильного законодательства",
-        "нормотворческая деятельность",
-        "ведение переговоров",
-        "официально-деловой стиль",
+        "Знание профильного законодательства",
+        "Нормотворческая деятельность",
+        "Ведение переговоров",
+        "Официально-деловой стиль",
     ]
 
 
@@ -430,9 +490,9 @@ def test_extract_section_items_expands_retail_requirement_bundle() -> None:
     )
 
     assert must_have == [
-        "мерчандайзинг",
-        "управление полевой командой",
-        "розничные продажи",
+        "Мерчандайзинг",
+        "Управление полевой командой",
+        "Розничные продажи",
         "FMCG",
     ]
 
@@ -456,7 +516,7 @@ def test_extract_section_items_stops_before_employer_offer_block() -> None:
     )
 
     assert must_have == [
-        "обслуживание инженерных систем",
+        "Обслуживание инженерных систем",
     ]
     assert all("официальное оформление" not in item.casefold() for item in must_have)
     assert all("социальный пакет" not in item.casefold() for item in must_have)
@@ -476,7 +536,7 @@ def test_fallback_requirement_candidates_stops_before_employer_offer_block() -> 
     candidates = service._fallback_requirement_candidates(lines)
 
     assert candidates == [
-        "обслуживание инженерных систем",
+        "Обслуживание инженерных систем",
     ]
 
 

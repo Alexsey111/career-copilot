@@ -19,6 +19,9 @@ from components.document_review_workspace import (  # type: ignore import-not-fo
 
 def test_confidence_item_label_uses_russian_phrasing() -> None:
     assert _confidence_item_label("backend API") == "Опыт backend и API подтверждён"
+    assert _confidence_item_label("Коммерческие проекты") == (
+        "Подтверждено: Опыт управления коммерческими проектами"
+    )
 
 
 def test_risk_item_label_translates_readiness_warnings() -> None:
@@ -40,6 +43,9 @@ def test_risk_item_label_translates_resume_generation_warnings() -> None:
         "resume draft is ATS-safe plaintext-oriented and not final formatted output"
     ) == (
         "Черновик резюме пока только в текстовом виде, без финального форматирования, и безопасен для ATS"
+    )
+    assert _risk_item_label("Коммерческие проекты") == (
+        "Требует проверки: Опыт управления коммерческими проектами"
     )
 
 
