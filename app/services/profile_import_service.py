@@ -104,3 +104,36 @@ class ProfileImportService:
         await session.refresh(extraction)
 
         return profile, extraction, parsed.detected_format
+
+    async def import_resume_from_text(
+        self,
+        session: AsyncSession,
+        *,
+        text: str,
+        user_id: UUID,
+    ) -> tuple[CandidateProfile, FileExtraction, str]:
+        profile = await self.candidate_profile_repository.get_by_user_id(
+            session,
+            user_id,
+        )
+        if profile is None:
+            profile = await self.candidate_profile_repository.create_empty(
+                session,
+                user_id=user_id,
+            )
+
+        extraction = await self.file_extraction_repository.create(
+            session,
+            source_file_id=None,
+            status="completed",
+            parser_name="text_import",
+            parser_version="v1",
+            extracted_text=text,
+            extracted_metadata_json={"detected_format": "text"},
+        )
+
+        await session.flush()
+        await session.refresh(profile)
+        await session.refresh(extraction)
+
+        return profile, extraction, "text"

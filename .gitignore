@@ -33,3 +33,8 @@ data/*
 !data/.gitkeep
 tmp/
 infra/docker/import_resume.json
+
+# Локальные тестовые артефакты (вакансии/резюме) и персональная memory —
+# не часть кодовой базы.
+111/
+memory/

@@ -62,6 +62,12 @@ class VacancyRead(StrictBaseModel):
     title: str
     company: str | None
     location: str | None
+    salary_from: int | None
+    salary_to: int | None
+    salary_currency: str | None
+    employment_type: str | None
+    experience_level: str | None
+    published_at: datetime | None
     description_raw: str
     description_length: int
     created_at: datetime
@@ -76,6 +82,9 @@ class VacancyAnalysisResponse(StrictBaseModel):
     keywords: list[str]
     strengths: list[dict[str, Any]]
     gaps: list[dict[str, Any]]
+    risks: list[dict[str, Any]] = Field(default_factory=list)
+    match_logic: dict[str, Any] = Field(default_factory=dict)
+    language_tone_hints: dict[str, Any] = Field(default_factory=dict)
     match_score: int | None
     analysis_version: str
     created_at: datetime
@@ -131,3 +140,37 @@ class VacancyMatchResponse(StrictBaseModel):
     strengths: list[dict[str, Any]]
     gaps: list[dict[str, Any]]
     message: str | None = None
+
+
+class VacancySearchRequest(StrictBaseModel):
+    query: str | None = None
+    location: str | None = None
+    employment_type: str | None = None
+    experience_level: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class VacancySearchItem(StrictBaseModel):
+    id: UUID
+    source: str
+    source_url: str | None
+    title: str
+    company: str | None
+    location: str | None
+    salary_from: int | None
+    salary_to: int | None
+    salary_currency: str | None
+    employment_type: str | None
+    experience_level: str | None
+    similarity: float | None = None
+    created_at: datetime
+
+
+class VacancySearchResponse(StrictBaseModel):
+    items: list[VacancySearchItem]
+    total: int
+    limit: int
+    offset: int

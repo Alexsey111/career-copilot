@@ -122,6 +122,7 @@ class GitHubPublicImportService:
             technologies=technologies,
             ai_tools=[],
             automation_tools=[],
+            market=payload.market,
         )
         source_file, extraction = await self.profile_intake_service._create_raw_source(
             session,

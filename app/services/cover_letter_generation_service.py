@@ -33,6 +33,7 @@ from app.services.document_compat import (
 )
 from app.services.document_evidence_guards import filter_user_facing_achievements
 from app.services.document_feedback import build_claim, build_warning
+from app.services.document_evaluator import _extract_metrics
 from app.services.evidence_bank_service import EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
@@ -152,6 +153,7 @@ class CoverLetterGenerationService:
         vacancy_id: UUID,
         user_id: UUID,
         use_ai_enhancement: bool = False,
+        variant: str = "standard",
     ):
         vacancy = await session.get(Vacancy, vacancy_id)
         if vacancy is None or vacancy.user_id != user_id:
@@ -330,6 +332,7 @@ class CoverLetterGenerationService:
             vacancy_title=vacancy_title,
             company=vacancy.company,
             headline=profile.headline,
+            variant=variant,
         )
         relevance_paragraph = self._build_relevance_paragraph(
             matched_keywords=matched_keywords,
@@ -340,6 +343,7 @@ class CoverLetterGenerationService:
             vacancy_title=vacancy_title,
             candidate_experiences=profile.experiences,
             vacancy_fit_narrative=vacancy_fit_narrative,
+            variant=variant,
         )
         vacancy_alignment = vacancy_evidence_alignment
         evidence_relevance = self._build_evidence_relevance(
@@ -471,7 +475,7 @@ class CoverLetterGenerationService:
             derived_from_id=None,
             analysis_id=analysis.id,
             document_kind="cover_letter",
-            version_label="cover_letter_draft_v1" if not use_ai_enhancement else "cover_letter_ai_enhanced_v1",
+            version_label=f"cover_letter_{variant}_v1" if not use_ai_enhancement else f"cover_letter_{variant}_ai_v1",
             review_status="draft",
             is_active=False,
             content_json=content_json,
@@ -758,6 +762,7 @@ class CoverLetterGenerationService:
         vacancy_title: str,
         company: str | None,
         headline: str | None,
+        variant: str = "standard",
     ) -> str:
         vacancy_title = clean_vacancy_title(vacancy_title)
         company_phrase = f" в {company}" if company else ""
@@ -766,6 +771,30 @@ class CoverLetterGenerationService:
         headline_phrase = ""
         if headline:
             headline_phrase = f" Сейчас мой основной профессиональный фокус — {headline}."
+
+        if variant == "short":
+            return (
+                f"{name_sentence}Откликаюсь на позицию {vacancy_title}{company_phrase}."
+                f"{headline_phrase}"
+            )
+
+        if variant == "career_switch":
+            return (
+                "Здравствуйте!\n\n"
+                f"{name_sentence}Ищу возможность применить свой опыт в новом направлении — "
+                f"{vacancy_title}{company_phrase}. "
+                "Уверен(а), что мой профессиональный багаж будет полезен команде."
+                f"{headline_phrase}"
+            )
+
+        if variant == "gap_explanation":
+            return (
+                "Здравствуйте!\n\n"
+                f"{name_sentence}Откликаюсь на позицию {vacancy_title}{company_phrase}. "
+                "В последнее время я уделяла время развитию навыков и подготовке к новым задачам, "
+                "и готова в полной мере сосредоточиться на работе."
+                f"{headline_phrase}"
+            )
 
         return (
             "Здравствуйте!\n\n"
@@ -786,6 +815,7 @@ class CoverLetterGenerationService:
         vacancy_title: str,
         candidate_experiences: list[Any] | None = None,
         vacancy_fit_narrative: dict[str, Any] | None = None,
+        variant: str = "standard",
     ) -> str:
         vacancy_title = clean_vacancy_title(vacancy_title)
         parts: list[str] = []
@@ -1767,6 +1797,12 @@ class CoverLetterGenerationService:
         enhanced = result["result"]["enhanced_text"]
 
         if not self._is_safe_enhancement(draft_text, enhanced):
+            return draft_text
+
+        # Factuality-gate: отсекаем выдуманные AI-метрики, отсутствующие в оригинале
+        # (baseline — метрики исходного текста письма; новая метрика от AI → откат).
+        original_metrics = _extract_metrics(draft_text)
+        if original_metrics and (_extract_metrics(enhanced) - original_metrics):
             return draft_text
 
         return enhanced

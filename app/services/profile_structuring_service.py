@@ -187,13 +187,10 @@ class ProfileStructuringService:
                 detail="file extraction not found",
             )
 
-        if extraction.source_file is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="source file for extraction not found",
-            )
+        source_file_kind = "resume"
+        if extraction.source_file is not None:
+            source_file_kind = str(extraction.source_file.file_kind or "").strip().lower()
 
-        source_file_kind = str(extraction.source_file.file_kind or "").strip().lower()
         draft = self._build_draft(
             extraction.extracted_text,
             source_file_kind=source_file_kind,
@@ -382,6 +379,14 @@ class ProfileStructuringService:
             profile.summary = draft.summary
         if draft.target_roles:
             profile.target_roles_json = draft.target_roles
+        if draft.technologies:
+            profile.technologies_json = draft.technologies
+        # Этап 7: автодетект рынка из location только если profile.market ещё
+        # не задан явно (user-override и intake-значение не перетираются).
+        if not profile.market and draft.location:
+            inferred = self._infer_market_from_location(draft.location)
+            if inferred:
+                profile.market = inferred
 
     async def _replace_experiences(
         self,
@@ -1324,6 +1329,50 @@ class ProfileStructuringService:
                 return line
             if re.match(r"^г\.\s*[A-Za-zА-Яа-яЁё-]+", line):
                 return line
+        return None
+
+    def _infer_market_from_location(self, location: str) -> str | None:
+        """Этап 7: эвристическое определение рынка (RU/EU/US) из location.
+
+        Возвращает код рынка или None, если однозначно определить нельзя.
+        RU-маркеры: «Россия», «г.», типичные города РФ.
+        EU-маркеры: страны/столицы ЕС.
+        US-маркеры: штаты/города США, «USA»/«United States».
+        """
+        if not location:
+            return None
+        text = location.lower()
+
+        ru_markers = (
+            "росси", "россия", "москва", "санкт-петербург", "спб", "новосибирск",
+            "екатеринбург", "казань", "нижний новгород", "самара", "ураль",
+        )
+        if any(marker in text for marker in ru_markers):
+            return "RU"
+        if re.match(r"^\s*г\.\s*", location):
+            return "RU"
+
+        eu_markers = (
+            "germany", "deutschland", "berlin", "мюнхен", "мюнхен", "france",
+            "paris", "париж", "netherlands", "amsterdam", "amsterdam",
+            "spain", "madrid", "italy", "rome", "рим", "sweden", "stockholm",
+            "poland", "warsaw", "варшава", "european union", "еэп", "eu ",
+            "austria", "vienna", "ireland", "dublin", "belgium", "brussels",
+            "portugal", "lisbon", "greece", "athens", "czech", "prague", "прага",
+            "finland", "helsinki", "denmark", "copenhagen", "norway", "oslo",
+        )
+        if any(marker in text for marker in eu_markers):
+            return "EU"
+
+        us_markers = (
+            "usa", "united states", "us ", "u.s.", "new york", "san francisco",
+            "california", "san jose", "seattle", "boston", "chicago", "austin",
+            "denver", "washington", "texas", "florida", "remote us", "нью-йорк",
+            "калифорния", "силиконовая", "силиконовая долина",
+        )
+        if any(marker in text for marker in us_markers):
+            return "US"
+
         return None
 
     def _extract_contacts(self, lines: list[str]) -> StructuredContactDraft:

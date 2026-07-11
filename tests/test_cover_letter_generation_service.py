@@ -165,6 +165,83 @@ I would welcome the opportunity to contribute to your team."""
     assert "Redis" in result
 
 
+@pytest.mark.asyncio
+async def test_cover_letter_enhancement_rejects_invented_metric(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Factuality-gate: AI добавил метрику, отсутствующую в оригинале → откат."""
+
+    original_text = """I am applying for the Backend Developer position at Test Company.
+My experience includes Python development and Docker containerization.
+I have built several projects using these technologies, improving latency by 30%.
+I am excited about this opportunity."""
+
+    enhanced_text = """I am applying for the Backend Developer position at Test Company.
+My professional experience includes Python development and Docker containerization.
+I have successfully built several projects using these technologies, improving latency by 30%.
+I increased overall throughput by 150% and am excited about this opportunity."""
+
+    class InventedMetricClient(MockCoverLetterClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {"enhanced_text": enhanced_text},
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=InventedMetricClient())
+    service = CoverLetterGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    result = await service.enhance_cover_letter_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        draft_text=original_text,
+    )
+
+    # 150% выдумана AI и отсутствует в оригинале → откат на оригинал
+    assert result == original_text
+    assert "150%" not in result
+    assert "30%" in result
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_enhancement_keeps_metric_present_in_original(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Factuality-gate: метрика из оригинала сохранена — enhanced принимается."""
+
+    original_text = """I am applying for the Backend Developer position at Test Company.
+My experience includes Python development and Docker containerization.
+I have built several projects using these technologies, improving latency by 30%.
+I am excited about this opportunity."""
+
+    enhanced_text = """I am applying for the Backend Developer position at Test Company.
+My professional experience includes Python development and Docker containerization.
+I have successfully built several projects using these technologies, improving latency by 30%.
+I am excited about this opportunity to join your team."""
+
+    class SafeMetricClient(MockCoverLetterClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {"enhanced_text": enhanced_text},
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=SafeMetricClient())
+    service = CoverLetterGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    result = await service.enhance_cover_letter_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        draft_text=original_text,
+    )
+
+    assert result == enhanced_text
+
+
 def test_cover_letter_generation_uses_analysis_strengths_and_gaps_as_truth() -> None:
     service = CoverLetterGenerationService()
 
@@ -578,10 +655,30 @@ def test_achievement_verbalizer_declines_medical_waiting_time_tail() -> None:
     assert "сокращение среднее время" not in result
 
 
-def test_achievement_verbalizer_keeps_action_style_for_resume_summary() -> None:
+def test_achievement_verbalizer_formats_result_sentence_as_connected_list() -> None:
     verbalizer = AchievementVerbalizer()
 
-    result = verbalizer.build_resume_achievement_sentence(
+    result = verbalizer.achievement_result_sentence(
+        [
+            "Внедрил систему контроля закупок",
+            "Сократил сроки согласования договоров",
+            "Оптимизировал складские остатки",
+        ]
+    )
+
+    assert result == (
+        "Практический результат моей работы — "
+        "внедрение системы контроля закупок, "
+        "сокращение сроков согласования договоров и "
+        "оптимизация складских остатков."
+    )
+    assert ";" not in result
+
+
+def test_achievement_verbalizer_formats_resume_summary_as_action_list() -> None:
+    verbalizer = AchievementVerbalizer()
+
+    result = verbalizer.build_resume_achievement_action_sentence(
         [
             {"title": "Снизил затраты на закупки на 15%"},
             {"title": "Оптимизировал складские остатки на 25%"},
@@ -594,9 +691,9 @@ def test_achievement_verbalizer_keeps_action_style_for_resume_summary() -> None:
         "также оптимизировал складские остатки на 25%; "
         "сократил сроки поставок материалов на 18%."
     )
-    assert "снижение затрат" not in result
-    assert "оптимизация складских" not in result
-    assert "сокращение сроков" not in result
+    assert "Снизил" not in result
+    assert "Оптимизировал" not in result
+    assert "Сократил" not in result
 
 
 def test_cover_letter_evidence_phrases_drop_subsumed_generic_variants() -> None:

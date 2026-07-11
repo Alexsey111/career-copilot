@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_active_user
+from app.api.dependencies import (
+    get_current_active_user,
+    require_ai_consent,
+    require_data_processing_consent,
+)
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
@@ -25,6 +29,7 @@ from app.schemas.profile_intake import (
     GitHubPublicProfileImportRequest,
     GitHubProfileIntakeRequest,
     ManualProfileIntakeRequest,
+    MarketUpdateRequest,
     ProfileIntakeResponse,
 )
 from app.schemas.profile_structured import (
@@ -83,6 +88,7 @@ def _intake_result_to_response(result) -> ProfileIntakeResponse:
         status="completed",
         full_name=result.profile.full_name,
         location=result.profile.location,
+        market=result.profile.market,
         target_roles=result.profile.target_roles_json,
         experience_count=len(result.experiences),
         project_count=result.project_count,
@@ -139,13 +145,14 @@ async def get_resume_pipeline_state(
             "full_name": profile.full_name,
             "headline": profile.headline,
             "location": profile.location,
+            "market": profile.market,
             "target_roles": profile.target_roles_json or [],
             "experience_count": len(profile.experiences or []),
             "project_count": 0,
             "internship_count": 0,
             "achievement_signal_count": len(profile.achievements or []),
             "evidence_snippet_count": 0,
-            "technologies": [],
+            "technologies": profile.technologies_json or [],
             "ai_tools": [],
             "automation_tools": [],
             "competency_signal_count": 0,
@@ -174,7 +181,7 @@ async def get_resume_pipeline_state(
 @router.post("/intake/manual", response_model=ProfileIntakeResponse)
 async def intake_manual_profile(
     payload: ManualProfileIntakeRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_data_processing_consent),
     session: AsyncSession = Depends(get_db_session),
 ) -> ProfileIntakeResponse:
     service = ProfileIntakeService()
@@ -195,7 +202,7 @@ async def intake_manual_profile(
 @router.post("/intake/github", response_model=ProfileIntakeResponse)
 async def intake_github_profile(
     payload: GitHubProfileIntakeRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_data_processing_consent),
     session: AsyncSession = Depends(get_db_session),
 ) -> ProfileIntakeResponse:
     service = ProfileIntakeService()
@@ -216,7 +223,7 @@ async def intake_github_profile(
 @router.post("/intake/github-public", response_model=ProfileIntakeResponse)
 async def intake_github_public_profile(
     payload: GitHubPublicProfileImportRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_data_processing_consent),
     session: AsyncSession = Depends(get_db_session),
 ) -> ProfileIntakeResponse:
     service = GitHubPublicImportService()
@@ -249,7 +256,7 @@ async def intake_github_public_profile(
 @router.post("/import-resume", response_model=ResumeImportResponse)
 async def import_resume(
     payload: ResumeImportRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_data_processing_consent),
     session: AsyncSession = Depends(get_db_session),
 ) -> ResumeImportResponse:
     service = ProfileImportService()
@@ -279,10 +286,45 @@ async def import_resume(
     )
 
 
+from app.schemas.json_contracts import StrictBaseModel
+
+
+class ResumeTextImportRequest(StrictBaseModel):
+    text: str
+
+
+@router.post("/import-resume-text", response_model=ResumeImportResponse)
+async def import_resume_text(
+    payload: ResumeTextImportRequest,
+    current_user: User = Depends(require_data_processing_consent),
+    session: AsyncSession = Depends(get_db_session),
+) -> ResumeImportResponse:
+    service = ProfileImportService()
+    profile, extraction, detected_format = await service.import_resume_from_text(
+        session,
+        text=payload.text,
+        user_id=current_user.id,
+    )
+    await session.commit()
+
+    preview = extraction.extracted_text[:1000]
+
+    return ResumeImportResponse(
+        profile_id=profile.id,
+        source_file_id=extraction.source_file_id,
+        extraction_id=extraction.id,
+        status=extraction.status,
+        detected_format=detected_format,
+        text_length=len(extraction.extracted_text),
+        text_preview=preview,
+        created_at=extraction.created_at,
+    )
+
+
 @router.post("/extract-structured", response_model=StructuredProfileExtractResponse)
 async def extract_structured_profile(
     payload: StructuredProfileExtractRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
 ) -> StructuredProfileExtractResponse:
     service = ProfileStructuringService()
@@ -304,6 +346,7 @@ async def extract_structured_profile(
         headline=profile.headline,
         location=profile.location,
         contacts=draft.contacts.as_dict(),
+        market=profile.market,
         target_roles=profile.target_roles_json,
         experience_count=len(draft.experiences),
         project_count=len(draft.projects),
@@ -322,7 +365,7 @@ async def extract_structured_profile(
 @router.post("/extract-achievements", response_model=AchievementExtractResponse)
 async def extract_achievements(
     payload: AchievementExtractRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
 ) -> AchievementExtractResponse:
     service = AchievementExtractionService()
@@ -352,7 +395,7 @@ async def extract_achievements(
 
 @router.post("/repository-achievements/generate", response_model=AchievementExtractResponse)
 async def generate_repository_achievements(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
 ) -> AchievementExtractResponse:
     profile_repository = CandidateProfileRepository()
@@ -431,3 +474,141 @@ async def review_achievement(
     await session.commit()
 
     return _achievement_item_to_review_response(achievement)
+
+
+@router.patch("/market")
+async def update_market(
+    payload: MarketUpdateRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    # Этап 7: переключатель юрисдикции/рынка (RU/EU/US). Валидация Literal в схеме.
+    profile_repo = CandidateProfileRepository()
+    profile = await profile_repo.get_by_user_id(session, current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="profile not found",
+        )
+
+    profile.market = payload.market
+    await session.commit()
+
+    return {"market": profile.market}
+async def delete_profile(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, str]:
+    from app.models import CandidateProfile
+
+    profile = await session.get(CandidateProfile, current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="profile not found",
+        )
+
+    await session.delete(profile)
+    await session.commit()
+    return {"status": "deleted"}
+
+
+@router.get("/target-tracks")
+async def list_target_tracks(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    from app.models import CandidateProfile, CandidateTargetTrack
+    from sqlalchemy import select
+
+    profile_repo = CandidateProfileRepository()
+    profile = await profile_repo.get_with_related_by_user_id(session, current_user.id)
+    if profile is None:
+        return []
+
+    return [
+        {
+            "id": str(track.id),
+            "name": track.name,
+            "target_roles": track.target_roles_json,
+            "salary_expectation": float(track.salary_expectation) if track.salary_expectation else None,
+            "salary_currency": track.salary_currency,
+            "location_preferences": track.location_preferences_json,
+            "priority": track.priority,
+            "is_active": track.is_active,
+            "notes": track.notes,
+        }
+        for track in profile.target_tracks
+    ]
+
+
+@router.post("/target-tracks")
+async def create_target_track(
+    payload: dict,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    from app.models import CandidateTargetTrack
+    from decimal import Decimal
+
+    profile_repo = CandidateProfileRepository()
+    profile = await profile_repo.get_with_related_by_user_id(session, current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="profile not found",
+        )
+
+    track = CandidateTargetTrack(
+        profile_id=profile.id,
+        name=payload.get("name", "Untitled track"),
+        target_roles_json=payload.get("target_roles", []),
+        salary_expectation=Decimal(str(payload["salary_expectation"])) if payload.get("salary_expectation") else None,
+        salary_currency=payload.get("salary_currency"),
+        location_preferences_json=payload.get("location_preferences", []),
+        priority=payload.get("priority", 0),
+        is_active=payload.get("is_active", True),
+        notes=payload.get("notes"),
+    )
+    session.add(track)
+    await session.commit()
+    await session.refresh(track)
+
+    return {
+        "id": str(track.id),
+        "name": track.name,
+        "target_roles": track.target_roles_json,
+        "salary_expectation": float(track.salary_expectation) if track.salary_expectation else None,
+        "salary_currency": track.salary_currency,
+        "location_preferences": track.location_preferences_json,
+        "priority": track.priority,
+        "is_active": track.is_active,
+        "notes": track.notes,
+    }
+
+
+@router.delete("/target-tracks/{track_id}")
+async def delete_target_track(
+    track_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    from app.models import CandidateTargetTrack
+    from sqlalchemy import select
+
+    stmt = (
+        select(CandidateTargetTrack)
+        .where(CandidateTargetTrack.id == track_id)
+    )
+    result = await session.execute(stmt)
+    track = result.scalar_one_or_none()
+
+    if track is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="target track not found",
+        )
+
+    await session.delete(track)
+    await session.commit()
+    return {"status": "deleted"}

@@ -22,6 +22,7 @@ from app.services.vacancy_text_extractors.contracts import (
 from app.services.vacancy_text_extractors.trafilatura_extractor import (
     TrafilaturaVacancyExtractor,
 )
+from app.services.embedding_service import EmbeddingService
 
 
 MAX_VACANCY_TEXT_LENGTH = 120_000
@@ -44,6 +45,7 @@ class VacancyImportService:
         self.storage_service = storage_service or StorageService()
         self.text_parser_service = text_parser_service or ResumeParserService()
         self.extractor = TrafilaturaVacancyExtractor()
+        self.embedding_service = EmbeddingService()
 
     async def import_vacancy(
         self,
@@ -103,6 +105,9 @@ class VacancyImportService:
 
         final_title = (title or fetched_title or "Untitled vacancy").strip()
 
+        embedding_text = f"{final_title} {final_description[:2000]}"
+        embedding = self.embedding_service.embed_text(embedding_text)
+
         normalized_json = {
             "import_mode": "manual_text" if description_raw else "fetched_url",
             "raw_text_length": len(final_description),
@@ -128,6 +133,7 @@ class VacancyImportService:
             location=(location or None),
             description_raw=final_description,
             normalized_json=normalized_json,
+            embedding=embedding,
         )
 
         await session.commit()

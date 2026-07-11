@@ -19,12 +19,26 @@ class UserRepository:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_oauth_provider_id(
+        self,
+        session: AsyncSession,
+        *,
+        provider: str,
+        provider_id: str,
+    ) -> User | None:
+        stmt = select(User).where(
+            User.auth_provider == provider,
+            User.oauth_provider_id == provider_id,
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         session: AsyncSession,
         *,
         email: str,
-        password_hash: str,
+        password_hash: str | None = None,
         auth_provider: str | None = "local",
     ) -> User:
         user = User(

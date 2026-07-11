@@ -1,4 +1,4 @@
-# app\api\dependencies.py
+# app/api/dependencies.py
 
 from __future__ import annotations
 
@@ -15,11 +15,7 @@ from app.security.dependencies import get_current_active_user
 
 
 def get_ai_orchestrator() -> AIOrchestrator:
-    """FastAPI dependency для получения AI-оркестратора.
-
-    Все endpoint'ы и сервисы, которым нужен AI,
-    должны использовать эту dependency вместо прямого вызова factory.
-    """
+    """FastAPI dependency для получения AI-оркестратора."""
     return create_ai_orchestrator()
 
 
@@ -56,4 +52,50 @@ async def get_current_dev_user(
     return user
 
 
-__all__ = ["get_current_active_user", "get_current_dev_user", "get_ai_orchestrator"]
+async def require_ai_consent(
+    user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> User:
+    from app.services.consent_service import ConsentService
+
+    service = ConsentService()
+    granted = await service.check_consent(
+        session,
+        user_id=user.id,
+        consent_type="ai_generation",
+    )
+    if not granted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI generation consent required. Please grant consent at /api/v1/consent/",
+        )
+    return user
+
+
+async def require_data_processing_consent(
+    user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> User:
+    from app.services.consent_service import ConsentService
+
+    service = ConsentService()
+    granted = await service.check_consent(
+        session,
+        user_id=user.id,
+        consent_type="data_processing",
+    )
+    if not granted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Data processing consent required. Please grant consent at /api/v1/consent/",
+        )
+    return user
+
+
+__all__ = [
+    "get_current_active_user",
+    "get_current_dev_user",
+    "get_ai_orchestrator",
+    "require_ai_consent",
+    "require_data_processing_consent",
+]

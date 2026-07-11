@@ -15,7 +15,7 @@ class ResumeImportRequest(BaseModel):
 
 class ResumeImportResponse(BaseModel):
     profile_id: UUID
-    source_file_id: UUID
+    source_file_id: UUID | None = None
     extraction_id: UUID
     status: str
     detected_format: str

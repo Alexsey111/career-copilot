@@ -84,6 +84,7 @@ class ApplicationRecordRepository:
             select(ApplicationRecord)
             .options(
                 selectinload(ApplicationRecord.vacancy),
+                selectinload(ApplicationRecord.resume_document),
                 selectinload(ApplicationRecord.status_history),
             )
             .where(ApplicationRecord.user_id == user_id)

@@ -141,7 +141,9 @@ async def test_password_reset_request_does_not_return_token_in_prod(
     )
     monkeypatch.setenv("MINIO_ACCESS_KEY", "safe-access-key")
     monkeypatch.setenv("MINIO_SECRET_KEY", "safe-secret-key")
+    monkeypatch.setenv("MINIO_SECURE", "true")
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "http://localhost:8501")
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEYS", "2aToT_U2MCPyftyQz2VQ-Nd9uhNlSiz22RLxsJdihPM=")
     get_settings.cache_clear()
 
     email = "password-reset-prod@example.com"

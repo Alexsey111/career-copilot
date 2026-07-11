@@ -74,6 +74,7 @@ class ProfileIntakeService:
             technologies=technologies,
             ai_tools=ai_tools,
             automation_tools=automation_tools,
+            market=payload.personal.market,
         )
         experiences, achievements = await self._replace_profile_entries(
             session,
@@ -160,6 +161,7 @@ class ProfileIntakeService:
             technologies=technologies,
             ai_tools=[],
             automation_tools=[],
+            market=payload.market,
         )
         source_file, extraction = await self._create_raw_source(
             session,
@@ -207,11 +209,14 @@ class ProfileIntakeService:
         technologies: list[str],
         ai_tools: list[str],
         automation_tools: list[str],
+        market: str | None = None,
     ) -> None:
         if name:
             profile.full_name = name.strip()
         if location:
             profile.location = location.strip()
+        if market:
+            profile.market = market
         if target_role:
             profile.target_roles_json = self._dedupe([target_role, *(profile.target_roles_json or [])])
             profile.headline = target_role.strip()

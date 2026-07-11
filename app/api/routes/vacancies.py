@@ -20,14 +20,116 @@ from app.schemas.vacancy import (
     VacancyImportResponse,
     VacancyFitResponse,
     VacancyRead,
+    VacancySearchItem,
+    VacancySearchRequest,
+    VacancySearchResponse,
 )
 from app.services.hh_vacancy_import_service import HHVacancyImportService
 from app.services.vacancy_analysis_service import VacancyAnalysisService
 from app.services.vacancy_import_service import VacancyImportService
 from app.services.vacancy_fit_service import VacancyFitService
+from app.services.embedding_service import EmbeddingService
 
 
 router = APIRouter(prefix="/vacancies", tags=["vacancies"])
+
+
+@router.get("/search", response_model=VacancySearchResponse)
+async def search_vacancies(
+    query: str | None = None,
+    location: str | None = None,
+    employment_type: str | None = None,
+    experience_level: str | None = None,
+    salary_min: int | None = None,
+    salary_max: int | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> VacancySearchResponse:
+    repo = VacancyRepository()
+    vacancies = await repo.search(
+        session,
+        user_id=current_user.id,
+        query=query,
+        location=location,
+        employment_type=employment_type,
+        experience_level=experience_level,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        VacancySearchItem(
+            id=v.id,
+            source=v.source,
+            source_url=v.source_url,
+            title=v.title,
+            company=v.company,
+            location=v.location,
+            salary_from=int(v.salary_from) if v.salary_from else None,
+            salary_to=int(v.salary_to) if v.salary_to else None,
+            salary_currency=v.salary_currency,
+            employment_type=v.employment_type,
+            experience_level=v.experience_level,
+            created_at=v.created_at,
+        )
+        for v in vacancies
+    ]
+    return VacancySearchResponse(items=items, total=len(items), limit=limit, offset=offset)
+
+
+@router.get("/semantic-search", response_model=VacancySearchResponse)
+async def semantic_search_vacancies(
+    query: str,
+    location: str | None = None,
+    employment_type: str | None = None,
+    experience_level: str | None = None,
+    salary_min: int | None = None,
+    salary_max: int | None = None,
+    similarity_threshold: float = 0.3,
+    limit: int = 20,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> VacancySearchResponse:
+    embedding_service = EmbeddingService()
+    query_embedding = embedding_service.embed_text(query)
+
+    repo = VacancyRepository()
+    results = await repo.semantic_search(
+        session,
+        user_id=current_user.id,
+        query_embedding=query_embedding,
+        query_text=query,
+        location=location,
+        employment_type=employment_type,
+        experience_level=experience_level,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        similarity_threshold=similarity_threshold,
+        limit=limit,
+    )
+
+    items = [
+        VacancySearchItem(
+            id=v.id,
+            source=v.source,
+            source_url=v.source_url,
+            title=v.title,
+            company=v.company,
+            location=v.location,
+            salary_from=int(v.salary_from) if v.salary_from else None,
+            salary_to=int(v.salary_to) if v.salary_to else None,
+            salary_currency=v.salary_currency,
+            employment_type=v.employment_type,
+            experience_level=v.experience_level,
+            similarity=round(sim, 4),
+            created_at=v.created_at,
+        )
+        for v, sim in results
+    ]
+    return VacancySearchResponse(items=items, total=len(items), limit=limit, offset=0)
 
 
 @router.post("/import", response_model=VacancyImportResponse)
@@ -158,6 +260,12 @@ async def get_vacancy(
         title=vacancy.title,
         company=vacancy.company,
         location=vacancy.location,
+        salary_from=int(vacancy.salary_from) if vacancy.salary_from else None,
+        salary_to=int(vacancy.salary_to) if vacancy.salary_to else None,
+        salary_currency=vacancy.salary_currency,
+        employment_type=vacancy.employment_type,
+        experience_level=vacancy.experience_level,
+        published_at=vacancy.published_at,
         description_raw=vacancy.description_raw,
         description_length=len(vacancy.description_raw),
         created_at=vacancy.created_at,
@@ -186,6 +294,9 @@ async def analyze_vacancy(
         keywords=analysis.keywords_json,
         strengths=analysis.strengths_json,
         gaps=analysis.gaps_json,
+        risks=analysis.risks_json,
+        match_logic=analysis.match_logic_json,
+        language_tone_hints=analysis.language_tone_hints_json,
         match_score=analysis.match_score,
         analysis_version=analysis.analysis_version,
         created_at=analysis.created_at,
@@ -232,6 +343,9 @@ async def get_latest_vacancy_analysis(
         keywords=analysis.keywords_json,
         strengths=analysis.strengths_json,
         gaps=analysis.gaps_json,
+        risks=analysis.risks_json,
+        match_logic=analysis.match_logic_json,
+        language_tone_hints=analysis.language_tone_hints_json,
         match_score=analysis.match_score,
         analysis_version=analysis.analysis_version,
         created_at=analysis.created_at,
@@ -262,6 +376,9 @@ async def match_vacancy(
         keywords=analysis.keywords_json or [],
         strengths=analysis.strengths_json or [],
         gaps=analysis.gaps_json or [],
+        risks=analysis.risks_json or [],
+        match_logic=analysis.match_logic_json or {},
+        language_tone_hints=analysis.language_tone_hints_json or {},
         match_score=analysis.match_score,
         analysis_version=analysis.analysis_version,
         created_at=analysis.created_at,

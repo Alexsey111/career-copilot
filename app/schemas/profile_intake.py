@@ -8,11 +8,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.domain.markets import Market
+
 
 class IntakePersonal(BaseModel):
     name: str | None = None
     location: str | None = None
     target_role: str | None = None
+    market: Market | None = None
 
 
 class IntakeSkills(BaseModel):
@@ -62,12 +65,14 @@ class GitHubProfileIntakeRequest(BaseModel):
     username: str
     profile_url: str | None = None
     target_role: str | None = None
+    market: Market | None = None
     repositories: list[GitHubRepositoryIntake] = Field(default_factory=list)
 
 
 class GitHubPublicProfileImportRequest(BaseModel):
     profile_url: str
     target_role: str | None = None
+    market: Market | None = None
     max_repositories: int = Field(default=12, ge=1, le=30)
     include_readme: bool = True
 
@@ -80,6 +85,7 @@ class ProfileIntakeResponse(BaseModel):
     status: str
     full_name: str | None
     location: str | None
+    market: Market | None = None
     target_roles: list[str]
     experience_count: int
     project_count: int
@@ -90,3 +96,7 @@ class ProfileIntakeResponse(BaseModel):
     automation_tools: list[str]
     raw_text_preview: str
     created_at: datetime
+
+
+class MarketUpdateRequest(BaseModel):
+    market: Market

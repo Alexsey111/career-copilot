@@ -1,3 +1,5 @@
-"""Tasks package."""
+# app/tasks/__init__.py
 
-# Background tasks package.
+from app.celery_app import celery_app
+
+__all__ = ["celery_app"]

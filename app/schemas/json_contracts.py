@@ -161,6 +161,11 @@ class ContentMeta(StrictBaseModel):
     generated_at: str | None = None  # ISO timestamp
     warnings: list["WarningItem"] = Field(default_factory=list)
 
+    # Юрисдикция/рынок (RU/EU/US) — переключатель локализации резюме (Этап 7).
+    # Рендерер читает отсюда, чтобы повторный рендер (экспорт) восстанавливал
+    # язык. None = дефолт RU. Для cover_letter не используется (None).
+    market: str | None = None
+
     # Generation trace for explainability
     generation_trace: dict[str, Any] = Field(default_factory=dict)
 

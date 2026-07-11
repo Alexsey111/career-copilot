@@ -24,8 +24,10 @@ from sqlalchemy import (
 )
 from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 from app.db.base import Base
+from app.security.encryption import EncryptedJSON, EncryptedText
 
 if TYPE_CHECKING:
     from app.models.evaluation_snapshot import EvaluationSnapshot
@@ -67,6 +69,15 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default="email",
     )
+    oauth_provider_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    oauth_access_token: Mapped[str | None] = mapped_column(
+        EncryptedText(),
+        nullable=True,
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -86,6 +97,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    consents: Mapped[list["UserConsent"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -98,12 +113,13 @@ class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         unique=True,
         index=True,
     )
-    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    full_name: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     headline: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
+    summary: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
 
     target_roles_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    technologies_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     work_format_preferences_json: Mapped[dict[str, Any]] = mapped_column(
         JSON,
         nullable=False,
@@ -112,6 +128,10 @@ class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     salary_expectation: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     salary_currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Юрисдикция/рынок кандидата (RU/EU/US) — переключатель локализации резюме
+    # и privacy-политик (Этап 7). Nullable: исторические строки без market;
+    # автодетект из location и явный intake/PATCH проставляют значение.
+    market: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="profile")
     experiences: Mapped[list["CandidateExperience"]] = relationship(
@@ -123,6 +143,31 @@ class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="profile",
         cascade="all, delete-orphan",
         order_by="CandidateAchievement.order_index",
+    )
+    educations: Mapped[list["CandidateEducation"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="CandidateEducation.order_index",
+    )
+    certificates: Mapped[list["CandidateCertificate"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="CandidateCertificate.order_index",
+    )
+    languages: Mapped[list["CandidateLanguage"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="CandidateLanguage.order_index",
+    )
+    links: Mapped[list["CandidateLink"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="CandidateLink.order_index",
+    )
+    target_tracks: Mapped[list["CandidateTargetTrack"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="CandidateTargetTrack.order_index",
     )
     pipeline_executions: Mapped[list["PipelineExecution"]] = relationship(
         back_populates="profile",
@@ -185,6 +230,125 @@ class CandidateAchievement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     experience: Mapped["CandidateExperience | None"] = relationship(back_populates="achievements")
 
 
+class CandidateEducation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "candidate_educations"
+
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    institution: Mapped[str] = mapped_column(String(500), nullable=False)
+    degree: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    field_of_study: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profile: Mapped["CandidateProfile"] = relationship(back_populates="educations")
+
+
+class CandidateCertificate(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "candidate_certificates"
+
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    issuer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    credential_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    credential_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profile: Mapped["CandidateProfile"] = relationship(back_populates="certificates")
+
+
+class CandidateLanguage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "candidate_languages"
+
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    language: Mapped[str] = mapped_column(String(100), nullable=False)
+    proficiency: Mapped[str] = mapped_column(String(50), nullable=False, default="conversational")
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profile: Mapped["CandidateProfile"] = relationship(back_populates="languages")
+
+
+class CandidateLink(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "candidate_links"
+
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    link_type: Mapped[str] = mapped_column(String(50), nullable=False, default="other")
+    url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profile: Mapped["CandidateProfile"] = relationship(back_populates="links")
+
+
+class UserConsent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "user_consents"
+    __table_args__ = (
+        UniqueConstraint("user_id", "consent_type", name="uq_user_consents_user_type"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    consent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    granted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
+    granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    user: Mapped["User"] = relationship(back_populates="consents")
+
+
+class CandidateTargetTrack(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "candidate_target_tracks"
+
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_roles_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    salary_expectation: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    salary_currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    location_preferences_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    work_format_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profile: Mapped["CandidateProfile"] = relationship(back_populates="target_tracks")
+
+
 class EvidenceSnippet(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "evidence_snippets"
     __table_args__ = (
@@ -200,7 +364,7 @@ class EvidenceSnippet(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    snippet_text: Mapped[str] = mapped_column(Text, nullable=False)
+    snippet_text: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="achievement")
     skills_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     evidence_strength: Mapped[str] = mapped_column(String(20), nullable=False, default="weak")
@@ -279,23 +443,23 @@ class SourceFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class FileExtraction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "file_extractions"
 
-    source_file_id: Mapped[uuid.UUID] = mapped_column(
+    source_file_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("source_files.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="completed")
     parser_name: Mapped[str] = mapped_column(String(100), nullable=False)
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    extracted_text: Mapped[str] = mapped_column(Text, nullable=False)
+    extracted_text: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
     extracted_metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSON,
         nullable=False,
         default=dict,
     )
 
-    source_file: Mapped["SourceFile"] = relationship(back_populates="extractions")
+    source_file: Mapped["SourceFile | None"] = relationship(back_populates="extractions")
 
 
 class Vacancy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -319,8 +483,14 @@ class Vacancy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     salary_to: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     salary_currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
+    employment_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    experience_level: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     description_raw: Mapped[str] = mapped_column(Text, nullable=False)
     normalized_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    embedding = mapped_column(Vector(384), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="vacancies")
     analyses: Mapped[list["VacancyAnalysis"]] = relationship(
@@ -350,6 +520,9 @@ class VacancyAnalysis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     keywords_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     gaps_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     strengths_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    risks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    match_logic_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    language_tone_hints_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     match_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     analysis_version: Mapped[str] = mapped_column(String(50), nullable=False, default="v1")
 
@@ -399,8 +572,8 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     review_status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    content_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    rendered_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_json: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False, default=dict)
+    rendered_text: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="document_versions")
     vacancy: Mapped["Vacancy | None"] = relationship(back_populates="document_versions")
@@ -583,8 +756,8 @@ class InterviewSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     question_set_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
-    answers_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
-    feedback_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    answers_json: Mapped[list[dict[str, Any]]] = mapped_column(EncryptedJSON(), nullable=False, default=list)
+    feedback_json: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False, default=dict)
     score_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     user: Mapped["User"] = relationship(back_populates="interview_sessions")
@@ -662,7 +835,7 @@ class InterviewAnswerAttempt(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     question_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_text: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     feedback_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
@@ -691,6 +864,7 @@ class AIRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     input_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     output_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     tokens_used_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
 
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -734,6 +908,34 @@ class AuthEvent(UUIDPrimaryKeyMixin, Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class DataTransferEvent(UUIDPrimaryKeyMixin, Base):
+    """Аудит передачи ПДн внешнему обработчику (ФЗ-152 ст.18/19)."""
+
+    __tablename__ = "data_transfer_events"
+
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    recipient: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(100), nullable=False)
+    data_categories: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    legal_basis: Mapped[str] = mapped_column(String(50), nullable=False, default="consent")
+    consent_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    meta_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
     )
 
 

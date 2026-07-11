@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -45,6 +46,11 @@ REQUIREMENT_START_HEADINGS = {
     "ВАМ ПРЕДСТОИТ",
     "НЕОБХОДИМО",
     "ЧТО НУЖНО",
+    "ЧЕГО МЫ ОТ ВАС ОЖИДАЕМ",
+    "ЧЕГО ОЖИДАЕМ",
+    "МЫ ИЩЕМ ЧЕЛОВЕКА",
+    "ЧТО ВЫ БУДЕТЕ ДЕЛАТЬ",
+    "ОБЯЗАННОСТИ",
     "REQUIREMENTS",
     "QUALIFICATIONS",
     "SKILLS",
@@ -60,6 +66,8 @@ NICE_TO_HAVE_START_HEADINGS = {
     "NICE TO HAVE",
     "PLUS",
     "OPTIONAL",
+    "БУДЕТ ПЛЮС",
+    "ЧТО БУДЕТ ПЛЮСОМ",
 }
 
 SOFT_AI_INTEREST_KEYWORDS = {
@@ -195,7 +203,9 @@ class VacancyAnalysisService:
             nice_to_have=nice_to_have,
         )
 
-        # Валидация JSON-контракта перед сохранением
+        must_have = self._group_requirements(must_have)
+        nice_to_have = self._group_requirements(nice_to_have)
+
         validated = VacancyAnalysisSchema(
             must_have=[
                 {
@@ -218,6 +228,13 @@ class VacancyAnalysisService:
             match_score=match_score,
         )
 
+        language_tone_hints = self._build_language_tone_hints(
+            vacancy_title=vacancy.title,
+            description_raw=vacancy.description_raw,
+            keywords=keywords,
+            must_have=must_have,
+        )
+
         analysis = await self.analysis_repo.replace_for_vacancy(
             session,
             vacancy_id=vacancy.id,
@@ -228,6 +245,7 @@ class VacancyAnalysisService:
             strengths_json=[item.model_dump() for item in validated.strengths],
             match_score=validated.match_score,
             analysis_version="deterministic_v1",
+            language_tone_hints_json=language_tone_hints,
         )
 
         await session.commit()
@@ -283,6 +301,75 @@ class VacancyAnalysisService:
             match_score=validated.match_score,
             analysis_version="deterministic_match_v1",
         )
+
+    def _build_language_tone_hints(
+        self,
+        *,
+        vacancy_title: str,
+        description_raw: str,
+        keywords: list[str],
+        must_have: list[str],
+    ) -> dict[str, Any]:
+        corpus = f"{vacancy_title} {description_raw}".lower()
+
+        is_formal = bool(re.search(
+            r"(мы ищем|требуется|необходим|ожидаем|обязанност|требован)",
+            corpus,
+        ))
+        is_informal = bool(re.search(
+            r"(привет|хай|hey|we.?re looking|join us|come on board)",
+            corpus,
+        ))
+        is_startup = bool(re.search(
+            r"(стартап|startup|fast.?paced|dynamic|pivot|growth stage)",
+            corpus,
+        ))
+
+        if is_informal:
+            tone = "informal_friendly"
+            style_hints = ["Используйте разговорный тон", "Можно обращаться на \"ты\""]
+        elif is_startup:
+            tone = "energetic"
+            style_hints = ["Покажите гибкость и скорость", "Подчеркните готовность к изменений"]
+        elif is_formal:
+            tone = "formal_professional"
+            style_hints = ["Используйте деловой стиль", "Обращайтесь на \"Вы\""]
+        else:
+            tone = "neutral_professional"
+            style_hints = ["Соблюдайте нейтрально-деловой тон"]
+
+        has_soft_skills = any(
+            kw.lower() in corpus
+            for kw in ("коммуникац", "лидерств", "команд", "ответственност", "стресс")
+        )
+        if has_soft_skills:
+            style_hints.append("Упомяните.soft skills в контексте опыта")
+
+        has_metrics = bool(re.search(
+            r"(%\|процент|млн|млрд|usd|\$|рубл| tiết kiệm|revenue|growth|roi|kpi)",
+            corpus,
+        ))
+        if has_metrics:
+            style_hints.append("Используйте числа и метрики в ответах")
+
+        language = "ru"
+        if re.search(r"\b(we|our|you|your|the|and|with)\b", description_raw, re.IGNORECASE):
+            lang_tokens = 0
+            for word in ["we", "our", "you", "your", "the", "and", "with"]:
+                lang_tokens += len(re.findall(rf"\b{word}\b", description_raw, re.IGNORECASE))
+            if lang_tokens >= 3:
+                language = "en"
+
+        return {
+            "tone": tone,
+            "language": language,
+            "style_hints": style_hints,
+            "is_formal": is_formal,
+            "is_informal": is_informal,
+            "is_startup": is_startup,
+            "has_soft_skills_signal": has_soft_skills,
+            "has_metrics_signal": has_metrics,
+        }
 
     def _compare_with_profile_simple(
         self,
@@ -400,8 +487,74 @@ class VacancyAnalysisService:
         if total_weight <= 0:
             return strengths, gaps, None
 
-        match_score = round((matched_weight / total_weight) * 100)
+        category_score = self._compute_category_score(strengths, gaps, must_have, nice_to_have)
+        keyword_score = round((matched_weight / total_weight) * 100) if total_weight > 0 else 0
+        match_score = round(0.6 * category_score + 0.4 * keyword_score)
+
         return strengths, gaps, match_score
+
+    def _compute_category_score(
+        self,
+        strengths: list[dict],
+        gaps: list[dict],
+        must_have: list[str],
+        nice_to_have: list[str],
+    ) -> int:
+        categories = {
+            "skills": {"matched": 0, "total": 0},
+            "experience": {"matched": 0, "total": 0},
+            "education": {"matched": 0, "total": 0},
+            "tools": {"matched": 0, "total": 0},
+            "soft_skills": {"matched": 0, "total": 0},
+        }
+
+        skill_keywords = {"python", "java", "javascript", "typescript", "sql", "nosql", "react", "vue",
+                         "docker", "kubernetes", "aws", "gcp", "azure", "git", "linux", "redis",
+                         "postgresql", "mysql", "mongodb", "fastapi", "django", "flask", "spring"}
+        experience_keywords = {"опыт", "стаж", "лет", "год", "years", "experience"}
+        education_keywords = {"образование", "университет", "колледж", "курс", "сертификат", "degree"}
+        tool_keywords = {"1с", "jira", "confluence", "figma", "photoshop", "excel", "word", "powerpoint"}
+
+        all_items = must_have + nice_to_have
+        for item in all_items:
+            lower = item.lower()
+            if any(k in lower for k in skill_keywords):
+                categories["skills"]["total"] += 1
+            elif any(k in lower for k in experience_keywords):
+                categories["experience"]["total"] += 1
+            elif any(k in lower for k in education_keywords):
+                categories["education"]["total"] += 1
+            elif any(k in lower for k in tool_keywords):
+                categories["tools"]["total"] += 1
+            else:
+                categories["soft_skills"]["total"] += 1
+
+        matched_keywords = {s.get("keyword", "").lower() for s in strengths}
+        for item in all_items:
+            lower = item.lower()
+            is_matched = any(k in matched_keywords for k in lower.split() if len(k) > 2)
+            if is_matched:
+                if any(k in lower for k in skill_keywords):
+                    categories["skills"]["matched"] += 1
+                elif any(k in lower for k in experience_keywords):
+                    categories["experience"]["matched"] += 1
+                elif any(k in lower for k in education_keywords):
+                    categories["education"]["matched"] += 1
+                elif any(k in lower for k in tool_keywords):
+                    categories["tools"]["matched"] += 1
+                else:
+                    categories["soft_skills"]["matched"] += 1
+
+        active_categories = [c for c in categories.values() if c["total"] > 0]
+        if not active_categories:
+            return 50
+
+        scores = []
+        for cat in active_categories:
+            cat_score = round((cat["matched"] / cat["total"]) * 100) if cat["total"] > 0 else 0
+            scores.append(cat_score)
+
+        return round(sum(scores) / len(scores)) if scores else 50
 
     def _build_requirement_keywords(
         self,
@@ -551,12 +704,12 @@ class VacancyAnalysisService:
         for line in lines:
             normalized = self._normalize_heading(line)
 
-            if normalized in start_headings:
+            if self._matches_heading(normalized, start_headings):
                 capture = True
                 continue
 
             if capture and (
-                normalized in stop_headings
+                self._matches_heading(normalized, stop_headings)
                 or self._is_stop_after_requirements_heading(normalized)
             ):
                 break
@@ -581,9 +734,9 @@ class VacancyAnalysisService:
 
         for line in lines:
             normalized = self._normalize_heading(line)
-            if normalized in REQUIREMENT_START_HEADINGS:
+            if self._matches_heading(normalized, REQUIREMENT_START_HEADINGS):
                 continue
-            if normalized in NICE_TO_HAVE_START_HEADINGS or self._is_stop_after_requirements_heading(normalized):
+            if self._matches_heading(normalized, NICE_TO_HAVE_START_HEADINGS) or self._is_stop_after_requirements_heading(normalized):
                 break
 
             cleaned = self._clean_bullet(line)
@@ -786,6 +939,14 @@ class VacancyAnalysisService:
         cleaned = re.sub(r"\s+", " ", cleaned)
         return cleaned.upper()
 
+    def _matches_heading(self, normalized: str, headings: set[str]) -> bool:
+        if normalized in headings:
+            return True
+        for heading in headings:
+            if normalized.startswith(heading):
+                return True
+        return False
+
     def _dedupe_preserve_order(self, values: list[str]) -> list[str]:
         seen: set[str] = set()
         result: list[str] = []
@@ -798,3 +959,62 @@ class VacancyAnalysisService:
             result.append(value)
 
         return result
+
+    def _group_requirements(self, requirements: list[str]) -> list[str]:
+        if len(requirements) <= 5:
+            return requirements
+
+        groups: dict[str, list[str]] = {}
+        for req in requirements:
+            category = self._categorize_requirement(req)
+            if category not in groups:
+                groups[category] = []
+            groups[category].append(req)
+
+        grouped: list[str] = []
+        for category, items in groups.items():
+            if len(items) == 1:
+                grouped.append(items[0])
+            else:
+                combined = self._merge_requirements(items)
+                grouped.append(combined)
+
+        return grouped
+
+    def _categorize_requirement(self, requirement: str) -> str:
+        lower = requirement.lower()
+
+        if any(k in lower for k in ["python", "java", "javascript", "typescript", "sql", "react", "vue", "fastapi", "django"]):
+            return "programming"
+        if any(k in lower for k in ["docker", "kubernetes", "aws", "gcp", "azure", "ci/cd", "gitlab", "jenkins"]):
+            return "devops"
+        if any(k in lower for k in ["тест", "test", "автотест", "qa", "quality"]):
+            return "testing"
+        if any(k in lower for k in ["api", "rest", "graphql", "microservice", "микросервис"]):
+            return "architecture"
+        if any(k in lower for k in ["база данных", "database", "postgresql", "mysql", "mongodb", "redis"]):
+            return "database"
+        if any(k in lower for k in ["документ", "documentation", "коммуникац", "team", "команд"]):
+            return "soft_skills"
+        if any(k in lower for k in ["опыт", "experience", "стаж", "лет", "год"]):
+            return "experience"
+
+        return "other"
+
+    def _merge_requirements(self, items: list[str]) -> str:
+        if len(items) <= 2:
+            return "; ".join(items)
+
+        keywords_per_item = []
+        for item in items:
+            words = set(re.findall(r"\b\w{3,}\b", item.lower()))
+            keywords_per_item.append(words)
+
+        all_keywords = set()
+        for kw_set in keywords_per_item:
+            all_keywords.update(kw_set)
+
+        stop_words = {"для", "или", "что", "как", "это", "все", "его", "при", "из", "по", "не", "на", "от", "до"}
+        important_keywords = sorted(all_keywords - stop_words)[:5]
+
+        return "; ".join(important_keywords) if important_keywords else items[0]

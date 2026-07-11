@@ -35,6 +35,9 @@ def create_ai_orchestrator() -> AIOrchestrator:
     if settings.ai_fallback_provider:
         fallback_client = create_llm_client(settings.ai_fallback_provider)
 
+    # Конструируем через __new__, минуя __init__: __init__ при отсутствии
+    # client/fallback_client сам вызвал бы фабрику (лишние создания клиентов).
+    # Тесты также патчат __init__ — этот путь остаётся стабильным.
     orchestrator = AIOrchestrator.__new__(AIOrchestrator)
     orchestrator.client = client
     orchestrator.config = config

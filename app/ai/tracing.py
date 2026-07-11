@@ -14,6 +14,7 @@ async def trace_ai_run(
     workflow_name: str,
     target_type: str,
     target_id: str | None,
+    provider_name: str,
     model_name: str,
     prompt_version: str,
     input_snapshot: dict[str, Any],
@@ -21,15 +22,16 @@ async def trace_ai_run(
     error_text: str | None = None,
     duration_ms: int | None = None,
     tokens_used: dict[str, int] | None = None,
+    cost: float | None = None,
 ) -> None:
     """
     Универсальная функция трассировки AI-запросов.
     Делегирует репозиторию для сохранения в БД.
     """
     from app.repositories.ai_run_repository import AIRunRepository
-    
+
     repo = AIRunRepository()
-    
+
     if error_text:
         await repo.create_error(
             session,
@@ -38,6 +40,7 @@ async def trace_ai_run(
             workflow_name=workflow_name,
             target_type=target_type,
             target_id=target_id,
+            provider_name=provider_name,
             model_name=model_name,
             prompt_version=prompt_version,
             input_snapshot=input_snapshot,
@@ -52,10 +55,12 @@ async def trace_ai_run(
             workflow_name=workflow_name,
             target_type=target_type,
             target_id=target_id,
+            provider_name=provider_name,
             model_name=model_name,
             prompt_version=prompt_version,
             input_snapshot=input_snapshot,
             output_snapshot=output_snapshot or {},
             duration_ms=duration_ms,
             tokens_used=tokens_used or {},
+            cost=cost,
         )

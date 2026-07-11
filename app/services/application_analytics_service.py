@@ -69,6 +69,9 @@ class ApplicationAnalyticsService:
             else None
         )
 
+        conversion_by_resume_version = self._compute_conversion_by_resume_version(applications)
+        conversion_by_role = self._compute_conversion_by_role(applications)
+
         return {
             "total_applications": total,
             "count_by_status": dict(count_by_status),
@@ -78,4 +81,60 @@ class ApplicationAnalyticsService:
             "offers_count": count_by_status.get("offer", 0),
             "rejections_count": count_by_status.get("rejected", 0),
             "average_time_to_apply_hours": average_time_to_apply_hours,
+            "conversion_by_resume_version": conversion_by_resume_version,
+            "conversion_by_role": conversion_by_role,
         }
+
+    def _compute_conversion_by_resume_version(
+        self,
+        applications: list,
+    ) -> dict[str, dict[str, Any]]:
+        version_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "interview": 0, "offer": 0})
+        for app in applications:
+            version_label = "unknown"
+            if app.resume_document and getattr(app.resume_document, "version_label", None):
+                version_label = app.resume_document.version_label
+            version_stats[version_label]["total"] += 1
+            if app.status == "interview":
+                version_stats[version_label]["interview"] += 1
+            if app.status == "offer":
+                version_stats[version_label]["offer"] += 1
+
+        result: dict[str, dict[str, Any]] = {}
+        for version, stats in version_stats.items():
+            total = stats["total"]
+            result[version] = {
+                "total": total,
+                "interview_count": stats["interview"],
+                "offer_count": stats["offer"],
+                "interview_rate": round(stats["interview"] / total, 4) if total > 0 else 0.0,
+                "offer_rate": round(stats["offer"] / total, 4) if total > 0 else 0.0,
+            }
+        return result
+
+    def _compute_conversion_by_role(
+        self,
+        applications: list,
+    ) -> dict[str, dict[str, Any]]:
+        role_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "interview": 0, "offer": 0})
+        for app in applications:
+            role = "unknown"
+            if app.vacancy and getattr(app.vacancy, "title", None):
+                role = app.vacancy.title
+            role_stats[role]["total"] += 1
+            if app.status == "interview":
+                role_stats[role]["interview"] += 1
+            if app.status == "offer":
+                role_stats[role]["offer"] += 1
+
+        result: dict[str, dict[str, Any]] = {}
+        for role, stats in role_stats.items():
+            total = stats["total"]
+            result[role] = {
+                "total": total,
+                "interview_count": stats["interview"],
+                "offer_count": stats["offer"],
+                "interview_rate": round(stats["interview"] / total, 4) if total > 0 else 0.0,
+                "offer_rate": round(stats["offer"] / total, 4) if total > 0 else 0.0,
+            }
+        return result

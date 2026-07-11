@@ -252,6 +252,18 @@ class InterviewQuestionService:
             seen_ids.add(question_id)
             unique_questions.append(question)
 
+        salary_questions = self._build_salary_conversation_questions(
+            vacancy=vacancy,
+            vacancy_context_text=vacancy_context_text,
+            evidence_candidates=evidence_candidates,
+        )
+        for question in salary_questions:
+            question_id = str(question.get("question_id") or "")
+            if not question_id or question_id in seen_ids:
+                continue
+            seen_ids.add(question_id)
+            unique_questions.append(question)
+
         return unique_questions
 
     def build_evidence_links(
@@ -1259,6 +1271,72 @@ class InterviewQuestionService:
             "figma",
             "indesign",
         }
+
+    def _build_salary_conversation_questions(
+        self,
+        *,
+        vacancy,
+        vacancy_context_text: str,
+        evidence_candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        questions: list[dict[str, Any]] = []
+        salary_from = getattr(vacancy, "salary_from", None)
+        salary_to = getattr(vacancy, "salary_to", None)
+
+        questions.append(
+            self._build_question(
+                category="salary_negotiation",
+                prompt=(
+                    "Какова ваша ожидаемая заработная плата? "
+                    "Обоснуйте, почему вы считаете эту сумму справедливой, опираясь на свой опыт и рынок."
+                ),
+                answer_format="structured_argument",
+                competency_key="salary_expectations",
+                competency_name="ожидания по ЗП",
+                vacancy_context_text=vacancy_context_text,
+                evidence_candidates=evidence_candidates,
+            )
+        )
+
+        if salary_from or salary_to:
+            range_str = ""
+            if salary_from and salary_to:
+                range_str = f"от {salary_from} до {salary_to}"
+            elif salary_from:
+                range_str = f"от {salary_from}"
+            elif salary_to:
+                range_str = f"до {salary_to}"
+
+            questions.append(
+                self._build_question(
+                    category="salary_negotiation",
+                    prompt=(
+                        f"Вакансия указывает зарплату {range_str}. "
+                        "Как вы будете аргументировать свою позицию, если ваше ожидание выше?"
+                    ),
+                    answer_format="negotiation_script",
+                    competency_key="salary_negotiation",
+                    competency_name="переговоры по ЗП",
+                    vacancy_context_text=vacancy_context_text,
+                    evidence_candidates=evidence_candidates,
+                )
+            )
+
+        questions.append(
+            self._build_question(
+                category="salary_negotiation",
+                prompt=(
+                    "Какие дополнительные бонусы или компенсации для вас важны помимо оклада?"
+                ),
+                answer_format="preferences_list",
+                competency_key="total_compensation",
+                competency_name="компенсационный пакет",
+                vacancy_context_text=vacancy_context_text,
+                evidence_candidates=evidence_candidates,
+            )
+        )
+
+        return questions
 
     def _weak_area_label(self, weak_area: dict[str, Any]) -> str:
         label = str(

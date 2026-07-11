@@ -9,12 +9,19 @@ WORKDIR /app
 RUN pip install --upgrade pip
 
 COPY pyproject.toml build_backend.py README.md ./
-RUN --mount=type=cache,target=/root/.cache/pip pip install .
+RUN --mount=type=cache,target=/root/.cache/pip pip install .[deploy]
 
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
+COPY gunicorn.conf.py ./
 
 EXPOSE 7000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7000"]
+# Non-root runtime (ТЗ §3.5 «secure infra / non-root»).
+RUN useradd --create-home --uid 1001 appuser \
+    && mkdir -p /app/.local-storage \
+    && chown -R appuser:appuser /app
+USER appuser
+
+CMD ["gunicorn", "app.main:app", "-c", "gunicorn.conf.py"]

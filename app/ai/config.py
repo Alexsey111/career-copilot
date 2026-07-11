@@ -37,6 +37,10 @@ class AIOrchestratorConfig(BaseModel):
     
     # Трассировка
     enable_tracing: bool = Field(default=True)
+
+    # Кэширование ответов
+    enable_cache: bool = Field(default=False)
+    cache_max_size: int = Field(default=256)
     
     # Cost tracking (опционально)
     cost_per_1k_tokens_input: float = Field(default=0.0)
@@ -51,4 +55,8 @@ class AIOrchestratorConfig(BaseModel):
             request_timeout_sec=settings.ai_request_timeout,
             max_retries=settings.ai_max_retries,
             temperature=settings.ai_temperature,
+            cost_per_1k_tokens_input=settings.ai_cost_per_1k_input,
+            cost_per_1k_tokens_output=settings.ai_cost_per_1k_output,
+            enable_cache=settings.ai_cache_enabled,
+            cache_max_size=settings.ai_cache_max_size,
         )

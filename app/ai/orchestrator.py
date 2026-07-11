@@ -81,6 +81,7 @@ class AIOrchestrator:
         target_id: str | None = None,
         model_override: AIModel | str | None = None,
         language: str = "en",
+        data_categories: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Выполняет AI-запрос с полной обвязкой.
@@ -97,11 +98,15 @@ class AIOrchestrator:
         """
         # 1. Загружаем спецификацию промпта
         spec = get_prompt(prompt_template)
-        
-        # 2. Добавляем language только если промпт его ожидает
-        prompt_vars_final = dict(prompt_vars)
-        if "language" in spec.input_schema:
-            prompt_vars_final["language"] = language
+
+        # 2. Сборка контекста через ContextBuilder (нормализация + language).
+        from app.ai.context_builder import ContextBuilder
+
+        prompt_vars_final = ContextBuilder().normalize(
+            prompt_vars,
+            spec_input_keys=list(spec.input_schema.keys()),
+            language=language,
+        )
 
         # 2a. Валидация: все поля из input_schema должны быть заполнены
         for field in spec.input_schema.keys():
@@ -113,20 +118,60 @@ class AIOrchestrator:
             prompt = safe_render_prompt(spec.template, prompt_vars_final)
         except PromptRenderingError as e:
             raise LLMClientError(str(e)) from e
-        
-        # 3. Параметры запроса
-        model = (
-            model_override
-            or spec.model_hint
-            or self.config.default_model
+
+        # 3. Параметры запроса: маршрутизация модели через ModelRouter.
+        from app.ai.model_router import ModelRouter
+
+        model = ModelRouter().select_model(
+            workflow_name=workflow_name,
+            model_override=model_override,
+            model_hint=spec.model_hint,
+            default_model=self.config.default_model,
         )
         temperature = spec.temperature_hint or self.config.temperature
         response_format = spec.output_schema
-    
+
+        # 3a. Кэш ответов (ТЗ §3.4 «caching»). При попадании LLM не вызывается.
+        if getattr(self.config, "enable_cache", False):
+            from app.ai.cache import get_cache, make_cache_key
+
+            cache_key = make_cache_key(
+                prompt_version=prompt_template.value,
+                model=str(model),
+                temperature=temperature,
+                prompt=prompt,
+            )
+            cached = get_cache(int(getattr(self.config, "cache_max_size", 256))).get(
+                cache_key
+            )
+            if cached is not None:
+                hit = dict(cached)
+                hit["cache_hit"] = True
+                return hit
+
         # 4. ID трассировки
         run_id = uuid4()
         start_ts = time.time()
-        
+
+        # 4a. Аудит передачи ПДн внешнему AI-обработчику (ФЗ-152 ст.18/19).
+        # Фиксируется факт передачи независимо от результата запроса. Журнал
+        # ведётся совместно с трассировкой AI-запросов (в production
+        # enable_tracing=True); при выключенной трассировке (локальная разработка,
+        # изолированные unit-тесты) запись в БД не выполняется.
+        if self.config.enable_tracing:
+            from app.services.data_transfer_audit_service import DataTransferAuditService
+
+            await DataTransferAuditService().log(
+                session,
+                user_id=user_id,
+                recipient=self.client.provider_name,
+                purpose=workflow_name,
+                data_categories=data_categories,
+                consent_type="ai_generation",
+                model_name=str(model),
+            )
+            await session.flush()
+
         try:
             try:
                 # 5. Выполнение с ретраями (с глобальным timeout)
@@ -143,10 +188,11 @@ class AIOrchestrator:
                 ) from e
 
             duration_ms = int((time.time() - start_ts) * 1000)
+            cost = self._calc_cost(result.get("usage", {}))
 
             # 6. Трассировка успеха
             if self.config.enable_tracing:
-                await self.ai_run_repo.create_success(
+                await trace_ai_run(
                     session,
                     run_id=run_id,
                     user_id=user_id,
@@ -160,21 +206,39 @@ class AIOrchestrator:
                     output_snapshot=self._sanitize_snapshot(result),
                     duration_ms=duration_ms,
                     tokens_used=result.get("usage", {}),
+                    cost=cost,
                 )
                 await session.flush()
 
-            return {
+            return_value = {
                 "result": result.get("content"),
                 "usage": result.get("usage", {}),
-                "cost": self._calc_cost(result.get("usage", {})),
+                "cost": cost,
                 "model": model,
+                "cache_hit": False,
             }
+
+            # 6a. Сохраняем успешный ответ в кэш.
+            if getattr(self.config, "enable_cache", False):
+                from app.ai.cache import get_cache, make_cache_key
+
+                cache_key = make_cache_key(
+                    prompt_version=prompt_template.value,
+                    model=str(model),
+                    temperature=temperature,
+                    prompt=prompt,
+                )
+                get_cache(int(getattr(self.config, "cache_max_size", 256))).set(
+                    cache_key, return_value
+                )
+
+            return return_value
 
         except LLMClientError as e:
             # 7. Трассировка ошибки
             duration_ms = int((time.time() - start_ts) * 1000)
             if self.config.enable_tracing:
-                await self.ai_run_repo.create_error(
+                await trace_ai_run(
                     session,
                     run_id=run_id,
                     user_id=user_id,

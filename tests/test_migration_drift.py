@@ -13,9 +13,14 @@ from app.db.base import Base
 from app import models  # noqa: F401
 
 
+_default_port = os.getenv("TEST_DATABASE_URL", "postgresql+psycopg://career_user:career_pass@127.0.0.1:5434/career_copilot_test")
+import re as _re
+_port_match = _re.search(r":(\d+)/", _default_port)
+_default_pg_port = _port_match.group(1) if _port_match else "5433"
+
 MIGRATION_TEST_DATABASE_URL = os.getenv(
     "MIGRATION_TEST_DATABASE_URL",
-    "postgresql+psycopg://career_user:career_pass@127.0.0.1:5433/career_copilot_migration_test",
+    f"postgresql+psycopg://career_user:career_pass@127.0.0.1:{_default_pg_port}/career_copilot_migration_test",
 )
 
 

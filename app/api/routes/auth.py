@@ -24,7 +24,7 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.security.dependencies import get_current_active_user
-from app.security.passwords import hash_password, verify_password
+from app.security.passwords import hash_password, needs_rehash, verify_password
 from app.security.tokens import generate_refresh_token, hash_refresh_token
 from app.services.auth_service import (
     enforce_login_throttle,
@@ -108,6 +108,9 @@ async def login(
         )
 
     user.last_login_at = utcnow()
+    # Миграция устаревших хэшей (bcrypt) на argon2 при успешном логине.
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
     await log_auth_event(
         session,
         event_type="login_success",
@@ -356,3 +359,56 @@ async def cleanup_tokens(
 @router.get("/me", response_model=UserOut)
 async def get_me(user: User = Depends(get_current_active_user)) -> UserOut:
     return UserOut.model_validate(user)
+
+
+# --- OAuth routes ---
+
+@router.get("/oauth/{provider}/authorize")
+async def oauth_authorize(provider: str) -> dict:
+    from app.services.oauth_service import OAuthService, generate_oauth_state
+
+    if provider not in ("google", "github"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported OAuth provider",
+        )
+
+    oauth_service = OAuthService()
+    state = generate_oauth_state(provider)
+
+    if provider == "google":
+        url = oauth_service.get_google_auth_url(state)
+    else:
+        url = oauth_service.get_github_auth_url(state)
+
+    return {"auth_url": url, "state": state}
+
+
+@router.post("/oauth/{provider}/callback", response_model=TokenResponse)
+async def oauth_callback(
+    provider: str,
+    code: str,
+    request: Request,
+    state: str | None = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> TokenResponse:
+    from app.services.oauth_service import OAuthService, verify_oauth_state
+
+    if provider not in ("google", "github"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported OAuth provider",
+        )
+
+    if not state or not verify_oauth_state(state, provider):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OAuth state",
+        )
+
+    oauth_service = OAuthService()
+
+    if provider == "google":
+        return await oauth_service.handle_google_callback(code, request)
+    else:
+        return await oauth_service.handle_github_callback(code, request)

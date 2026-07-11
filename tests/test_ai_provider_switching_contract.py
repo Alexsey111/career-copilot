@@ -22,6 +22,7 @@ def _set_minimum_production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setenv("MINIO_ACCESS_KEY", "safe-access-key")
     monkeypatch.setenv("MINIO_SECRET_KEY", "safe-secret-key")
+    monkeypatch.setenv("MINIO_SECURE", "true")
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "http://localhost:8501")
 
 

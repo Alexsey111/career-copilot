@@ -168,3 +168,121 @@ async def test_tailored_resume_excludes_unconfirmed_achievements(
     # 5. В тексте не должно быть служебных меток
     rendered = content.get("rendered_text", "")
     assert "needs_confirmation" not in rendered.lower()
+
+
+@pytest.mark.asyncio
+async def test_tailored_resume_localizes_by_market_us(
+    client: AsyncClient,
+    db_session,
+) -> None:
+    """Этап 7: market=US в запросе генерации → EN-заголовки и content_json.meta.market."""
+    # 0. Профиль через pipeline (автодетект даст RU по «г. Москва»).
+    upload_response = await client.post(
+        "/api/v1/files/upload",
+        data={"file_kind": "resume"},
+        files={"file": ("resume.pdf", b"%PDF-1.4 fake pdf\n", "application/pdf")},
+    )
+    assert upload_response.status_code == 200
+    source_file_id = upload_response.json()["id"]
+    import_resp = await client.post(
+        "/api/v1/profile/import-resume",
+        json={"source_file_id": source_file_id},
+    )
+    extraction_id = import_resp.json()["extraction_id"]
+    await client.post("/api/v1/profile/extract-structured", json={"extraction_id": extraction_id})
+    await client.post("/api/v1/profile/extract-achievements", json={"extraction_id": extraction_id})
+
+    # 1. Вакансия + анализ
+    vacancy_payload = {
+        "source": "manual",
+        "title": "Senior Python Backend Engineer",
+        "company": "TechCorp",
+        "location": "Remote",
+        "description_raw": "Требования\n- Python\n- FastAPI\n- PostgreSQL\n",
+    }
+    r_vac = await client.post("/api/v1/vacancies/import", json=vacancy_payload)
+    vacancy_id = UUID(r_vac.json()["vacancy_id"])
+    await client.post(f"/api/v1/vacancies/{vacancy_id}/analyze")
+
+    # 2. Генерация с явным market=US
+    r_gen = await client.post(
+        "/api/v1/documents/resumes/generate",
+        json={"vacancy_id": str(vacancy_id), "market": "US"},
+    )
+    assert r_gen.status_code == 200, f"Generate failed: {r_gen.text}"
+    doc_id = UUID(r_gen.json()["document_id"])
+
+    # 3. Проверка локализации и content_json.meta.market
+    r_doc = await client.get(f"/api/v1/documents/{doc_id}")
+    assert r_doc.status_code == 200
+    content = r_doc.json()
+    rendered = content.get("rendered_text") or ""
+
+    assert "TARGET ROLE" in rendered
+    assert "SUMMARY" in rendered
+    assert "KEY SKILLS" in rendered
+    assert "EXPERIENCE" in rendered
+    assert "ЦЕЛЕВАЯ ПОЗИЦИЯ" not in rendered
+    assert "КРАТКОЕ РЕЗЮМЕ" not in rendered
+
+    # content_json читаем из БД (API может не expose meta на верхнем уровне).
+    from app.models import DocumentVersion
+    from sqlalchemy import select
+
+    document = (
+        await db_session.execute(
+            select(DocumentVersion).where(DocumentVersion.id == doc_id)
+        )
+    ).scalar_one()
+    meta = (document.content_json or {}).get("meta") or {}
+    assert meta.get("market") == "US"
+
+
+@pytest.mark.asyncio
+async def test_tailored_resume_respects_profile_market_patch(
+    client: AsyncClient,
+    db_session,
+) -> None:
+    """Этап 7: PATCH /profile/market=EU → генерация без явного market рендерит EU."""
+    upload_response = await client.post(
+        "/api/v1/files/upload",
+        data={"file_kind": "resume"},
+        files={"file": ("resume.pdf", b"%PDF-1.4 fake pdf\n", "application/pdf")},
+    )
+    source_file_id = upload_response.json()["id"]
+    import_resp = await client.post(
+        "/api/v1/profile/import-resume",
+        json={"source_file_id": source_file_id},
+    )
+    extraction_id = import_resp.json()["extraction_id"]
+    await client.post("/api/v1/profile/extract-structured", json={"extraction_id": extraction_id})
+    await client.post("/api/v1/profile/extract-achievements", json={"extraction_id": extraction_id})
+
+    # Переключаем рынок профиля на EU.
+    r_patch = await client.patch("/api/v1/profile/market", json={"market": "EU"})
+    assert r_patch.status_code == 200, r_patch.text
+    assert r_patch.json() == {"market": "EU"}
+
+    vacancy_payload = {
+        "source": "manual",
+        "title": "Data Engineer",
+        "company": "DataCo",
+        "description_raw": "Требуется: Python, SQL, Airflow",
+    }
+    r_vac = await client.post("/api/v1/vacancies/import", json=vacancy_payload)
+    vacancy_id = UUID(r_vac.json()["vacancy_id"])
+    await client.post(f"/api/v1/vacancies/{vacancy_id}/analyze")
+
+    # Генерация БЕЗ явного market — должна взять из профиля (EU).
+    r_gen = await client.post(
+        "/api/v1/documents/resumes/generate",
+        json={"vacancy_id": str(vacancy_id)},
+    )
+    assert r_gen.status_code == 200, f"Generate failed: {r_gen.text}"
+    doc_id = UUID(r_gen.json()["document_id"])
+
+    r_doc = await client.get(f"/api/v1/documents/{doc_id}")
+    rendered = r_doc.json().get("rendered_text") or ""
+
+    assert "TARGET ROLE" in rendered
+    assert "ЦЕЛЕВАЯ ПОЗИЦИЯ" not in rendered

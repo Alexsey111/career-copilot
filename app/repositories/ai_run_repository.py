@@ -28,6 +28,7 @@ class AIRunRepository:
         output_snapshot: dict,
         duration_ms: int | None,
         tokens_used: dict | None,
+        cost: float | None = None,
     ) -> AIRun:
         """Сохраняет успешный AI-запрос"""
         ai_run = AIRun(
@@ -43,6 +44,7 @@ class AIRunRepository:
             input_snapshot_json=input_snapshot,
             output_snapshot_json=output_snapshot,
             tokens_used_json=tokens_used,
+            cost=cost,
             duration_ms=duration_ms,
         )
         session.add(ai_run)

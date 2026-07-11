@@ -23,6 +23,9 @@ class VacancyAnalysisRepository:
         strengths_json: list[dict],
         match_score: int | None,
         analysis_version: str,
+        risks_json: list[dict] | None = None,
+        match_logic_json: dict | None = None,
+        language_tone_hints_json: dict | None = None,
     ) -> VacancyAnalysis:
         await session.execute(
             delete(VacancyAnalysis).where(VacancyAnalysis.vacancy_id == vacancy_id)
@@ -37,6 +40,9 @@ class VacancyAnalysisRepository:
             strengths_json=strengths_json,
             match_score=match_score,
             analysis_version=analysis_version,
+            risks_json=risks_json or [],
+            match_logic_json=match_logic_json or {},
+            language_tone_hints_json=language_tone_hints_json or {},
         )
         session.add(analysis)
         await session.flush()

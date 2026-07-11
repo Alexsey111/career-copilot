@@ -137,6 +137,84 @@ Integrated with PostgreSQL database for efficient data persistence."""
 
 
 @pytest.mark.asyncio
+async def test_resume_enhancement_rejects_invented_metric(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Factuality-gate: AI добавил метрику, которой нет в оригинале → откат на оригинал."""
+
+    original = """Built a REST API with Python and FastAPI.
+Implemented user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence.
+Improved response time by 30%."""
+
+    enhanced = """Built a robust REST API with Python and FastAPI.
+Implemented secure user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence.
+Improved response time by 30% and increased throughput by 150%."""
+
+    class InventedMetricClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {"enhanced_text": enhanced},
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=InventedMetricClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    # 150% выдумана AI и отсутствует в оригинале → откат на оригинал
+    assert result == original
+    assert "150%" not in result
+    assert "30%" in result
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_keeps_metric_present_in_original(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Factuality-gate: метрика из оригинала сохранена — enhanced принимается."""
+
+    original = """Built a REST API with Python and FastAPI.
+Implemented user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence.
+Improved response time by 30%."""
+
+    enhanced = """Built a robust REST API with Python and FastAPI.
+Implemented secure user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence.
+Improved response time by 30% across all endpoints."""
+
+    class SafeMetricClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {"enhanced_text": enhanced},
+                "usage": {},
+            }
+
+    orchestrator = AIOrchestrator(client=SafeMetricClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    # 30% есть в оригинале → enhanced принимается
+    assert result == enhanced
+
+
+@pytest.mark.asyncio
 async def test_resume_enhancement_rejects_loss_of_protected_terms(
     db_session: AsyncSession,
     test_user,
@@ -719,7 +797,8 @@ def test_resume_rendered_text_does_not_include_internal_review_notes() -> None:
     assert "КРАТКОЕ РЕЗЮМЕ" in rendered
     assert "КЛЮЧЕВЫЕ НАВЫКИ" in rendered
     assert "КЛЮЧЕВЫЕ ДОСТИЖЕНИЯ" in rendered
-    assert "Создание ИИ-системы для мониторинга безопасности" in rendered
+    assert "- Создание ИИ-системы для мониторинга безопасности" in rendered
+    assert "Ключевые достижения включают" not in rendered
 
     assert "SUMMARY" not in rendered
     assert "SKILLS" not in rendered
@@ -1434,7 +1513,12 @@ def test_resume_renderer_prints_project_narrative() -> None:
         }
     )
 
-    assert "Разработка FastAPI backend сервиса — API, persistence layer" in rendered
+    assert "КЛЮЧЕВЫЕ ДОСТИЖЕНИЯ" in rendered
+    assert (
+        "- Разработка FastAPI backend сервиса — API, persistence layer"
+        in rendered
+    )
+    assert "Ключевые достижения включают" not in rendered
 
 
 def test_resume_builds_structured_project_sections_from_achievements() -> None:
@@ -2401,7 +2485,8 @@ def test_resume_builds_ats_tailored_summary_and_competency_mapping() -> None:
 
     summary = tailoring["vacancy_aligned_summary"]
     assert summary.startswith("AI Automation Specialist с опытом")
-    assert "За время работы" in summary
+    assert "Основная специализация" in summary
+    assert "За время работы ИИ-система мониторинга безопасности." not in summary
     assert "Среди подтверждённых результатов" not in summary
     assert "Python-разработчик и AI automation engineer" not in summary
     assert "Кандидат на позицию" not in summary
@@ -2563,6 +2648,76 @@ def test_resume_vacancy_summary_builds_human_narrative_for_legal_and_medical_rol
     assert "Диагностика пациентов Назначение лечения" not in medical_summary
 
 
+def test_resume_summary_ranks_project_management_focus_and_polishes_phrases() -> None:
+    service = ResumeGenerationService()
+
+    summary = service._build_vacancy_aligned_summary(
+        vacancy_title="Руководитель проектов",
+        selected_skills=["Jira", "Scrum", "Бюджетирование"],
+        selected_achievements=[],
+        experience_items=[
+            {
+                "period": "01.2021 - 12.2026",
+                "description_raw": (
+                    "Ведение документации\n"
+                    "Планирование сроков и бюджета\n"
+                    "Управление IT-проектами\n"
+                    "Координация команды 12 человек\n"
+                    "Взаимодействие с заказчиками"
+                ),
+            }
+        ],
+        top_alignment_evidence=[],
+    )
+
+    assert summary.startswith(
+        "Руководитель проектов с опытом более 5 лет в управлении ИТ-проектами "
+        "полного цикла, координации команды до 12 человек и контроле сроков и бюджета."
+    )
+    assert "Основная специализация —" in summary
+    assert "Ведение документации" not in summary
+
+
+def test_resume_summary_uses_evidence_strength_for_achievement_order() -> None:
+    service = ResumeGenerationService()
+
+    summary = service._build_vacancy_aligned_summary(
+        vacancy_title="Руководитель проектов",
+        selected_skills=["Project Management", "Jira"],
+        selected_achievements=[
+            {
+                "title": "Подготовила более 250 договоров",
+                "fact_status": "confirmed",
+            },
+            {
+                "title": "Запустила 8 проектов в срок",
+                "fact_status": "confirmed",
+            },
+        ],
+        experience_items=[
+            {
+                "period": "01.2021 - 12.2026",
+                "description_raw": (
+                    "Управление IT-проектами\n"
+                    "Планирование сроков и бюджета\n"
+                    "Координация команды 12 человек"
+                ),
+            }
+        ],
+        top_alignment_evidence=[
+            {
+                "requirement": "Project management",
+                "summary_phrase": "управление IT-проектами",
+                "evidence": "Запустила 8 проектов в срок",
+                "confidence": "high",
+            }
+        ],
+    )
+
+    assert "За время работы запустила 8 проектов в срок" in summary
+    assert summary.index("запустила 8 проектов") < summary.index("подготовила более 250 договоров")
+
+
 def test_resume_summary_prioritizes_management_supply_signals_over_tools() -> None:
     service = ResumeGenerationService()
 
@@ -2655,3 +2810,100 @@ def test_vacancy_summary_does_not_force_ai_backend_identity_for_non_it_role() ->
     assert "ai automation engineer" not in lowered
     assert "backend-сервис" not in lowered
     assert "ai-assisted workflows" not in lowered
+
+
+# --- Этап 7: параметризация промпта RESUME_TAILOR_V1 по рынку ---
+
+class _CapturingOrchestrator:
+    """Захватывает prompt_vars, переданные в orchestrator.execute, без БД."""
+
+    def __init__(self) -> None:
+        self.captured: dict = {}
+
+    async def execute(self, *, session, user_id, prompt_template, prompt_vars, **kwargs):
+        self.captured["prompt_template"] = prompt_template
+        self.captured["prompt_vars"] = prompt_vars
+        return {"result": {"summary": "tailored"}}
+
+
+@pytest.mark.asyncio
+async def test_tailor_resume_receives_market_label_for_eu() -> None:
+    from uuid import uuid4
+
+    from app.ai.use_cases.resume_tailoring import tailor_resume
+
+    orchestrator = _CapturingOrchestrator()
+    vacancy = SimpleNamespace(title="Backend Engineer", company="Acme", id=uuid4())
+    analysis = SimpleNamespace(must_have_json=[{"text": "Python"}])
+    profile = SimpleNamespace(summary="Профиль кандидата")
+    achievements = [{"title": "API redesign"}]
+
+    await tailor_resume(
+        orchestrator,
+        session=None,
+        user_id=uuid4(),
+        vacancy=vacancy,
+        analysis=analysis,
+        profile=profile,
+        achievements=achievements,
+        market="EU",
+    )
+
+    prompt_vars = orchestrator.captured["prompt_vars"]
+    assert prompt_vars["market_label"] == "EU job market"
+    assert prompt_vars["section_language"] == "English (EU)"
+
+
+@pytest.mark.asyncio
+async def test_tailor_resume_receives_market_label_for_us() -> None:
+    from uuid import uuid4
+
+    from app.ai.use_cases.resume_tailoring import tailor_resume
+
+    orchestrator = _CapturingOrchestrator()
+    vacancy = SimpleNamespace(title="Backend Engineer", company="Acme", id=uuid4())
+    analysis = SimpleNamespace(must_have_json=[{"text": "Python"}])
+    profile = SimpleNamespace(summary="Профиль кандидата")
+    achievements = [{"title": "API redesign"}]
+
+    await tailor_resume(
+        orchestrator,
+        session=None,
+        user_id=uuid4(),
+        vacancy=vacancy,
+        analysis=analysis,
+        profile=profile,
+        achievements=achievements,
+        market="us",
+    )
+
+    prompt_vars = orchestrator.captured["prompt_vars"]
+    assert prompt_vars["market_label"] == "US job market"
+    assert prompt_vars["section_language"] == "English (US)"
+
+
+@pytest.mark.asyncio
+async def test_tailor_resume_defaults_to_ru_market_label() -> None:
+    from uuid import uuid4
+
+    from app.ai.use_cases.resume_tailoring import tailor_resume
+
+    orchestrator = _CapturingOrchestrator()
+    vacancy = SimpleNamespace(title="Backend Engineer", company="Acme", id=uuid4())
+    analysis = SimpleNamespace(must_have_json=[{"text": "Python"}])
+    profile = SimpleNamespace(summary="Профиль кандидата")
+    achievements = [{"title": "API redesign"}]
+
+    await tailor_resume(
+        orchestrator,
+        session=None,
+        user_id=uuid4(),
+        vacancy=vacancy,
+        analysis=analysis,
+        profile=profile,
+        achievements=achievements,
+    )
+
+    prompt_vars = orchestrator.captured["prompt_vars"]
+    assert prompt_vars["market_label"] == "российского рынка труда"
+    assert prompt_vars["section_language"] == "русском"

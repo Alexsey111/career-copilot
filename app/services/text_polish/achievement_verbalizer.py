@@ -12,6 +12,7 @@ from app.services.text_polish.humanizer import (
 
 
 ACHIEVEMENT_NOMINALIZATION_MAP = (
+    (r"^(запустил|запустила)\b", "запуск"),
     (r"^(внедрил|внедрила|внедрил)\b", "внедрение"),
     (r"^(сократил|сократила)\b", "сокращение"),
     (r"^(оптимизировал|оптимизировала)\b", "оптимизация"),
@@ -86,26 +87,52 @@ def build_resume_achievement_sentence(
     *,
     role: str = "",
 ) -> str | None:
-    achievement_titles = [
-        str(item.get("title") or "").strip()
-        for item in selected_achievements[:3]
-        if str(item.get("title") or "").strip()
-    ]
+    achievement_titles = _dedupe_preserve_order(
+        [
+            _achievement_phrase_for_listing(str(item.get("title") or "").strip())
+            for item in selected_achievements[:3]
+            if str(item.get("title") or "").strip()
+        ]
+    )
     if not achievement_titles:
         return None
 
-    first = verbalize_achievement_phrase(achievement_titles[0], style=AchievementStyle.ACTION)
     if len(achievement_titles) == 1:
-        return f"За время работы {first}."
+        return f"Ключевые достижения включают {achievement_titles[0]}."
 
-    other = "; ".join(
-        verbalize_achievement_phrase(title, style=AchievementStyle.ACTION)
-        for title in achievement_titles[1:]
-        if title
+    if len(achievement_titles) == 2:
+        joined = f"{achievement_titles[0]} и {achievement_titles[1]}"
+    else:
+        joined = f"{', '.join(achievement_titles[:-1])} и {achievement_titles[-1]}"
+    return f"Ключевые достижения включают {joined}."
+
+
+def build_resume_achievement_action_sentence(
+    selected_achievements: list[dict[str, Any]],
+    *,
+    role: str = "",
+) -> str | None:
+    achievement_titles = _dedupe_preserve_order(
+        [
+            verbalize_achievement_phrase(
+                str(item.get("title") or "").strip(),
+                style=AchievementStyle.ACTION,
+            )
+            for item in selected_achievements[:3]
+            if str(item.get("title") or "").strip()
+        ]
     )
-    if not other:
-        return f"За время работы {first}."
-    return f"За время работы {first}; также {other}."
+    if not achievement_titles:
+        return None
+
+    if len(achievement_titles) == 1:
+        return f"За время работы {achievement_titles[0]}."
+
+    if len(achievement_titles) == 2:
+        joined = f"{achievement_titles[0]}; также {achievement_titles[1]}"
+    else:
+        joined = f"{achievement_titles[0]}; также {'; '.join(achievement_titles[1:])}"
+    return f"За время работы {joined}."
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:
@@ -143,6 +170,9 @@ def actionize_achievement_phrase(value: str) -> str:
         return ""
 
     cleaned = _strip_role_subject_preface(cleaned)
+    first_token = cleaned.split(" ", 1)[0]
+    if _looks_like_acronym_phrase(first_token):
+        return cleaned
     return lowercase_sentence_start(cleaned)
 
 
@@ -198,6 +228,59 @@ def _normalize_nominal_tail(value: str) -> str:
     return text
 
 
+def _achievement_phrase_for_listing(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+    if not text:
+        return ""
+
+    first_token = text.split(" ", 1)[0]
+    if _looks_like_acronym_phrase(first_token):
+        return text
+
+    nominalized = nounize_achievement_phrase(text)
+    if nominalized:
+        first, _, rest = nominalized.partition(" ")
+        listing_forms = {
+            "внедрение": "внедрение",
+            "сокращение": "сокращение",
+            "оптимизация": "оптимизацию",
+            "автоматизация": "автоматизацию",
+            "реализация": "реализацию",
+            "разработка": "разработку",
+            "создание": "создание",
+            "улучшение": "улучшение",
+            "снижение": "снижение",
+            "увеличение": "увеличение",
+            "настройка": "настройку",
+            "построение": "построение",
+            "подготовка": "подготовку",
+            "проведение": "проведение",
+            "ведение": "ведение",
+            "управление": "управление",
+            "координация": "координацию",
+            "организация": "организацию",
+            "сопровождение": "сопровождение",
+            "устранение": "устранение",
+            "запуск": "запуск",
+        }
+        replacement = listing_forms.get(first.casefold())
+        if replacement:
+            return f"{replacement} {rest}".strip()
+        return nominalized
+    return text
+
+
+def _looks_like_acronym_phrase(value: str) -> bool:
+    token = str(value or "").strip()
+    if not token:
+        return False
+    parts = token.split("-", 1)
+    return any(
+        part.isalpha() and len(part) > 1 and part.upper() == part
+        for part in parts
+    )
+
+
 class AchievementVerbalizer:
     def cover_letter_result_value(
         self,
@@ -215,6 +298,17 @@ class AchievementVerbalizer:
         role: str = "",
     ) -> str | None:
         return build_resume_achievement_sentence(
+            selected_achievements,
+            role=role,
+        )
+
+    def build_resume_achievement_action_sentence(
+        self,
+        selected_achievements: list[dict[str, Any]],
+        *,
+        role: str = "",
+    ) -> str | None:
+        return build_resume_achievement_action_sentence(
             selected_achievements,
             role=role,
         )
@@ -244,4 +338,8 @@ class AchievementVerbalizer:
             return "Практический результат моей работы —"
         if len(nounized) == 1:
             return f"Практический результат моей работы — {nounized[0]}."
-        return f"Практический результат моей работы — {nounized[0]}; {nounized[1]}."
+        if len(nounized) == 2:
+            joined = f"{nounized[0]} и {nounized[1]}"
+        else:
+            joined = f"{', '.join(nounized[:-1])} и {nounized[-1]}"
+        return f"Практический результат моей работы — {joined}."

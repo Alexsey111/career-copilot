@@ -107,6 +107,7 @@ def build_resume_content(
     education: list[dict[str, Any]] | None = None,
     courses: list[dict[str, Any]] | None = None,
     internships: list[dict[str, Any]] | None = None,
+    market: str = "ru",
 ) -> dict:
     provenance = build_document_provenance(
         source=source,
@@ -168,6 +169,7 @@ def build_resume_content(
             "provenance": provenance,
             "warnings": [],
             "generation_trace": serialize_trace(trace) if trace else {},
+            "market": market,
         },
         "provenance": provenance,
     }

@@ -10,7 +10,7 @@ from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_ai_orchestrator, get_current_active_user
+from app.api.dependencies import get_ai_orchestrator, get_current_active_user, require_ai_consent
 from app.ai.orchestrator import AIOrchestrator
 from app.db.session import get_db_session
 from app.models import User
@@ -97,7 +97,7 @@ def _snapshot_to_history_item(snapshot):
 @router.post("/resumes/generate", response_model=ResumeGenerateResponse)
 async def generate_resume(
     payload: ResumeGenerateRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> ResumeGenerateResponse:
@@ -106,6 +106,7 @@ async def generate_resume(
         session,
         vacancy_id=payload.vacancy_id,
         user_id=current_user.id,
+        market=payload.market,
     )
 
     try:
@@ -130,7 +131,7 @@ async def generate_resume(
 async def enhance_resume(
     document_id: UUID,
     payload: ResumeEnhanceRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> ResumeEnhanceResponse:
@@ -201,7 +202,7 @@ async def enhance_resume(
 @router.post("/letters/generate", response_model=CoverLetterGenerateResponse)
 async def generate_cover_letter(
     payload: CoverLetterGenerateRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> CoverLetterGenerateResponse:
@@ -210,6 +211,7 @@ async def generate_cover_letter(
         session,
         vacancy_id=payload.vacancy_id,
         user_id=current_user.id,
+        variant=payload.variant,
     )
 
     try:
@@ -234,7 +236,7 @@ async def generate_cover_letter(
 async def enhance_cover_letter(
     document_id: UUID,
     payload: CoverLetterEnhanceRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
 ) -> CoverLetterEnhanceResponse:

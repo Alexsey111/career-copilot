@@ -110,7 +110,7 @@ def test_compare_with_profile_uses_skill_alias_patterns() -> None:
 
     assert strength_keywords == {"Python", "FastAPI", "PostgreSQL", "Docker", "RAG"}
     assert gap_keywords == {"Redis"}
-    assert match_score == 94
+    assert match_score == 92
 
 
 def test_fallback_requirement_candidates_uses_skill_patterns_not_plain_labels() -> None:
@@ -259,7 +259,7 @@ def test_profile_summary_skills_are_used_for_match_score() -> None:
 
     assert strength_keywords == {"Python", "FastAPI", "Docker"}
     assert gap_keywords == {"PostgreSQL", "Redis"}
-    assert match_score == 64
+    assert match_score == 62
 
 
 def test_semantic_vacancy_matching_maps_ai_workflow_chatgpt_prompting_and_nocode() -> None:
@@ -299,7 +299,7 @@ def test_semantic_vacancy_matching_maps_ai_workflow_chatgpt_prompting_and_nocode
         "Automation Tooling",
     }
     assert gaps == []
-    assert match_score == 100
+    assert match_score == 85
 
 
 def test_extract_section_items_handles_inline_colon_headings() -> None:

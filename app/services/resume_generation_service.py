@@ -42,14 +42,17 @@ from app.services.document_compat import (
 )
 from app.services.document_evidence_guards import filter_user_facing_achievements
 from app.services.document_feedback import build_claim, build_warning
+from app.services.document_evaluator import _extract_metrics
 from app.services.document_builders import build_resume_content
 from app.services.document_evidence_selection_service import DocumentEvidenceSelectionService
 from app.services.evidence_bank_service import EVIDENCE_BANK_SOURCE_TYPES, EvidenceBankService
 from app.services.evidence_extraction_service import EvidenceExtractionService
 from app.services.evidence_selection_service import EvidenceSelectionService
+from app.services.evidence_strength_ranker import EvidenceStrengthRanker
 from app.services.profile_structuring_service import ProfileStructuringService
 from app.services.legacy_resume_recovery_service import LegacyResumeRecoveryService
 from app.services.semantic_requirement_matcher import SemanticRequirementMatcher
+from app.services.semantic_summary_ranker import SemanticSummaryRanker
 from app.services.resume_renderer import render_resume
 from app.services.vacancy_fit_context_service import VacancyFitContextService
 from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
@@ -334,6 +337,10 @@ class ResumeGenerationService:
         self.achievement_verbalizer = AchievementVerbalizer()
         self.narrative_builder = NarrativeBuilder()
         self.semantic_matcher = SemanticRequirementMatcher()
+        self.evidence_strength_ranker = EvidenceStrengthRanker()
+        self.semantic_summary_ranker = SemanticSummaryRanker(
+            evidence_strength_ranker=self.evidence_strength_ranker,
+        )
         self.document_evidence_selection_service = DocumentEvidenceSelectionService()
 
     async def generate_resume(
@@ -343,6 +350,7 @@ class ResumeGenerationService:
         vacancy_id: UUID,
         user_id: UUID,
         use_ai_enhancement: bool = False,
+        market: str | None = None,
     ):
         vacancy = await self.vacancy_repository.get_by_id(
             session,
@@ -375,6 +383,9 @@ class ResumeGenerationService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="candidate profile not found for vacancy user",
             )
+
+        # Этап 7: явный market из запроса имеет приоритет, иначе профиль, иначе RU.
+        resolved_market = market or getattr(profile, "market", None) or "ru"
 
         latest_extraction = await self.file_extraction_repository.get_latest_for_active_source_file_kind(
             session,
@@ -606,6 +617,7 @@ class ResumeGenerationService:
                 analysis=analysis,
                 profile=profile,
                 achievements=selected_achievements,
+                market=resolved_market,
             )
             # Если AI вернул улучшенный текст — можно применить к sections
             if ai_result and isinstance(ai_result, dict):
@@ -701,6 +713,7 @@ class ResumeGenerationService:
                 "resume_tailor_v1" if use_ai_enhancement else None
             ),
             generated_at=datetime.now(timezone.utc).isoformat(),
+            market=resolved_market,
         )
 
         rendered_text = render_resume(content_json)
@@ -828,6 +841,10 @@ class ResumeGenerationService:
             "Желаемая должность",
             "ОПЫТ РАБОТЫ",
             "ОБРАЗОВАНИЕ",
+            "Навыки:",
+            "НАВЫКИ:",
+            "Skills:",
+            "SKILLS:",
         ]
 
         for marker in noise_markers:
@@ -2103,7 +2120,7 @@ class ResumeGenerationService:
         *,
         role: str = "",
     ) -> str | None:
-        return self.achievement_verbalizer.build_resume_achievement_sentence(
+        return self.achievement_verbalizer.build_resume_achievement_action_sentence(
             selected_achievements,
             role=role,
         )
@@ -2185,8 +2202,20 @@ class ResumeGenerationService:
             focus_phrases = self._dedupe_preserve_order(responsibility_items)
 
         if not focus_phrases:
-            focus_phrases = selected_skills[:3]
+            focus_phrases = self.semantic_summary_ranker.rank_skills(
+                skills=selected_skills,
+                vacancy_title=vacancy_title,
+                selected_achievements=selected_achievements,
+                top_alignment_evidence=top_alignment_evidence or [],
+            )[:3]
 
+        focus_phrases = self._rank_resume_focus_phrases(
+            focus_phrases=focus_phrases,
+            vacancy_title=vacancy_title,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+            top_alignment_evidence=top_alignment_evidence or [],
+        )
         focus_phrases = self.narrative_builder.specialize_resume_summary_focus_phrases(
             role=role,
             focus_phrases=focus_phrases,
@@ -2227,13 +2256,160 @@ class ResumeGenerationService:
         else:
             summary_start = f"{summary_role} с опытом в {focus}."
 
-        achievement_sentence = self._build_resume_achievement_sentence(
+        second_sentence = self._build_resume_summary_second_sentence(
+            focus_phrases=focus_phrases[:focus_limit],
+            selected_achievements=selected_achievements,
+            context=" ".join([summary_role, vacancy_title, *selected_skills]),
+            vacancy_title=vacancy_title,
+            selected_skills=selected_skills,
+            top_alignment_evidence=top_alignment_evidence or [],
+        )
+        if second_sentence:
+            summary_start += f" {second_sentence}"
+        return summary_start
+
+    def _rank_resume_focus_phrases(
+        self,
+        *,
+        focus_phrases: list[str],
+        vacancy_title: str,
+        selected_skills: list[str],
+        selected_achievements: list[dict[str, Any]],
+        top_alignment_evidence: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
+        return self.semantic_summary_ranker.rank_focus_phrases(
+            phrases=focus_phrases,
+            vacancy_title=vacancy_title,
+            selected_skills=selected_skills,
+            selected_achievements=selected_achievements,
+            top_alignment_evidence=top_alignment_evidence or [],
+            source="top_alignment_evidence" if top_alignment_evidence else "responsibility",
+        )
+
+    def _resume_focus_phrase_score(self, phrase: str, context: str) -> int:
+        return self.semantic_summary_ranker.score_phrase(
+            phrase,
+            context=context,
+        )
+
+    def _build_resume_summary_second_sentence(
+        self,
+        *,
+        focus_phrases: list[str],
+        selected_achievements: list[dict[str, Any]],
+        context: str = "",
+        vacancy_title: str = "",
+        selected_skills: list[str] | None = None,
+        top_alignment_evidence: list[dict[str, Any]] | None = None,
+    ) -> str | None:
+        strong_achievements = self._strong_summary_achievements(
             selected_achievements,
-            role=summary_role,
+            vacancy_title=vacancy_title,
+            selected_skills=selected_skills or [],
+            top_alignment_evidence=top_alignment_evidence or [],
+        )
+        achievement_sentence = self._build_resume_achievement_sentence(
+            strong_achievements,
         )
         if achievement_sentence:
-            summary_start += f" {achievement_sentence}"
-        return summary_start
+            return achievement_sentence
+
+        weak_achievement_count = max(len(selected_achievements) - len(strong_achievements), 0)
+        specialization = self._build_resume_specialization_sentence(
+            focus_phrases,
+            context=context,
+            has_weak_achievements=weak_achievement_count > 0,
+        )
+        if specialization:
+            return specialization
+        return None
+
+    def _strong_summary_achievements(
+        self,
+        selected_achievements: list[dict[str, Any]],
+        *,
+        vacancy_title: str = "",
+        selected_skills: list[str] | None = None,
+        top_alignment_evidence: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.semantic_summary_ranker.strong_summary_achievements(
+            selected_achievements,
+            min_score=3,
+            vacancy_title=vacancy_title,
+            selected_skills=selected_skills or [],
+            top_alignment_evidence=top_alignment_evidence or [],
+        )
+
+    def _achievement_summary_quality_score(self, achievement: dict[str, Any]) -> int:
+        return self.semantic_summary_ranker.achievement_quality_score(achievement)
+
+    def _looks_like_action_achievement(self, value: str) -> bool:
+        return self.semantic_summary_ranker.looks_like_action_achievement(value)
+
+    def _build_resume_specialization_sentence(
+        self,
+        focus_phrases: list[str],
+        *,
+        context: str = "",
+        has_weak_achievements: bool = False,
+    ) -> str | None:
+        joined = " ".join([str(context or ""), *[str(value or "") for value in focus_phrases]]).casefold()
+        has_specialization_context = bool(
+            re.search(r"проект|project|workflow|automation|автоматизац|координац|команд|срок|бюджет", joined)
+        )
+        if not has_weak_achievements and not has_specialization_context:
+            return None
+
+        focus = self._render_resume_specialization_focus(focus_phrases[:3])
+        if not focus:
+            return None
+        return f"Основная специализация — {focus}."
+
+    def _render_resume_specialization_focus(self, focus_phrases: list[str]) -> str:
+        phrases = [
+            self._resume_specialization_focus_phrase(value)
+            for value in focus_phrases
+            if str(value or "").strip()
+        ]
+        phrases = self._dedupe_preserve_order([item for item in phrases if item])
+
+        if not phrases:
+            return ""
+        if len(phrases) == 1:
+            return phrases[0]
+        if len(phrases) == 2:
+            return f"{phrases[0]} и {phrases[1]}"
+        return f"{', '.join(phrases[:-1])} и {phrases[-1]}"
+
+    def _resume_specialization_focus_phrase(self, value: str) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
+        if not text:
+            return ""
+
+        lowered = text.casefold()
+        if lowered.startswith("планирование сроков и бюджета"):
+            text = "контроль сроков и бюджета"
+        else:
+            text = text[:1].lower() + text[1:]
+
+        if re.search(r"\b(?:it|ит)[-\s]?проект", text, flags=re.IGNORECASE):
+            text = re.sub(r"\bIT-проектами\b", "ИТ-проектами", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bит-проектами\b", "ИТ-проектами", text, flags=re.IGNORECASE)
+            if "полного цикла" not in text.casefold():
+                text = re.sub(
+                    r"\bИТ-проектами\b",
+                    "ИТ-проектами полного цикла",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+
+        text = re.sub(
+            r"\bкоманды\s+(\d+)\s+человек\b",
+            r"команды до \1 человек",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return text
 
     def _looks_like_achievement_focus_phrase(self, value: str) -> bool:
         text = re.sub(r"\s+", " ", str(value or "")).strip(" .;-–—•")
@@ -2274,6 +2450,7 @@ class ResumeGenerationService:
         replacements = {
             "управление ": "управлении ",
             "координация ": "координации ",
+            "планирование сроков и бюджета": "контроле сроков и бюджета",
             "планирование ": "планировании ",
             "ведение ": "ведении ",
             "взаимодействие ": "взаимодействии ",
@@ -2285,6 +2462,9 @@ class ResumeGenerationService:
             "подготовка ": "подготовке ",
             "сопровождение ": "сопровождении ",
             "анализ ": "анализе ",
+            "обслуживание ": "сфере обслуживания ",
+            "ремонт ": "ремонта ",
+            "устранение ": "устранения ",
         }
 
         lowered = text.casefold()
@@ -2292,6 +2472,17 @@ class ResumeGenerationService:
             if lowered.startswith(source):
                 text = target + text[len(source):]
                 break
+
+        if re.search(r"\b(?:it|ит)[-\s]?проект", text, flags=re.IGNORECASE):
+            text = re.sub(r"\bIT-проектами\b", "ИТ-проектами", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bит-проектами\b", "ИТ-проектами", text, flags=re.IGNORECASE)
+            if "полного цикла" not in text.casefold():
+                text = re.sub(
+                    r"\bИТ-проектами\b",
+                    "ИТ-проектами полного цикла",
+                    text,
+                    flags=re.IGNORECASE,
+                )
 
         text = re.sub(
             r"\bкоманды\s+(\d+)\s+человек\b",
@@ -3149,6 +3340,13 @@ class ResumeGenerationService:
 
         if not self._is_safe_enhancement(resume_text, enhanced):
             # fallback → возвращаем оригинал
+            return resume_text
+
+        # Factuality-gate: отсекаем выдуманные AI-метрики, отсутствующие в оригинале
+        # (baseline — метрики исходного ATS-текста; если AI ввёл новую метрику,
+        # возвращаем оригинал, следуя принципу «ИИ не добавляет факты»).
+        original_metrics = _extract_metrics(resume_text)
+        if original_metrics and (_extract_metrics(enhanced) - original_metrics):
             return resume_text
 
         return enhanced

@@ -8,11 +8,15 @@ from uuid import UUID
 
 from pydantic import Field
 
+from app.domain.markets import Market
 from app.schemas.json_contracts import DocumentKind, StrictBaseModel
 
 
 class ResumeGenerateRequest(StrictBaseModel):
     vacancy_id: UUID
+    # Этап 7: явный рынок перекрывает профиль; None → сервис берёт profile.market
+    # или дефолт RU.
+    market: Market | None = None
 
 
 class DocumentVersionRead(StrictBaseModel):
@@ -39,6 +43,7 @@ class ResumeGenerateResponse(StrictBaseModel):
 
 class CoverLetterGenerateRequest(StrictBaseModel):
     vacancy_id: UUID
+    variant: str = "standard"  # standard | short | long | career_switch | gap_explanation
 
 
 class CoverLetterGenerateResponse(StrictBaseModel):

@@ -62,8 +62,9 @@ def test_resume_summary_for_plumber_uses_seniority_and_specialization() -> None:
         "обслуживания инженерных систем, ремонта трубопроводов "
         "и устранения аварийных ситуаций."
     )
-    assert "За время работы занимался устранением аварийных ситуаций" in summary
-    assert "разработал чек-лист профилактического обслуживания оборудования" in summary
+    assert "Основная специализация" in summary
+    assert "За время работы занимался устранением аварийных ситуаций" not in summary
+    assert "разработал чек-лист профилактического обслуживания оборудования" not in summary
     assert "За время работы сантехник я занимался" not in summary
     assert "монтажом и обслуживания" not in summary
 
@@ -90,7 +91,10 @@ def test_resume_summary_uses_experience_years_for_accountant() -> None:
         top_alignment_evidence=[],
     )
 
-    assert summary.startswith("Бухгалтер с опытом более 5 лет в сфере")
+    assert summary.startswith(
+        "Бухгалтер с опытом более 5 лет в ведении первичной бухгалтерской документации"
+    )
+    assert "Основная специализация" not in summary
 
 
 def test_resume_summary_uses_experience_years_for_lawyer() -> None:
@@ -115,7 +119,8 @@ def test_resume_summary_uses_experience_years_for_lawyer() -> None:
         top_alignment_evidence=[],
     )
 
-    assert summary.startswith("Юрист с опытом более 8 лет в сфере")
+    assert summary.startswith("Юрист с опытом более 8 лет в подготовке договоров")
+    assert "Основная специализация" not in summary
 
 
 def test_resume_summary_without_dates_does_not_show_years() -> None:

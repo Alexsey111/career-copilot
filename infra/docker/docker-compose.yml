@@ -32,15 +32,54 @@ services:
       - 8.8.8.8
       - 1.1.1.1
 
+  celery-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: career-copilot-celery-worker
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
+    volumes:
+      - ../../app:/app/app
+    command: celery -A app.celery_app:celery_app worker -l info -Q celery,vacancy,resume,cover_letter,interview,pipeline -c 4
+    depends_on:
+      - redis
+      - postgres
+
+  celery-beat:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: career-copilot-celery-beat
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
+    volumes:
+      - ../../app:/app/app
+    command: celery -A app.celery_app:celery_app beat -l info
+    depends_on:
+      - redis
+
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: career-copilot-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-career_copilot}
       POSTGRES_USER: ${POSTGRES_USER:-career_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-career_pass}
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -58,11 +97,32 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9002:9000"
+      - "9003:9001"
     volumes:
       - minio_data:/data
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: career-copilot-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: career-copilot-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
 
 volumes:
   postgres_data:
   minio_data:
+  prometheus_data:
+  grafana_data:

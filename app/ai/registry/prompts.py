@@ -56,21 +56,17 @@ class PromptTemplate(str, Enum):
     """Реестр промптов с версионированием"""
     # Resume tailoring
     RESUME_TAILOR_V1 = "resume_tailor_v1"
-    RESUME_TAILOR_V2 = "resume_tailor_v2"  # с gap-mitigation
-    
+
     # Resume enhancement
     RESUME_ENHANCE_V1 = "resume_enhance_v1"
-    
-    # Cover letter
+
+    # Cover letter generation (rule-based generation; label используется как
+    # generation_prompt_version, LLM-вызовов через orchestrator пока нет).
     COVER_LETTER_V1 = "cover_letter_v1"
     COVER_LETTER_GAP_MITIGATION = "cover_letter_gap_mitigation_v1"
-    
+
     # Cover letter enhancement
     COVER_LETTER_ENHANCE_V1 = "cover_letter_enhance_v1"
-    
-    # Interview prep
-    INTERVIEW_QUESTIONS_V1 = "interview_questions_v1"
-    INTERVIEW_FEEDBACK_V1 = "interview_feedback_v1"
 
     # Interview coach
     INTERVIEW_COACH_V1 = "interview_coach_v1"
@@ -93,7 +89,7 @@ class PromptSpec:
 PROMPT_REGISTRY: dict[PromptTemplate, PromptSpec] = {
     PromptTemplate.RESUME_TAILOR_V1: PromptSpec(
         template="""
-Ты — эксперт по составлению резюме для российского рынка труда.
+Ты — эксперт по составлению резюме для {market_label}.
 Задача: адаптируй резюме кандидата под конкретную вакансию, сохраняя фактологичность.
 
 Входные данные:
@@ -106,7 +102,7 @@ PROMPT_REGISTRY: dict[PromptTemplate, PromptSpec] = {
 1. Используй только подтверждённые факты (fact_status=confirmed)
 2. Вынеси совпадающие навыки в начало раздела "Ключевые навыки"
 3. Не добавляй выдуманные метрики или опыт
-4. Формат: линейный текст, без таблиц, с заголовками на русском
+4. Формат: линейный текст, без таблиц, с заголовками на {section_language}
 
 Выведи адаптированное резюме в формате:
 {{
@@ -121,6 +117,8 @@ PROMPT_REGISTRY: dict[PromptTemplate, PromptSpec] = {
             "must_have": "list[str]",
             "profile_summary": "str",
             "confirmed_achievements": "list[str]",
+            "market_label": "str",
+            "section_language": "str",
         },
         output_schema={
             "type": "object",

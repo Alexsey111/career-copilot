@@ -8,6 +8,7 @@ from app.domain.trace_models import AIAuditMetadata, GenerationTrace
 from app.services.document_evaluator import (
     DocumentEvaluator,
     evaluate_document,
+    extract_baseline_metrics,
 )
 
 
@@ -400,3 +401,139 @@ class TestDocumentEvaluationReport:
         assert report.trace.builder_version == "v1"
         assert report.ai_metadata is not None
         assert report.ai_metadata.model == "gigachat"
+
+
+class TestNoHallucinatedNarrativeMetrics:
+    """Проверка на выдуманные метрики в AI-enhanced тексте (rendered_text/fit_summary)."""
+
+    def test_metric_not_in_baseline_is_critical(self) -> None:
+        original = {"baseline_metrics": {("30", "%")}}
+        content = {
+            "sections": {"selected_achievements": [], "matched_keywords": []},
+            "rendered_text": "Увеличил конверсию на 120% за квартал. " + "x" * 100,
+        }
+
+        evaluator = DocumentEvaluator(
+            original_content=original, generated_content=content
+        )
+        report = evaluator.evaluate()
+
+        check = next(
+            c for c in report.checks
+            if c.check_name == "no_hallucinated_narrative_metrics"
+        )
+        assert not check.passed
+        assert check.severity == "critical"
+        assert report.has_hallucinated_metrics is True
+        assert report.is_safe is False
+
+    def test_metric_in_baseline_passes(self) -> None:
+        original = {"baseline_metrics": {("30", "%")}}
+        content = {
+            "sections": {"selected_achievements": [], "matched_keywords": []},
+            "rendered_text": "Рост на 30% подтверждён. " + "x" * 100,
+        }
+
+        evaluator = DocumentEvaluator(
+            original_content=original, generated_content=content
+        )
+        report = evaluator.evaluate()
+
+        check = next(
+            c for c in report.checks
+            if c.check_name == "no_hallucinated_narrative_metrics"
+        )
+        assert check.passed
+        assert report.has_hallucinated_metrics is False
+
+    def test_empty_baseline_skips_narrative_check(self) -> None:
+        original = {"baseline_metrics": set()}
+        content = {
+            "sections": {"selected_achievements": [], "matched_keywords": []},
+            "rendered_text": "Увеличил на 120%. " + "x" * 100,
+        }
+
+        evaluator = DocumentEvaluator(
+            original_content=original, generated_content=content
+        )
+        report = evaluator.evaluate()
+
+        check = next(
+            c for c in report.checks
+            if c.check_name == "no_hallucinated_narrative_metrics"
+        )
+        assert check.passed
+        assert check.severity == "info"
+        assert report.is_safe is True
+
+    def test_fit_summary_string_is_scanned(self) -> None:
+        original = {"baseline_metrics": {("30", "%")}}
+        content = {
+            "sections": {
+                "selected_achievements": [],
+                "matched_keywords": [],
+                "fit_summary": "Сократил расходы на 75%.",
+            },
+            "rendered_text": "x" * 100,
+        }
+
+        evaluator = DocumentEvaluator(
+            original_content=original, generated_content=content
+        )
+        report = evaluator.evaluate()
+
+        check = next(
+            c for c in report.checks
+            if c.check_name == "no_hallucinated_narrative_metrics"
+        )
+        assert not check.passed
+        assert check.severity == "critical"
+
+    def test_fit_summary_dict_is_ignored(self) -> None:
+        original = {"baseline_metrics": {("30", "%")}}
+        content = {
+            "sections": {
+                "selected_achievements": [],
+                "matched_keywords": [],
+                "fit_summary": {"match_score": 0.8, "target_role": "Backend"},
+            },
+            "rendered_text": "Без метрик. " + "x" * 100,
+        }
+
+        evaluator = DocumentEvaluator(
+            original_content=original, generated_content=content
+        )
+        report = evaluator.evaluate()
+
+        check = next(
+            c for c in report.checks
+            if c.check_name == "no_hallucinated_narrative_metrics"
+        )
+        assert check.passed
+
+
+class TestExtractBaselineMetrics:
+    """Проверка построения baseline из подтверждённых достижений/опыта."""
+
+    def test_confirmed_achievement_metrics_included(self) -> None:
+        achievements = [
+            {"result": "Рост на 30%", "metric_text": "30%", "fact_status": "confirmed"},
+            {"result": "Снизил на 5%", "metric_text": "", "fact_status": "user_provided"},
+        ]
+        baseline = extract_baseline_metrics(achievements)
+        assert ("30", "%") in baseline
+        assert ("5", "%") in baseline
+
+    def test_unconfirmed_achievement_metrics_excluded(self) -> None:
+        achievements = [
+            {"result": "Рост на 999%", "metric_text": "", "fact_status": "needs_confirmation"},
+        ]
+        baseline = extract_baseline_metrics(achievements)
+        assert ("999", "%") not in baseline
+        assert baseline == set()
+
+    def test_experience_description_metrics_included(self) -> None:
+        achievements = [{"result": "", "metric_text": "", "fact_status": "confirmed"}]
+        experience = [{"description_raw": "Внедрил CI/CD, ускорил в 4 раза сборку"}]
+        baseline = extract_baseline_metrics(achievements, experience)
+        assert ("4", "раз") in baseline

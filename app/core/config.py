@@ -14,6 +14,17 @@ StorageMode = Literal["local", "minio", "s3"]
 LLMProvider = Literal["gigachat", "openai", "mock"]
 
 
+def _is_loopback_origin(origin: str) -> bool:
+    """True for localhost / 127.0.0.1 / ::1 origins (exempt from HTTPS-only)."""
+    lowered = origin.lower()
+    return (
+        "://localhost" in lowered
+        or "://localhost." in lowered  # localhost subdomains
+        or "://127.0.0.1" in lowered
+        or "://[::1]" in lowered
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ROOT_DIR / ".env",
@@ -69,6 +80,8 @@ class Settings(BaseSettings):
     )
     cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
 
+    allowed_hosts_raw: str = Field(default="*", alias="ALLOWED_HOSTS")
+
     backend_host: str = Field(default="0.0.0.0", alias="BACKEND_HOST")
     backend_port: int = Field(default=7000, alias="BACKEND_PORT")
 
@@ -83,6 +96,8 @@ class Settings(BaseSettings):
     minio_secret_key: str = Field(default="minioadmin", alias="MINIO_SECRET_KEY")
     minio_bucket: str = Field(default="career-copilot", alias="MINIO_BUCKET")
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
+    # Local filesystem storage root (STORAGE_MODE=local). Только для dev/test.
+    local_storage_root: str = Field(default="./.local-storage", alias="LOCAL_STORAGE_ROOT")
 
     sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
@@ -99,6 +114,8 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_days: int = Field(default=30, alias="REFRESH_TOKEN_EXPIRE_DAYS")
 
+    field_encryption_keys_raw: str = Field(default="", alias="FIELD_ENCRYPTION_KEYS")
+
     ai_default_model: str = Field(default="gigachat-pro", alias="AI_DEFAULT_MODEL")
     ai_provider: LLMProvider = Field(default="gigachat", alias="AI_PROVIDER")
     ai_fallback_provider: LLMProvider | None = Field(default=None, alias="AI_FALLBACK_PROVIDER")
@@ -106,9 +123,22 @@ class Settings(BaseSettings):
     ai_request_timeout: float = Field(default=30.0, alias="AI_REQUEST_TIMEOUT")
     ai_max_retries: int = Field(default=3, alias="AI_MAX_RETRIES")
     ai_temperature: float = Field(default=0.1, alias="AI_TEMPERATURE")
+    # Cost accounting (ТЗ §3.4): стоимость за 1000 токенов в валюте учёта.
+    # 0.0 по умолчанию — учёт отключён, пока ставки не заданы.
+    ai_cost_per_1k_input: float = Field(default=0.0, alias="AI_COST_PER_1K_INPUT")
+    ai_cost_per_1k_output: float = Field(default=0.0, alias="AI_COST_PER_1K_OUTPUT")
+    # AI response cache (ТЗ §3.4 «caching»). По умолчанию выключен.
+    ai_cache_enabled: bool = Field(default=False, alias="AI_CACHE_ENABLED")
+    ai_cache_max_size: int = Field(default=256, alias="AI_CACHE_MAX_SIZE")
 
     gigachat_api_key: str | None = Field(default=None, alias="GIGACHAT_API_KEY")
     gigachat_base_url: str | None = Field(default=None, alias="GIGACHAT_BASE_URL")
+
+    oauth_google_client_id: str | None = Field(default=None, alias="OAUTH_GOOGLE_CLIENT_ID")
+    oauth_google_client_secret: str | None = Field(default=None, alias="OAUTH_GOOGLE_CLIENT_SECRET")
+    oauth_github_client_id: str | None = Field(default=None, alias="OAUTH_GITHUB_CLIENT_ID")
+    oauth_github_client_secret: str | None = Field(default=None, alias="OAUTH_GITHUB_CLIENT_SECRET")
+    oauth_redirect_base_url: str = Field(default="http://localhost:3000", alias="OAUTH_REDIRECT_BASE_URL")
 
     @property
     def is_production(self) -> bool:
@@ -138,6 +168,14 @@ class Settings(BaseSettings):
             if item.strip()
         }
 
+    @property
+    def field_encryption_keys(self) -> list[str]:
+        return [key.strip() for key in self.field_encryption_keys_raw.split(",") if key.strip()]
+
+    @property
+    def allowed_hosts(self) -> list[str]:
+        return [host.strip() for host in self.allowed_hosts_raw.split(",") if host.strip()] or ["*"]
+
     @model_validator(mode="after")
     def validate_runtime_safety(self) -> "Settings":
         if self.is_production:
@@ -159,17 +197,42 @@ class Settings(BaseSettings):
             if self.minio_access_key == "minioadmin" or self.minio_secret_key == "minioadmin":
                 raise ValueError("Default MinIO credentials are unsafe for production")
 
+            if not self.minio_secure:
+                raise ValueError("MINIO_SECURE must be true in production (encrypt data in transit to object storage)")
+
             if self.storage_mode == "local":
                 raise ValueError("STORAGE_MODE=local is not allowed in production")
 
             if "*" in self.cors_allowed_origins:
                 raise ValueError("CORS_ALLOWED_ORIGINS cannot contain '*' in production")
 
+            # Non-localhost CORS origins must be HTTPS in production (ФЗ-152 ст.19:
+            # protection of personal data in transit). localhost/loopback is exempt.
+            for origin in self.cors_allowed_origins:
+                if origin.startswith("http://") and not _is_loopback_origin(origin):
+                    raise ValueError(
+                        f"CORS_ALLOWED_ORIGINS must use HTTPS in production: {origin!r}"
+                    )
+
             if self.ai_provider == "mock":
                 raise ValueError("AI_PROVIDER=mock is not allowed in production")
 
             if self.ai_fallback_provider == "mock":
                 raise ValueError("AI_FALLBACK_PROVIDER=mock is not allowed in production")
+
+            unsafe_encryption_keys = {"", "dev-fernet-key"}
+            if (
+                not self.field_encryption_keys
+                or all(k in unsafe_encryption_keys for k in self.field_encryption_keys)
+            ):
+                raise ValueError("FIELD_ENCRYPTION_KEYS is missing in production")
+            try:
+                from cryptography.fernet import Fernet
+
+                for key in self.field_encryption_keys:
+                    Fernet(key.encode())
+            except Exception as exc:  # noqa: BLE001 - surface any invalid key clearly
+                raise ValueError("FIELD_ENCRYPTION_KEYS contains an invalid Fernet key") from exc
 
         return self
 

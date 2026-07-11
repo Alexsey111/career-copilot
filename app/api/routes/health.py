@@ -29,6 +29,17 @@ async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/health/storage")
+async def storage_healthcheck() -> dict[str, str | bool]:
+    from app.services.storage_service import StorageService
+
+    try:
+        ok = StorageService().healthcheck()
+    except Exception:
+        ok = False
+    return {"status": "ok" if ok else "degraded", "storage_ok": bool(ok)}
+
+
 @router.get("/health/db-info")
 async def db_info() -> dict[str, str | int | None]:
     settings = get_settings()

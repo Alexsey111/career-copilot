@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -27,9 +28,12 @@ from app.core.rate_limit import clear_rate_limits_for_tests
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import User
+from app.models import User, UserConsent
 from app.services.resume_parser_service import ResumeParserService
 from app.services.storage_service import StorageService
+
+
+_REQUIRED_CONSENT_TYPES = ("data_processing", "ai_generation", "profile_storage")
 
 
 if sys.platform == "win32":
@@ -38,7 +42,7 @@ if sys.platform == "win32":
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+psycopg://career_user:career_pass@127.0.0.1:5433/career_copilot_test",
+    "postgresql+psycopg://career_user:career_pass@127.0.0.1:5434/career_copilot_test",
 )
 
 
@@ -168,6 +172,20 @@ async def test_user(db_session: AsyncSession) -> User:
         auth_provider="test",
     )
     db_session.add(user)
+    await db_session.flush()
+    # Авто-выдача обязательных согласий (ФЗ-152) — чтобы существующие тесты,
+    # использующие consent-protected эндпоинты через client-фикстуру, не
+    # падали с 403. Тесты на сам enforcement выдачу не используют.
+    for consent_type in _REQUIRED_CONSENT_TYPES:
+        db_session.add(
+            UserConsent(
+                user_id=user.id,
+                consent_type=consent_type,
+                granted=True,
+                version="1.0",
+                granted_at=datetime.now(timezone.utc),
+            )
+        )
     await db_session.flush()
     return user
 

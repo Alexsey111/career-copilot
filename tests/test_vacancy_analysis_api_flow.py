@@ -106,7 +106,7 @@ async def test_vacancy_analysis_uses_profile_summary_for_scoped_match(client) ->
     assert gaps_by_keyword["PostgreSQL"]["weight"] == 3
     assert gaps_by_keyword["Redis"]["weight"] == 1
 
-    assert analysis["match_score"] == 64
+    assert analysis["match_score"] == 62
 
 
 async def test_vacancy_import_rejects_corrupted_cyrillic_payload_via_api(client) -> None:

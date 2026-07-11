@@ -6,7 +6,8 @@ import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app.api.error_handlers import register_error_handlers
 from app.api.router import build_api_router
@@ -19,6 +20,28 @@ from app.core.tracing import (
     new_correlation_id,
     set_trace_context,
 )
+
+try:
+    from prometheus_client import (
+        Counter,
+        Histogram,
+        generate_latest,
+        CONTENT_TYPE_LATEST,
+    )
+    REQUEST_COUNT = Counter(
+        "career_copilot_requests_total",
+        "Total requests",
+        ["method", "endpoint", "status"],
+    )
+    REQUEST_LATENCY = Histogram(
+        "career_copilot_request_duration_seconds",
+        "Request latency",
+        ["method", "endpoint"],
+        buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+    )
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
 
 
 @asynccontextmanager
@@ -38,6 +61,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     register_error_handlers(app)
+
+    # TrustedHostMiddleware hardens against Host-header attacks. Defaults to
+    # ["*"] (no-op) in dev; prod deploy sets ALLOWED_HOSTS to real hosts.
+    if settings.allowed_hosts and settings.allowed_hosts != ["*"]:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
     app.add_middleware(
         CORSMiddleware,
@@ -70,10 +98,29 @@ def create_app() -> FastAPI:
                     "correlation_id": correlation_id,
                 },
             )
+
+            if PROMETHEUS_AVAILABLE:
+                REQUEST_COUNT.labels(
+                    method=request.method,
+                    endpoint=request.url.path,
+                    status=response.status_code,
+                ).inc()
+                REQUEST_LATENCY.labels(
+                    method=request.method,
+                    endpoint=request.url.path,
+                ).observe(duration_ms / 1000)
+
             response.headers["X-Correlation-ID"] = correlation_id
             active_trace_id = get_trace_context().trace_id
             if active_trace_id:
                 response.headers["X-Trace-ID"] = active_trace_id
+            # HSTS: instruct browsers to use HTTPS for this host for 1 year.
+            # TLS itself is terminated at the upstream proxy; this header
+            # enforces HTTPS on the client side in production (ФЗ-152 ст.19).
+            if settings.is_production:
+                response.headers["Strict-Transport-Security"] = (
+                    "max-age=31536000; includeSubDomains"
+                )
             return response
         finally:
             clear_trace_context()
@@ -86,6 +133,14 @@ def create_app() -> FastAPI:
                 "status": "ok",
             }
     )
+
+    if PROMETHEUS_AVAILABLE:
+        @app.get("/metrics", tags=["observability"])
+        async def metrics():
+            return PlainTextResponse(
+                generate_latest(),
+                media_type=CONTENT_TYPE_LATEST,
+            )
 
     app.include_router(build_api_router())
     return app
