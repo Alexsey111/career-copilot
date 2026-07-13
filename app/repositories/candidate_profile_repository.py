@@ -29,6 +29,7 @@ class CandidateProfileRepository:
             .options(
                 selectinload(CandidateProfile.experiences),
                 selectinload(CandidateProfile.achievements),
+                selectinload(CandidateProfile.target_tracks),
             )
             .where(CandidateProfile.user_id == user_id)
         )

@@ -30,6 +30,12 @@ from app.schemas.parse_diagnostics import (
     ParseDiagnosticsRequest,
     ParseDiagnosticsResponse,
 )
+from app.schemas.career_strategy import CareerStrategyResponse
+from app.schemas.target_track import (
+    TargetTrackCreate,
+    TargetTrackResponse,
+    TargetTrackUpdate,
+)
 from app.schemas.profile_intake import (
     GitHubPublicProfileImportRequest,
     GitHubProfileIntakeRequest,
@@ -42,6 +48,7 @@ from app.schemas.profile_structured import (
     StructuredProfileExtractResponse,
 )
 from app.services.achievement_extraction_service import AchievementExtractionService
+from app.services.career_strategy_service import CareerStrategyService
 from app.services.github_public_import_service import (
     GitHubPublicImportError,
     GitHubPublicImportService,
@@ -518,43 +525,26 @@ async def delete_profile(
     return {"status": "deleted"}
 
 
-@router.get("/target-tracks")
+@router.get("/target-tracks", response_model=list[TargetTrackResponse])
 async def list_target_tracks(
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-):
-    from app.models import CandidateProfile, CandidateTargetTrack
-    from sqlalchemy import select
-
+) -> list[TargetTrackResponse]:
     profile_repo = CandidateProfileRepository()
     profile = await profile_repo.get_with_related_by_user_id(session, current_user.id)
     if profile is None:
         return []
 
-    return [
-        {
-            "id": str(track.id),
-            "name": track.name,
-            "target_roles": track.target_roles_json,
-            "salary_expectation": float(track.salary_expectation) if track.salary_expectation else None,
-            "salary_currency": track.salary_currency,
-            "location_preferences": track.location_preferences_json,
-            "priority": track.priority,
-            "is_active": track.is_active,
-            "notes": track.notes,
-        }
-        for track in profile.target_tracks
-    ]
+    return [TargetTrackResponse.from_model(track) for track in profile.target_tracks]
 
 
-@router.post("/target-tracks")
+@router.post("/target-tracks", response_model=TargetTrackResponse)
 async def create_target_track(
-    payload: dict,
+    payload: TargetTrackCreate,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-):
+) -> TargetTrackResponse:
     from app.models import CandidateTargetTrack
-    from decimal import Decimal
 
     profile_repo = CandidateProfileRepository()
     profile = await profile_repo.get_with_related_by_user_id(session, current_user.id)
@@ -566,30 +556,55 @@ async def create_target_track(
 
     track = CandidateTargetTrack(
         profile_id=profile.id,
-        name=payload.get("name", "Untitled track"),
-        target_roles_json=payload.get("target_roles", []),
-        salary_expectation=Decimal(str(payload["salary_expectation"])) if payload.get("salary_expectation") else None,
-        salary_currency=payload.get("salary_currency"),
-        location_preferences_json=payload.get("location_preferences", []),
-        priority=payload.get("priority", 0),
-        is_active=payload.get("is_active", True),
-        notes=payload.get("notes"),
+        name=payload.name,
+        target_roles_json=list(payload.target_roles),
+        salary_expectation=payload.salary_expectation,
+        salary_currency=payload.salary_currency,
+        location_preferences_json=list(payload.location_preferences),
+        work_format_json=dict(payload.work_format),
+        priority=payload.priority,
+        is_active=payload.is_active,
+        notes=payload.notes,
+        order_index=payload.order_index,
     )
     session.add(track)
     await session.commit()
     await session.refresh(track)
 
-    return {
-        "id": str(track.id),
-        "name": track.name,
-        "target_roles": track.target_roles_json,
-        "salary_expectation": float(track.salary_expectation) if track.salary_expectation else None,
-        "salary_currency": track.salary_currency,
-        "location_preferences": track.location_preferences_json,
-        "priority": track.priority,
-        "is_active": track.is_active,
-        "notes": track.notes,
-    }
+    return TargetTrackResponse.from_model(track)
+
+
+@router.patch("/target-tracks/{track_id}", response_model=TargetTrackResponse)
+async def update_target_track(
+    track_id: UUID,
+    payload: TargetTrackUpdate,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> TargetTrackResponse:
+    """Этап 9.D: partial update target-track (ownership через profile.user_id)."""
+    profile_repo = CandidateProfileRepository()
+    profile = await profile_repo.get_with_related_by_user_id(session, current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="target track not found",
+        )
+
+    track = next(
+        (t for t in profile.target_tracks if t.id == track_id),
+        None,
+    )
+    if track is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="target track not found",
+        )
+
+    payload.apply_to(track)
+    await session.commit()
+    await session.refresh(track)
+
+    return TargetTrackResponse.from_model(track)
 
 
 @router.delete("/target-tracks/{track_id}")
@@ -597,17 +612,19 @@ async def delete_target_track(
     track_id: UUID,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
-):
-    from app.models import CandidateTargetTrack
-    from sqlalchemy import select
+) -> dict[str, str]:
+    profile_repo = CandidateProfileRepository()
+    profile = await profile_repo.get_with_related_by_user_id(session, current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="target track not found",
+        )
 
-    stmt = (
-        select(CandidateTargetTrack)
-        .where(CandidateTargetTrack.id == track_id)
+    track = next(
+        (t for t in profile.target_tracks if t.id == track_id),
+        None,
     )
-    result = await session.execute(stmt)
-    track = result.scalar_one_or_none()
-
     if track is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -617,6 +634,33 @@ async def delete_target_track(
     await session.delete(track)
     await session.commit()
     return {"status": "deleted"}
+
+
+@router.get(
+    "/target-tracks/{track_id}/strategy",
+    response_model=CareerStrategyResponse,
+)
+async def get_target_track_strategy(
+    track_id: UUID,
+    current_user: User = Depends(require_data_processing_consent),
+    session: AsyncSession = Depends(get_db_session),
+) -> CareerStrategyResponse:
+    """Этап 9.D: карьерная стратегия для target-track.
+
+    Детерминированный, explainable отчёт on-demand: gap_summary (recurring gaps,
+    классифицированные на relevant/other относительно target_roles трека),
+    learning_plan (rule-based шаги reskilling/upskilling, без ссылок на курсы),
+    search_tactics (тактика поиска/нетворкинга по типу ролей + gap severity),
+    provenance (источники, confidence low/medium нечисловой, requires_human_review
+    всегда True). Без AI (non-goal career_strategy.md), без миграции БД.
+    """
+    service = CareerStrategyService()
+    summary = await service.build_strategy(
+        session,
+        user_id=current_user.id,
+        track_id=track_id,
+    )
+    return CareerStrategyResponse.model_validate(summary)
 
 
 @router.post("/parse-diagnostics", response_model=ParseDiagnosticsResponse)
