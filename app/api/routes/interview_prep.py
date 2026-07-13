@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_active_user, require_data_processing_consent
@@ -18,8 +18,15 @@ from app.schemas.interview_prep import (
     InterviewPrepSessionListItem,
     InterviewPrepSessionRead,
 )
+from app.schemas.interview_rubric import (
+    AnswerAttemptListItem,
+    AnswerSubmitRequest,
+    RubricProgressResponse,
+    RubricScoreResponse,
+)
 from app.services.case_prep_service import CasePrepService
 from app.services.interview_prep_service import InterviewPrepService
+from app.services.interview_rubric_service import InterviewRubricService
 
 
 router = APIRouter(prefix="/interview-prep", tags=["interview-prep"])
@@ -133,6 +140,81 @@ async def get_interview_prep_cases(
         vacancy_id=vacancy_id,
     )
     return CasePrepReportResponse.model_validate(report)
+
+
+@router.post(
+    "/cases/{vacancy_id}/answers",
+    response_model=RubricScoreResponse,
+    status_code=201,
+)
+async def submit_case_answer(
+    vacancy_id: UUID,
+    payload: AnswerSubmitRequest,
+    current_user: User = Depends(require_data_processing_consent),
+    session: AsyncSession = Depends(get_db_session),
+) -> RubricScoreResponse:
+    """Этап 9.F: per-criterion rubric scoring ответа на practice-кейс.
+
+    Детерминированный keyword-heuristic scoring (без AI); answer_text
+    шифруется at-rest (ФЗ-152 ст.19); ``requires_human_review`` всегда True.
+    См. ``docs/interview_prep_contract.md`` (Answer Rubric Scoring).
+    """
+    service = InterviewRubricService()
+    result = await service.submit_answer(
+        session,
+        user_id=current_user.id,
+        vacancy_id=vacancy_id,
+        case_id=payload.case_id,
+        case_type=payload.case_type,
+        answer_text=payload.answer_text,
+    )
+    return RubricScoreResponse.model_validate(result)
+
+
+@router.get(
+    "/cases/{vacancy_id}/attempts",
+    response_model=list[AnswerAttemptListItem],
+)
+async def list_case_attempts(
+    vacancy_id: UUID,
+    case_id: str = Query(min_length=1),
+    current_user: User = Depends(require_data_processing_consent),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[AnswerAttemptListItem]:
+    """Этап 9.F: история попыток ответов по practice-кейсу (created_at asc)."""
+    service = InterviewRubricService()
+    items = await service.list_attempts(
+        session,
+        user_id=current_user.id,
+        vacancy_id=vacancy_id,
+        case_id=case_id,
+    )
+    return [AnswerAttemptListItem(**item) for item in items]
+
+
+@router.get(
+    "/cases/{vacancy_id}/progress",
+    response_model=RubricProgressResponse,
+)
+async def get_case_progress(
+    vacancy_id: UUID,
+    case_id: str = Query(min_length=1),
+    current_user: User = Depends(require_data_processing_consent),
+    session: AsyncSession = Depends(get_db_session),
+) -> RubricProgressResponse:
+    """Этап 9.F: cross-session прогресс по practice-кейсу (backward-looking snapshot).
+
+    first/last/best/improvement per criterion + overall trend. Без прогнозов.
+    См. ``docs/interview_prep_contract.md`` (Cross-Session Progress).
+    """
+    service = InterviewRubricService()
+    progress = await service.build_progress(
+        session,
+        user_id=current_user.id,
+        vacancy_id=vacancy_id,
+        case_id=case_id,
+    )
+    return RubricProgressResponse.model_validate(progress)
 
 
 def _to_read_model(prep_session) -> InterviewPrepSessionRead:

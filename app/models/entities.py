@@ -842,6 +842,56 @@ class InterviewAnswerAttempt(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     session: Mapped["InterviewSession"] = relationship(back_populates="answer_attempts")
 
 
+class InterviewPrepAnswerAttempt(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Попытка ответа кандидата на practice-кейс (Этап 9.F).
+
+    Изолированная от ``InterviewAnswerAttempt`` (тот — mock-контур для
+    ``interview_sessions``). Здесь — per-criterion rubric scoring по стабильным
+    критериям кейса (``build_rubric(case_type)``), детерминированный scoring
+    без AI. ``answer_text`` — ПДн → ``EncryptedText`` (ФЗ-152 ст.19);
+    scores/grade/feedback — не ПДн → JSON/Float/String (feedback без цитат
+    ответа, только имена токенов/критериев). Без relationship (как
+    ``InterviewPrepSession``); FK CASCADE на уровне БД.
+    """
+
+    __tablename__ = "interview_prep_answer_attempts"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vacancy_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("vacancies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    case_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    case_type: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    answer_text: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+
+    criterion_scores_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    overall_score: Mapped[float] = mapped_column(Float, nullable=False)
+    grade: Mapped[str] = mapped_column(String(20), nullable=False)
+    feedback_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    rubric_version: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="deterministic_v1",
+    )
+
+
 class AIRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "ai_runs"
 

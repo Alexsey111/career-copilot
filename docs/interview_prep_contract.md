@@ -181,3 +181,41 @@ The UI should show:
 - a visible caution when grounding is not `grounded`.
 
 If the UI cannot explain why a question or answer was selected in human terms, it should not surface internal debug text to the candidate.
+
+## Answer Rubric Scoring
+
+The answer-scoring endpoints (`POST /api/v1/interview-prep/cases/{vacancy_id}/answers`, `GET .../attempts`, `GET .../progress`) score a candidate's answer to a practice case **per criterion** against the stable rubric (`build_rubric(case_type)` — 5 criteria per case type).
+
+Scoring is **deterministic keyword-heuristic, no AI**:
+
+- For each criterion, the backend counts how many of that criterion's marker terms appear in the answer (casefold substring). `score = min(3, count of unique matched markers)`.
+- `level`: `0 → none`, `1 → low`, `2 → medium`, `3 → high`. `high` means the expected vocabulary is present — **not** that the answer is correct.
+- `overall_score = round(sum(scores) / count_criteria * 100 / 3, 1)` (0..100).
+- `grade`: `>=85 excellent`, `>=70 good`, `>=50 needs_work`, else `weak`.
+- `rubric_version` is stable (`deterministic_v1`); stable criterion keys are the exact strings from `build_rubric(case_type)`.
+- `criterion_scores[].reason` references **marker-term names**, never substrings of the candidate's answer — the answer is personal data and must not leak into the JSON response.
+- `feedback`: `strengths` (criteria scored `high`), `improvements` (`Address: <criterion>` for `none`/`low`), `issues` (coaching note when `overall < 50` or the answer is empty).
+
+Human review and privacy:
+
+- `requires_human_review` is always `true`: the score is a coaching artifact (does the right vocabulary appear), not a verdict on correctness, depth, or truth.
+- Human review is required even when `overall_score` is high.
+- `answer_text` is personal data and is stored encrypted at rest (`EncryptedText`, ФЗ-152 ст.19) in `interview_prep_answer_attempts`; `criterion_scores_json`, `grade`, `overall_score`, and `feedback_json` are not personal data and are stored as plain JSON.
+- The backend does not verify the factual truth or depth of the answer; scoring only checks vocabulary presence.
+
+## Cross-Session Progress
+
+`GET /api/v1/interview-prep/cases/{vacancy_id}/progress?case_id=...` returns a **backward-looking snapshot** of a candidate's attempts at one practice case (ordered `created_at` ascending):
+
+- `total_attempts`
+- `overall`: `{first, last, best, improvement, trend}` (0..100; `improvement = round(last - first, 1)`; `trend`: `improving` when `improvement > 1.0`, `declining` when `< -1.0`, else `stable`)
+- `per_criterion[]`: `{criterion, first, last, best, improvement}` on the 0..3 scale; `best` is the max across all attempts
+
+Empty case (no attempts yet):
+
+- `total_attempts: 0`, `reason: "no attempts yet"`, `overall: null`, `per_criterion: []`.
+
+Non-goals:
+
+- The snapshot is backward-looking only. It must not emit `forecast`, `predicted`, or `probability` values, nor a numeric projection of future progress.
+- The `trend` label is coarse (`improving` / `declining` / `stable`) and is not a prediction.
