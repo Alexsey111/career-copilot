@@ -76,6 +76,29 @@ def _build_docx_export_bytes(*, rendered_text: str) -> bytes:
     for line in rendered_text.splitlines():
         document.add_paragraph(line)
 
+    # Этап 8: sanitization метаданных DOCX. python-docx пишет core_properties
+    # (author/last_modified_by/title/...) — туда может утекать имя процесса/ОС
+    # или автора исходного резюме. Обнуляем перед save (ФЗ-152 ст.19 + репутационный
+    # риск: экспортируемый файл не должен нести лишних ПДн).
+    cp = document.core_properties
+    for attr in (
+        "author",
+        "last_modified_by",
+        "title",
+        "subject",
+        "keywords",
+        "comments",
+        "category",
+        "content_status",
+        "identifier",
+        "language",
+        "version",
+    ):
+        try:
+            setattr(cp, attr, "")
+        except Exception:  # pragma: no cover - defensive
+            pass
+
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()

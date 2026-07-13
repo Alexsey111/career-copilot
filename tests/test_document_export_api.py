@@ -142,3 +142,35 @@ async def test_document_export_rejects_unknown_format(client) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "unsupported export format; use txt, md or docx"
+
+
+async def test_docx_export_has_sanitized_core_properties(client) -> None:
+    """Этап 8: экспорт DOCX не должен утекать author/last_modified_by/title в
+    core_properties (ФЗ-152 ст.19 + репутационный риск)."""
+    resume_document_id, _ = await _create_resume_and_cover_letter(client)
+
+    approve = await client.patch(
+        f"{API_PREFIX}/documents/{resume_document_id}/review",
+        json={
+            "review_status": "approved",
+            "review_comment": "Approved.",
+            "set_active_when_approved": True,
+        },
+    )
+    assert approve.status_code == 200
+
+    export = await client.get(f"{API_PREFIX}/documents/{resume_document_id}/export/docx")
+    assert export.status_code == 200, export.text
+    assert "wordprocessingml" in export.headers["content-type"]
+
+    from io import BytesIO
+
+    from docx import Document
+
+    doc = Document(BytesIO(export.content))
+    cp = doc.core_properties
+    assert cp.author == ""
+    assert cp.last_modified_by == ""
+    assert cp.title == ""
+    assert cp.subject == ""
+    assert cp.keywords == ""

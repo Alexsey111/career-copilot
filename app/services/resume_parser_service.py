@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import tempfile
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +13,21 @@ try:
     import docx2txt
 except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
     docx2txt = None
+
+try:
+    from docx import Document as _DocxDocument
+    from docx.oxml.ns import qn as _docx_qn
+    from docx.shared import RGBColor as _DocxRGBColor
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    _DocxDocument = None
+    _docx_qn = None
+    _DocxRGBColor = None
+
+
+# Zero-width / invisible Unicode, которые парсер вырезает при нормализации
+# (см. ``_normalize_text``). Этап 8: считаем их и показываем пользователю как
+# потенциальный вектор stuffing/обхода анти-спам-фильтров, а не удаляем молча.
+_ZERO_WIDTH_CHARS = ("​", "‌", "‍", "﻿", "­", "⁠")
 
 
 @dataclass
@@ -55,11 +69,22 @@ class ResumeParserService:
     def _parse_pdf(self, file_bytes: bytes) -> ParsedResume:
         import fitz
 
-        with fitz.open(stream=file_bytes, filetype="pdf") as document:
-            pages = [page.get_text() for page in document]
-            page_count = len(document)
+        raw_pages: list[str] = []
+        hidden_findings: list[dict] = []
+        file_metadata: dict = {}
+        page_count = 0
 
-        text = self._normalize_text("\n".join(pages))
+        with fitz.open(stream=file_bytes, filetype="pdf") as document:
+            page_count = len(document)
+            file_metadata = self._collect_pdf_metadata(document)
+            for page in document:
+                raw_pages.append(page.get_text())
+                self._collect_pdf_hidden_spans(page, hidden_findings)
+
+        raw_text = "\n".join(raw_pages)
+        zero_width = self._collect_zero_width(raw_text)
+
+        text = self._normalize_text(raw_text)
         text = self._repair_common_mojibake(text)
 
         if not text:
@@ -75,8 +100,75 @@ class ResumeParserService:
                 "page_count": page_count,
                 "char_length": len(text),
                 "line_count": len(text.splitlines()),
+                "diagnostics_seed": {
+                    "zero_width": zero_width,
+                    "hidden_text": hidden_findings,
+                    "file_metadata": file_metadata,
+                },
             },
         )
+
+    def _collect_pdf_metadata(self, document) -> dict:
+        """Этап 8: читаем метаданные PDF (author/producer/creator) — могут
+        содержать PII или утечку автора исходного документа."""
+        try:
+            meta = document.metadata or {}
+        except Exception:  # pragma: no cover - defensive
+            return {}
+        return {
+            "author": (meta.get("author") or None),
+            "title": (meta.get("title") or None),
+            "producer": (meta.get("producer") or None),
+            "creator_tool": (meta.get("creator") or None),
+            "created": (meta.get("creationDate") or None),
+        }
+
+    def _collect_pdf_hidden_spans(self, page, findings: list[dict]) -> None:
+        """Этап 8: anti-hack — детект white-on-white и tiny-font в PDF.
+
+        Использует ``page.get_text("dict")`` чтобы получить spans с цветом и
+        размером шрифта. White-on-white: span color == 0xFFFFFF (предполагаем
+        белый фон — стандарт резюме; severity high, но помечаем как «вероятно
+        hidden»). Tiny-font: size < 2pt (severity medium).
+        """
+        try:
+            page_dict = page.get_text("dict")
+        except Exception:  # pragma: no cover - defensive
+            return
+
+        white_count = 0
+        tiny_count = 0
+        white_sample = ""
+        tiny_sample = ""
+
+        for block in page_dict.get("blocks", []):
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    span_text = (span.get("text") or "").strip()
+                    if not span_text:
+                        continue
+                    color = span.get("color", 0)
+                    size = float(span.get("size", 0) or 0)
+                    # fitz хранит span color как signed ARGB int (alpha=0xFF для
+                    # непрозрачного текста): белый = -1 (0xFFFFFFFF), чёрный =
+                    # -16777216 (0xFF000000). Маска низких 24 бит = sRGB.
+                    if (color & 0xFFFFFF) == 0xFFFFFF:
+                        white_count += 1
+                        if not white_sample:
+                            white_sample = span_text[:80]
+                    if size < 2.0:
+                        tiny_count += 1
+                        if not tiny_sample:
+                            tiny_sample = span_text[:80]
+
+        if white_count:
+            findings.append(
+                {"kind": "white_on_white", "count": white_count, "sample": white_sample, "severity": "high"}
+            )
+        if tiny_count:
+            findings.append(
+                {"kind": "tiny_font", "count": tiny_count, "sample": tiny_sample, "severity": "medium"}
+            )
 
     def _parse_docx(self, file_bytes: bytes, filename: str) -> ParsedResume:
         if docx2txt is None:
@@ -87,10 +179,15 @@ class ResumeParserService:
 
         suffix = Path(filename).suffix or ".docx"
 
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-            tmp.write(file_bytes)
-            tmp.flush()
-            text = docx2txt.process(tmp.name)
+        # docx2txt.process принимает file-like (zipfile.ZipFile) — передаём BytesIO
+        # напрямую. NamedTemporaryFile на Windows залочен пока открыт, и docx2txt
+        # не мог его переоткрыть (PermissionError); BytesIO работает везде.
+        from io import BytesIO
+
+        text = docx2txt.process(BytesIO(file_bytes))
+
+        zero_width = self._collect_zero_width(text)
+        file_metadata, hidden_findings = self._collect_docx_metadata_and_hidden(file_bytes)
 
         text = self._normalize_text(text)
         text = self._repair_common_mojibake(text)
@@ -104,11 +201,105 @@ class ResumeParserService:
         return ParsedResume(
             text=text,
             detected_format="docx",
-            metadata={},
+            metadata={
+                "diagnostics_seed": {
+                    "zero_width": zero_width,
+                    "hidden_text": hidden_findings,
+                    "file_metadata": file_metadata,
+                },
+            },
         )
+
+    def _collect_docx_metadata_and_hidden(self, file_bytes: bytes) -> tuple[dict, list[dict]]:
+        """Этап 8: читаем core_properties DOCX + детект hidden-text runs.
+
+        Hidden-text в DOCX: ``w:vanish`` (скрытый текст Word), белый цвет шрифта
+        (``font.color.rgb == 0xFFFFFF``), tiny-font (<2pt). python-docx даёт
+        доступ к runs и XML — docx2txt этого не умеет.
+        """
+        if _DocxDocument is None:
+            return {}, []
+
+        try:
+            from io import BytesIO
+
+            doc = _DocxDocument(BytesIO(file_bytes))
+        except Exception:  # pragma: no cover - defensive
+            return {}, []
+
+        # Метаданные (core_properties) — могут утекать автор/редактор.
+        cp = doc.core_properties
+        file_metadata = {
+            "author": (cp.author or None),
+            "title": (cp.title or None),
+            "producer": None,
+            "creator_tool": (cp.last_modified_by or None),
+            "created": (cp.created.isoformat() if cp.created else None),
+        }
+
+        vanish_count = 0
+        white_count = 0
+        tiny_count = 0
+        vanish_sample = ""
+        white_sample = ""
+        tiny_sample = ""
+
+        for paragraph in doc.paragraphs:
+            for run in paragraph.runs:
+                run_text = (run.text or "").strip()
+                if not run_text:
+                    continue
+
+                # w:vanish — скрытый текст Word.
+                rpr = run._element.rPr
+                if rpr is not None and _docx_qn is not None and rpr.findall(_docx_qn("w:vanish")):
+                    vanish_count += 1
+                    if not vanish_sample:
+                        vanish_sample = run_text[:80]
+
+                # Белый цвет шрифта.
+                try:
+                    color = run.font.color
+                    if (
+                        color is not None
+                        and _DocxRGBColor is not None
+                        and color.rgb == _DocxRGBColor(0xFF, 0xFF, 0xFF)
+                    ):
+                        white_count += 1
+                        if not white_sample:
+                            white_sample = run_text[:80]
+                except Exception:  # pragma: no cover - defensive
+                    pass
+
+                # Tiny-font.
+                try:
+                    size = run.font.size
+                    if size is not None and size.pt < 2.0:
+                        tiny_count += 1
+                        if not tiny_sample:
+                            tiny_sample = run_text[:80]
+                except Exception:  # pragma: no cover - defensive
+                    pass
+
+        findings: list[dict] = []
+        if vanish_count:
+            findings.append(
+                {"kind": "docx_vanish", "count": vanish_count, "sample": vanish_sample, "severity": "high"}
+            )
+        if white_count:
+            findings.append(
+                {"kind": "white_on_white", "count": white_count, "sample": white_sample, "severity": "high"}
+            )
+        if tiny_count:
+            findings.append(
+                {"kind": "tiny_font", "count": tiny_count, "sample": tiny_sample, "severity": "medium"}
+            )
+
+        return file_metadata, findings
 
     def _parse_txt(self, file_bytes: bytes) -> ParsedResume:
         text, encoding_used = self._decode_text_bytes(file_bytes)
+        zero_width = self._collect_zero_width(text)
         text = self._normalize_text(text)
         text = self._repair_common_mojibake(text)
 
@@ -125,8 +316,39 @@ class ResumeParserService:
                 "encoding": encoding_used,
                 "char_length": len(text),
                 "line_count": len(text.splitlines()),
+                "diagnostics_seed": {
+                    "zero_width": zero_width,
+                    "hidden_text": [],
+                    "file_metadata": {},
+                },
             },
         )
+
+    def _collect_zero_width(self, text: str) -> dict:
+        """Этап 8: считаем zero-width/invisible Unicode (вектор stuffing/обхода
+        анти-спам-фильтров) до того, как ``_normalize_text`` их вырежет.
+
+        Возвращает ``{"count": int, "sample": str}`` — sample это фрагмент вокруг
+        первого вхождения (до 80 символов), чтобы пользователь видел контекст.
+        """
+        if not text:
+            return {"count": 0, "sample": ""}
+
+        count = 0
+        first_pos = -1
+        for idx, ch in enumerate(text):
+            if ch in _ZERO_WIDTH_CHARS:
+                count += 1
+                if first_pos < 0:
+                    first_pos = idx
+
+        sample = ""
+        if first_pos >= 0:
+            start = max(0, first_pos - 30)
+            end = min(len(text), first_pos + 50)
+            sample = text[start:end].strip()[:80]
+
+        return {"count": count, "sample": sample}
 
     def _decode_text_bytes(self, file_bytes: bytes) -> tuple[str, str]:
         if file_bytes.startswith(b"\xef\xbb\xbf"):

@@ -59,3 +59,18 @@ def test_normalize_text_still_merges_short_broken_plain_lines() -> None:
     assert normalized == (
         "Создание AI-системы мониторинга безопасности в пансионатах для пожилых"
     )
+
+def test_parse_txt_records_zero_width_count_in_diagnostics_seed() -> None:
+    """Этап 8: zero-width символы считаются и попадают в diagnostics_seed, а не
+    удаляются молча. Вызываем _parse_txt напрямую (autouse conftest патчит parse)."""
+    service = ResumeParserService()
+    # U+200B (zero-width space) между "Python" и "FastAPI".
+    text_bytes = "Python​FastAPI, Docker".encode("utf-8")
+
+    parsed = service._parse_txt(text_bytes)
+
+    seed = parsed.metadata.get("diagnostics_seed", {})
+    assert seed["zero_width"]["count"] == 1
+    # Текст очищен от zero-width.
+    assert "​" not in parsed.text
+    assert "PythonFastAPI" in parsed.text

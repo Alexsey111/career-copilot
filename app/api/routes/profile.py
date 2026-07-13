@@ -17,6 +17,7 @@ from app.models import User
 from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
+from app.repositories.source_file_repository import SourceFileRepository
 from app.schemas.achievement_extract import (
     AchievementExtractRequest,
     AchievementExtractResponse,
@@ -25,6 +26,10 @@ from app.schemas.achievement_extract import (
     AchievementReviewResponse,
 )
 from app.schemas.profile_import import ResumeImportRequest, ResumeImportResponse
+from app.schemas.parse_diagnostics import (
+    ParseDiagnosticsRequest,
+    ParseDiagnosticsResponse,
+)
 from app.schemas.profile_intake import (
     GitHubPublicProfileImportRequest,
     GitHubProfileIntakeRequest,
@@ -612,3 +617,71 @@ async def delete_target_track(
     await session.delete(track)
     await session.commit()
     return {"status": "deleted"}
+
+
+@router.post("/parse-diagnostics", response_model=ParseDiagnosticsResponse)
+async def get_parse_diagnostics(
+    payload: ParseDiagnosticsRequest,
+    current_user: User = Depends(require_data_processing_consent),
+    session: AsyncSession = Depends(get_db_session),
+) -> ParseDiagnosticsResponse:
+    """Этап 8: отчёт «как видит парсер» по загруженному резюме.
+
+    Возвращает распознанные блоки (секции) и их порядок, потерянные фрагменты,
+    структурные warnings (таблицы/колонки/длинные строки/скан-риск) и anti-hack
+    находки скрытого текста + метаданные файла. Отчёт считается при импорте и
+    кэшируется в ``FileExtraction.extracted_metadata_json["parse_diagnostics"]``;
+    если отсутствует (старый импорт) — пересчитывается частично из текста.
+    """
+    source_file_repo = SourceFileRepository()
+    source_file = await source_file_repo.get_by_id(
+        session,
+        payload.source_file_id,
+        user_id=current_user.id,
+    )
+    if source_file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="source file not found",
+        )
+    if source_file.file_kind != "resume":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source file is not a resume",
+        )
+
+    extraction_repo = FileExtractionRepository()
+    extraction = await extraction_repo.get_latest_for_source_file(
+        session,
+        source_file_id=source_file.id,
+    )
+    if extraction is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no extraction found; import the resume first",
+        )
+
+    metadata = extraction.extracted_metadata_json or {}
+    diagnostics_dict = metadata.get("parse_diagnostics")
+
+    if not diagnostics_dict:
+        # Совместимость со старыми extractions (до Этапа 8): частичный пересчёт
+        # из текста — без hidden-text/метаданных (нужен исходный файл).
+        from app.services.parse_diagnostics_service import ParseDiagnosticsService
+        from app.services.resume_parser_service import ParsedResume
+
+        detected = metadata.get("detected_format") or "text"
+        partial = ParsedResume(
+            text=extraction.extracted_text or "",
+            detected_format=detected,
+            metadata={
+                "diagnostics_seed": {
+                    "zero_width": {"count": 0, "sample": ""},
+                    "hidden_text": [],
+                    "file_metadata": {},
+                },
+            },
+        )
+        diagnostics_dict = ParseDiagnosticsService().build_report(partial).as_dict()
+
+    return ParseDiagnosticsResponse.model_validate(diagnostics_dict)

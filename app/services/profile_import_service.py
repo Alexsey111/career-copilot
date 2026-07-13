@@ -11,7 +11,8 @@ from app.models import CandidateProfile, FileExtraction
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.file_extraction_repository import FileExtractionRepository
 from app.repositories.source_file_repository import SourceFileRepository
-from app.services.resume_parser_service import ResumeParserService
+from app.services.parse_diagnostics_service import ParseDiagnosticsService
+from app.services.resume_parser_service import ParsedResume, ResumeParserService
 from app.services.storage_service import StorageService
 
 
@@ -31,6 +32,7 @@ class ProfileImportService:
         self.file_extraction_repository = file_extraction_repository or FileExtractionRepository()
         self.storage_service = storage_service or StorageService()
         self.resume_parser_service = resume_parser_service or ResumeParserService()
+        self.parse_diagnostics_service = ParseDiagnosticsService()
 
     async def import_resume(
         self,
@@ -86,6 +88,11 @@ class ProfileImportService:
             filename=source_file.original_name,
         )
 
+        # Этап 8: отчёт «как видит парсер» (блоки/потерянное/структурные warnings/
+        # anti-hack hidden-text + метаданные файла). Сохраняется в metadata, чтобы
+        # эндпоинт /profile/parse-diagnostics отдавал его без повторного parse.
+        diagnostics = self.parse_diagnostics_service.build_report(parsed)
+
         extraction = await self.file_extraction_repository.create(
             session,
             source_file_id=source_file.id,
@@ -96,6 +103,7 @@ class ProfileImportService:
             extracted_metadata_json={
                 **parsed.metadata,
                 "detected_format": parsed.detected_format,
+                "parse_diagnostics": diagnostics.as_dict(),
             },
         )
 
@@ -122,6 +130,21 @@ class ProfileImportService:
                 user_id=user_id,
             )
 
+        # Этап 8: частичная диагностика для text-импорта (без файла → нет
+        # hidden-text/метаданных, но блоки/структурные warnings/zero-width доступны).
+        text_parsed = ParsedResume(
+            text=text,
+            detected_format="text",
+            metadata={
+                "diagnostics_seed": {
+                    "zero_width": self.resume_parser_service._collect_zero_width(text),
+                    "hidden_text": [],
+                    "file_metadata": {},
+                },
+            },
+        )
+        diagnostics = self.parse_diagnostics_service.build_report(text_parsed)
+
         extraction = await self.file_extraction_repository.create(
             session,
             source_file_id=None,
@@ -129,7 +152,10 @@ class ProfileImportService:
             parser_name="text_import",
             parser_version="v1",
             extracted_text=text,
-            extracted_metadata_json={"detected_format": "text"},
+            extracted_metadata_json={
+                "detected_format": "text",
+                "parse_diagnostics": diagnostics.as_dict(),
+            },
         )
 
         await session.flush()
