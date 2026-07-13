@@ -28,6 +28,53 @@ Category meaning:
 - `gap-risk` surfaces a missing or weak requirement and must stay honest.
 - `evidence_probe` asks for more detail on a selected fact or achievement.
 
+## Stable Case Types
+
+The case-prep endpoint (`GET /api/v1/interview-prep/cases/{vacancy_id}`) may emit these stable case types:
+
+- `system_design`
+- `debugging_scenario`
+- `data_analysis`
+- `behavioral_case`
+- `take_home_brief`
+
+Case meaning:
+
+- `system_design` — design a system for the area implied by a requirement; outline components, data flow, trade-offs, failure modes. Framework: `hypothesis-driven`.
+- `debugging_scenario` — investigate a degraded service related to a requirement; form hypotheses and probes. Framework: `hypothesis-driven`.
+- `data_analysis` — define an analysis touching a requirement: question, metrics, segmentation, conclusion. Framework: `structured_walkthrough`.
+- `behavioral_case` — describe a concrete situation from your own experience addressing a requirement, using STAR with a quantified result. Framework: `STAR`.
+- `take_home_brief` — a short take-home exercising a requirement: clarify scope, deliver the core path, cover edge cases, document trade-offs. Framework: `RTL`.
+
+Each case payload is stable when it includes:
+
+- `case_id`
+- `case_type`
+- `title`
+- `prompt`
+- `framework`
+- `time_guidance`
+- `rubric`
+- `suggested_approach`
+- `recommended_evidence`
+- `competency_key`
+- `source_requirement`
+- `gap_severity`
+- `provenance`
+
+### Case Factuality Rules
+
+- Cases are **templates, not live scenarios**: the `prompt` is parameterised only by a requirement/gap keyword and must not invent specific companies, numbers, or names.
+- `recommended_evidence` is reused from `VacancyFitService.build_vacancy_fit` supporting evidence and is filtered to `fact_status` in `{confirmed, user_provided}` (stricter than `usable_matches`, which also admits `needs_confirmation`) — a practice case must rest on confirmed STAR.
+- `time_guidance` is a band (`15-30 minutes`, `60-90 minutes`, `2-4 hours, take-home`), never a concrete deadline or date.
+- The system must not fabricate evidence, metrics, or named stakeholders for a case.
+
+### Case Human Review Rules
+
+- `provenance.requires_human_review` is always `true`.
+- The candidate is expected to adapt the template scenario to the actual prompt received from the employer; the case is a preparation artifact, not a model answer.
+- Human review is required even when recommended evidence is present.
+
 ## Question Payload Contract
 
 Question payloads should be treated as stable when they include:

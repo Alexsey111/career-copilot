@@ -7,9 +7,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_active_user
+from app.api.dependencies import get_current_active_user, require_data_processing_consent
 from app.db.session import get_db_session
 from app.models import User
+from app.schemas.case_prep import CasePrepReportResponse
 from app.schemas.interview_prep import (
     InterviewPrepReadinessRead,
     InterviewPrepSessionDeleteRequest,
@@ -17,6 +18,7 @@ from app.schemas.interview_prep import (
     InterviewPrepSessionListItem,
     InterviewPrepSessionRead,
 )
+from app.services.case_prep_service import CasePrepService
 from app.services.interview_prep_service import InterviewPrepService
 
 
@@ -109,6 +111,28 @@ async def get_interview_prep_readiness(
         user_id=current_user.id,
     )
     return InterviewPrepReadinessRead.model_validate(prep_session.readiness_json or {})
+
+
+@router.get("/cases/{vacancy_id}", response_model=CasePrepReportResponse)
+async def get_interview_prep_cases(
+    vacancy_id: UUID,
+    current_user: User = Depends(require_data_processing_consent),
+    session: AsyncSession = Depends(get_db_session),
+) -> CasePrepReportResponse:
+    """Этап 9.E: детерминированный on-demand practice-кейсы по вакансии.
+
+    Без AI, без миграции БД, без персистентности. Кейсы — шаблонные сценарии
+    (system_design/debugging_scenario/data_analysis/behavioral_case/take_home_brief)
+    с rubric, структурой ответа и recommended_evidence из подтверждённого STAR.
+    ``requires_human_review`` всегда True. См. ``docs/interview_prep_contract.md``.
+    """
+    service = CasePrepService()
+    report = await service.build_case_set(
+        session,
+        user_id=current_user.id,
+        vacancy_id=vacancy_id,
+    )
+    return CasePrepReportResponse.model_validate(report)
 
 
 def _to_read_model(prep_session) -> InterviewPrepSessionRead:
