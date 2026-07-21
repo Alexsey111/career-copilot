@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_active_user
+from app.api.dependencies import get_current_active_user, require_quota
 from app.core.rate_limit import upload_rate_limit
 from app.db.session import get_db_session
 from app.models import User
@@ -25,6 +25,7 @@ async def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
+    _quota: User = Depends(require_quota("doc_upload")),
 ) -> SourceFileRead:
     service = SourceFileService()
     try:

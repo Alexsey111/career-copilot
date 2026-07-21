@@ -92,10 +92,52 @@ async def require_data_processing_consent(
     return user
 
 
+def get_stripe_client():
+    """FastAPI dependency для получения StripeClient (DI-mockable в тестах)."""
+    from app.services.stripe_client import StripeClient
+
+    return StripeClient()
+
+
+def require_quota(action: str):
+    """Factory зависимостей: жёсткий enforcement free-tier квоты перед действием.
+
+    paid_monthly с активной подпиской → unlimited (пропускает). Превышение
+    free-tier → ``402 Payment Required`` со структурированным ``detail``
+    (``QuotaErrorDetail``). Используется в дополнение к consent-зависимостям
+    существующих эндпоинтов (AI/upload/generate).
+    """
+    from app.schemas.billing import QuotaErrorDetail
+    from app.services.quota_service import QuotaService
+
+    async def _check_quota(
+        user: User = Depends(get_current_active_user),
+        session: AsyncSession = Depends(get_db_session),
+    ) -> User:
+        service = QuotaService()
+        decision = await service.check_quota(session, user_id=user.id, action=action)
+        if not decision.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=QuotaErrorDetail(
+                    action=decision.action,
+                    plan=decision.plan,
+                    used=decision.used,
+                    limit=decision.limit,
+                    reason=decision.reason or "quota exceeded",
+                ).model_dump(),
+            )
+        return user
+
+    return _check_quota
+
+
 __all__ = [
     "get_current_active_user",
     "get_current_dev_user",
     "get_ai_orchestrator",
     "require_ai_consent",
     "require_data_processing_consent",
+    "get_stripe_client",
+    "require_quota",
 ]

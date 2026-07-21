@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.ai.use_cases.cover_letter_enhance import enhance_cover_letter
+from app.ai.use_cases.cover_letter_improve import improve_cover_letter
 from app.ai.use_cases.interview_coach import (
     coach_answer,
     coach_answer_advisory,
@@ -15,5 +16,6 @@ __all__ = [
     "coach_attempts",
     "enhance_cover_letter",
     "enhance_resume",
+    "improve_cover_letter",
     "tailor_resume",
 ]

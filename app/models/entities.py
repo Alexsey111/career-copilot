@@ -892,6 +892,107 @@ class InterviewPrepAnswerAttempt(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
 
+class Subscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Подписка пользователя (Этап 4 — Billing).
+
+    Одна запись на пользователя (``UniqueConstraint(user_id)``). По умолчанию
+    пользователь без записи = ``free`` (in-memory view в сервисе). ``plan``:
+    ``free`` | ``paid_monthly``. ``status``: ``active`` | ``past_due`` |
+    ``canceled`` | ``ended``. ``stripe_customer_id`` — PII/finance →
+    ``EncryptedText`` (ФЗ-152 ст.19). ``stripe_subscription_id`` — публичный
+    идентификатор Stripe-ресурса (``sub_xxx``), не ПДн → plain ``String``
+    (искать при webhook по нему). Без relationship (как ``InterviewPrepSession``).
+    """
+
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_subscriptions_user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    plan: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        default="free",
+    )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        default="active",
+    )
+    # PII / finance — encrypted at rest (ФЗ-152 ст.19). Nullable до первого checkout.
+    # Без индекса: Fernet-шифр недетерминирован (random IV) → equality-lookup по
+    # зашифрованному столбцу невозможен. Lookup ведём по plain stripe_subscription_id.
+    stripe_customer_id: Mapped[str | None] = mapped_column(
+        EncryptedText(),
+        nullable=True,
+    )
+    # Public Stripe resource id (sub_xxx) — не ПДн, нужен для webhook lookup.
+    stripe_subscription_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    current_period_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    canceled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # Raw Stripe refs (price_id и т.д.) — не ПДн.
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+
+
+class BillingEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Idempotency-лог обработанных Stripe webhook-событий (Этап 4).
+
+    ``stripe_event_id`` UNIQUE → дедуп: при повторе event от Stripe (retry)
+    обработка no-op. ``processed=False`` после упавшей попытки → повторная
+    обработка. ``payload_json`` — для аудита (не содержит ПДн вне
+    ``stripe_customer_id``, который уже хранится зашифрованным в Subscription).
+    """
+
+    __tablename__ = "billing_events"
+
+    stripe_event_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    processed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class AIRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "ai_runs"
 

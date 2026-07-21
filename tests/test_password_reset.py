@@ -144,6 +144,10 @@ async def test_password_reset_request_does_not_return_token_in_prod(
     monkeypatch.setenv("MINIO_SECURE", "true")
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "http://localhost:8501")
     monkeypatch.setenv("FIELD_ENCRYPTION_KEYS", "2aToT_U2MCPyftyQz2VQ-Nd9uhNlSiz22RLxsJdihPM=")
+    # Billing prod-гарды (Этап 4): Stripe secrets + price_id обязательны в prod.
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_test_xxx")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test_xxx")
+    monkeypatch.setenv("STRIPE_PRICE_PAID_MONTHLY_ID", "price_live_monthly")
     get_settings.cache_clear()
 
     email = "password-reset-prod@example.com"

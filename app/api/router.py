@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.billing import router as billing_router
 from app.api.routes.career_insights import router as career_insights_router
 from app.api.routes.applications import router as applications_router
 from app.api.routes.ai_usage import router as ai_usage_router
@@ -37,6 +38,7 @@ def build_api_router() -> APIRouter:
     api_router.include_router(executions_router)
     api_router.include_router(pipeline_async_router)
     api_router.include_router(auth_router)
+    api_router.include_router(billing_router)
     api_router.include_router(career_insights_router)
     api_router.include_router(applications_router)
     api_router.include_router(ai_usage_router)

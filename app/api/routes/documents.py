@@ -10,7 +10,12 @@ from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_ai_orchestrator, get_current_active_user, require_ai_consent
+from app.api.dependencies import (
+    get_ai_orchestrator,
+    get_current_active_user,
+    require_ai_consent,
+    require_quota,
+)
 from app.ai.orchestrator import AIOrchestrator
 from app.db.session import get_db_session
 from app.models import User
@@ -123,6 +128,7 @@ async def generate_resume(
     current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
+    _quota: User = Depends(require_quota("generated_output")),
 ) -> ResumeGenerateResponse:
     service = ResumeGenerationService(ai_orchestrator=ai)
     document = await service.generate_resume(
@@ -157,6 +163,7 @@ async def enhance_resume(
     current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> ResumeEnhanceResponse:
     repo = DocumentVersionRepository()
     document = await repo.get_by_id(
@@ -228,6 +235,7 @@ async def generate_cover_letter(
     current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
+    _quota: User = Depends(require_quota("generated_output")),
 ) -> CoverLetterGenerateResponse:
     service = CoverLetterGenerationService(ai_orchestrator=ai)
     document = await service.generate_cover_letter(
@@ -262,6 +270,7 @@ async def enhance_cover_letter(
     current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
     ai: AIOrchestrator = Depends(get_ai_orchestrator),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> CoverLetterEnhanceResponse:
     repo = DocumentVersionRepository()
     document = await repo.get_by_id(

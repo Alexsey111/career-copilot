@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app.api.error_handlers import register_error_handlers
 from app.api.router import build_api_router
+from app.api.routes.stripe_webhook import router as stripe_webhook_router
 from app.core.config import get_settings
 from app.core.error_monitoring import setup_error_monitoring
 from app.core.logging import setup_logging
@@ -143,6 +144,9 @@ def create_app() -> FastAPI:
             )
 
     app.include_router(build_api_router())
+    # Stripe webhook: raw path without api-prefix/auth — Stripe posts to the
+    # root path; signature is verified via stripe.Webhook.construct_event.
+    app.include_router(stripe_webhook_router)
     return app
 
 

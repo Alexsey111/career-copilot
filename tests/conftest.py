@@ -143,6 +143,15 @@ async def prepare_test_db():
 
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     os.environ["SYNC_DATABASE_URL"] = TEST_DATABASE_URL
+    # Billing (Этап 4): высокие free-tier лимиты, чтобы существующие
+    # AI/upload/generate-тесты не падали с 402. Quota-тесты переопределяют
+    # локально через monkeypatch.setenv + get_settings.cache_clear().
+    os.environ["BILLING_FREE_TIER_AI_REQUESTS_LIMIT"] = "100000"
+    os.environ["BILLING_FREE_TIER_DOC_UPLOADS_LIMIT"] = "100000"
+    os.environ["BILLING_FREE_TIER_GENERATED_OUTPUTS_LIMIT"] = "100000"
+    # Stripe price_id для checkout-тестов (mock; реальных ключей нет по выбору
+    # пользователя). Тест 503-при-отсутствии-price переопределяет локально.
+    os.environ["STRIPE_PRICE_PAID_MONTHLY_ID"] = "price_test_monthly"
     get_settings.cache_clear()
 
     alembic_cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))

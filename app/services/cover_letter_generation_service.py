@@ -1784,9 +1784,9 @@ class CoverLetterGenerationService:
                 detail="AI orchestrator not configured",
             )
 
-        from app.ai.use_cases.cover_letter_enhance import enhance_cover_letter
+        from app.ai.use_cases.cover_letter_improve import improve_cover_letter
 
-        result = await enhance_cover_letter(
+        result = await improve_cover_letter(
             self.ai_orchestrator,
             session,
             user_id=user_id,

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_ai_orchestrator, get_current_active_user
+from app.api.dependencies import get_ai_orchestrator, get_current_active_user, require_quota
 from app.ai.orchestrator import AIOrchestrator
 from app.db.session import get_db_session
 from app.models import User
@@ -265,6 +265,7 @@ async def coach_interview_answer(
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
     orchestrator: AIOrchestrator = Depends(get_ai_orchestrator),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> InterviewAnswerImproveResponse:
     """
     Legacy endpoint for simple AI rewrite of an interview answer.
@@ -349,6 +350,7 @@ async def submit_mock_answer(
     payload: InterviewMockAnswerRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> InterviewMockAnswerResponse:
     service = InterviewPreparationService()
 
@@ -409,6 +411,7 @@ async def coach_interview_answer_advisory(
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
     orchestrator: AIOrchestrator = Depends(get_ai_orchestrator),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> InterviewAnswerAdvisoryResponse:
     """
     Main AI coaching endpoint for interview preparation.

@@ -140,6 +140,40 @@ class Settings(BaseSettings):
     oauth_github_client_secret: str | None = Field(default=None, alias="OAUTH_GITHUB_CLIENT_SECRET")
     oauth_redirect_base_url: str = Field(default="http://localhost:3000", alias="OAUTH_REDIRECT_BASE_URL")
 
+    # Billing (ТЗ §3.5). Stripe official SDK. Secrets empty by default —
+    # validate_runtime_safety requires them in production.
+    stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
+    stripe_webhook_tolerance: int = Field(default=300, alias="STRIPE_WEBHOOK_TOLERANCE")
+    stripe_price_paid_monthly_id: str | None = Field(
+        default=None, alias="STRIPE_PRICE_PAID_MONTHLY_ID"
+    )
+    # Display-only amount (minor units / cents) for the paid monthly plan.
+    stripe_paid_monthly_amount: int = Field(default=0, alias="STRIPE_PAID_MONTHLY_AMOUNT")
+    stripe_paid_plan_name: str = Field(default="paid_monthly", alias="STRIPE_PAID_PLAN_NAME")
+    # Free-tier usage quotas (rolling window = billing_quota_window_days).
+    # paid_monthly = unlimited (limits not applied). Defaults are conservative;
+    # tests override via env to keep existing AI/upload tests under the cap.
+    billing_free_tier_ai_requests_limit: int = Field(
+        default=50, alias="BILLING_FREE_TIER_AI_REQUESTS_LIMIT"
+    )
+    billing_free_tier_doc_uploads_limit: int = Field(
+        default=10, alias="BILLING_FREE_TIER_DOC_UPLOADS_LIMIT"
+    )
+    billing_free_tier_generated_outputs_limit: int = Field(
+        default=5, alias="BILLING_FREE_TIER_GENERATED_OUTPUTS_LIMIT"
+    )
+    billing_quota_window_days: int = Field(default=30, alias="BILLING_QUOTA_WINDOW_DAYS")
+    billing_checkout_success_url: str = Field(
+        default="http://localhost:3000/billing/success", alias="BILLING_CHECKOUT_SUCCESS_URL"
+    )
+    billing_checkout_cancel_url: str = Field(
+        default="http://localhost:3000/billing/cancel", alias="BILLING_CHECKOUT_CANCEL_URL"
+    )
+    billing_portal_return_url: str = Field(
+        default="http://localhost:3000/billing", alias="BILLING_PORTAL_RETURN_URL"
+    )
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "prod"
@@ -233,6 +267,16 @@ class Settings(BaseSettings):
                     Fernet(key.encode())
             except Exception as exc:  # noqa: BLE001 - surface any invalid key clearly
                 raise ValueError("FIELD_ENCRYPTION_KEYS contains an invalid Fernet key") from exc
+
+            # Billing (ТЗ §3.5): Stripe secrets and the paid plan price id are
+            # required in production so billing can control access and verify
+            # webhook signatures.
+            if not self.stripe_secret_key:
+                raise ValueError("STRIPE_SECRET_KEY is required in production")
+            if not self.stripe_webhook_secret:
+                raise ValueError("STRIPE_WEBHOOK_SECRET is required in production")
+            if not self.stripe_price_paid_monthly_id:
+                raise ValueError("STRIPE_PRICE_PAID_MONTHLY_ID is required in production")
 
         return self
 

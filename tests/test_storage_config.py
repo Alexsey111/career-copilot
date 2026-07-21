@@ -45,6 +45,10 @@ def _prod_safe_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIO_SECURE", "true")
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://example.com")
     monkeypatch.setenv("STORAGE_MODE", "s3")
+    # Billing prod-гарды (Этап 4): Stripe secrets + price_id обязательны в prod.
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_test_xxx")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test_xxx")
+    monkeypatch.setenv("STRIPE_PRICE_PAID_MONTHLY_ID", "price_live_monthly")
 
 
 def test_field_encryption_keys_missing_rejected_in_production(monkeypatch: pytest.MonkeyPatch) -> None:

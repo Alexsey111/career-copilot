@@ -11,6 +11,7 @@ from app.api.dependencies import (
     get_current_active_user,
     require_ai_consent,
     require_data_processing_consent,
+    require_quota,
 )
 from app.db.session import get_db_session
 from app.models import User
@@ -338,6 +339,7 @@ async def extract_structured_profile(
     payload: StructuredProfileExtractRequest,
     current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> StructuredProfileExtractResponse:
     service = ProfileStructuringService()
     try:
@@ -379,6 +381,7 @@ async def extract_achievements(
     payload: AchievementExtractRequest,
     current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> AchievementExtractResponse:
     service = AchievementExtractionService()
     try:
@@ -409,6 +412,7 @@ async def extract_achievements(
 async def generate_repository_achievements(
     current_user: User = Depends(require_ai_consent),
     session: AsyncSession = Depends(get_db_session),
+    _quota: User = Depends(require_quota("ai_request")),
 ) -> AchievementExtractResponse:
     profile_repository = CandidateProfileRepository()
     profile = await profile_repository.get_with_related_by_user_id(
