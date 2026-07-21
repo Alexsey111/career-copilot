@@ -9,7 +9,11 @@ WORKDIR /app
 RUN pip install --upgrade pip
 
 COPY pyproject.toml build_backend.py README.md ./
-RUN --mount=type=cache,target=/root/.cache/pip pip install .[deploy]
+RUN --mount=type=cache,target=/root/.cache/pip pip install \
+    --default-timeout=1000 \
+    --retries 5 \
+    --no-cache-dir \
+    .[deploy]
 
 COPY app ./app
 COPY alembic ./alembic
