@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
@@ -10,6 +11,7 @@ import AchievementReviewCard from "@/components/AchievementReviewCard";
 export default function ProfilePage() {
   const { token } = useAuth();
   const toast = useToastCtx();
+  const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [resumeText, setResumeText] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -325,26 +327,76 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {profile.achievements?.achievements?.length > 0 && (
-            <div className="mt-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">
-                Достижения ({profile.achievements.achievements.length})
-              </h3>
-              <p className="text-xs text-gray-500 mb-2">
-                Подтвердите достижения (статус «Подтверждено»), чтобы они попали в адаптированное резюме.
-              </p>
-              <div className="space-y-3">
-                {profile.achievements.achievements.map((a: any) => (
-                  <AchievementReviewCard
-                    key={a.id}
-                    token={token ?? ""}
-                    achievement={a}
-                    onSaved={reloadProfile}
-                  />
-                ))}
+          {profile.achievements?.achievements?.length > 0 && (() => {
+            const list = profile.achievements.achievements as any[];
+            const total = list.length;
+            const confirmed = list.filter((a) => a.fact_status === "confirmed").length;
+            const allConfirmed = confirmed === total;
+            return (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-700">
+                    Достижения ({total})
+                  </h3>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${
+                      allConfirmed
+                        ? "bg-green-100 text-green-800"
+                        : "bg-yellow-100 text-yellow-800"
+                    }`}
+                  >
+                    Подтверждено {confirmed} / {total}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Подтвердите достижения (статус «Подтверждено»), чтобы они попали в адаптированное резюме.
+                </p>
+                <div className="space-y-3">
+                  {list.map((a: any) => (
+                    <AchievementReviewCard
+                      key={a.id}
+                      token={token ?? ""}
+                      achievement={a}
+                      onSaved={reloadProfile}
+                    />
+                  ))}
+                </div>
+                <div
+                  className={`mt-4 p-3 rounded-lg border ${
+                    allConfirmed
+                      ? "bg-green-50 border-green-200"
+                      : "bg-gray-50 border-gray-200"
+                  }`}
+                >
+                  {allConfirmed ? (
+                    <>
+                      <p className="text-sm text-green-800 mb-2">
+                        Все достижения подтверждены. Можно перейти к подбору вакансий.
+                      </p>
+                      <button
+                        onClick={() => router.push("/vacancies")}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
+                      >
+                        Перейти к вакансиям →
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-gray-700 mb-2">
+                        Осталось подтвердить {total - confirmed} из {total} достижений.
+                      </p>
+                      <button
+                        onClick={() => router.push("/vacancies")}
+                        className="text-sm text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Пропустить и перейти к вакансиям
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {profile.structured_profile?.warnings?.length > 0 && (
             <div className="mt-4 p-3 bg-yellow-50 rounded-lg">

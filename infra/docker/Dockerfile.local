@@ -1,0 +1,49 @@
+# Сборка api-контейнера ЛОКАЛЬНО (без pip install с сети) — копирует распакованные
+# pure-Python wheel'ы с хоста. Используется ТОЛЬКО как обходной путь, пока
+# buildkit в Docker Desktop не имеет DNS. Не для production.
+#
+# Сборка: docker build -f infra/docker/Dockerfile.local -t career-copilot-api:local .
+# Запуск: docker run --rm -p 7000:7000 --network career-copilot_default --env-file .env career-copilot-api:local
+
+FROM python:3.11-slim
+
+# Базовые системные зависимости (для psycopg/bcrypt/argon2 wheel-ов на linux).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Копируем pure-Python wheel-ы с хоста (Windows Python 3.11.9 — бинарно совместимы с linux
+# только для pure-Python; для C-расширений типа psycopg, bcrypt, argon2 этот путь НЕ работает).
+# Поэтому: копируем только pure-Python пакеты и ставим критичные C-расширения через pip.
+COPY pkgs_pure /tmp/pkgs_pure
+
+# Список pure-Python пакетов, которые не имеют бинарных wheel'ов под linux.
+# C-зависимости (psycopg, bcrypt, argon2, cryptography) ставим из pypi с timeout.
+# pip кеш в /tmp/pkgs_pure — fallback.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --default-timeout=600 --retries 3 --no-cache-dir \
+      "fastapi>=0.115" "uvicorn[standard]>=0.30" "pydantic>=2.8" "pydantic-settings>=2.4" \
+      "sqlalchemy>=2.0" "psycopg[binary]>=3.2" "pgvector>=0.3" \
+      "redis>=5" "arq>=0.26" "boto3>=1.35" "httpx>=0.27" "jsonschema>=4" \
+      "structlog>=24.4" "argon2-cffi>=23.1" "bcrypt>=4" "cryptography>=42" \
+      "python-multipart>=0.0.9" "python-docx>=1.1" "docx2txt>=0.8" \
+      "beautifulsoup4>=4.12" "trafilatura>=1.12" "pymupdf>=1.24" \
+      "stripe>=10" "alembic>=1.13" \
+    || (echo "[fallback] using local pure-python pkgs" && pip install --no-index --no-deps /tmp/pkgs_pure/*) \
+    && true
+
+# pure-Python фикс для fpdf2 (сеть может быть недоступна).
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --default-timeout=600 --no-cache-dir "fpdf2>=2.7.9" 2>/dev/null \
+    || pip install --no-index --no-deps /tmp/pkgs_pure/fpdf2-2.8.7.dist-info /tmp/pkgs_pure/fpdf /tmp/pkgs_pure/fonttools* 2>/dev/null \
+    || true
+
+COPY app /app/app
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
+COPY gunicorn.conf.py /app/gunicorn.conf.py
+
+EXPOSE 7000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7000"]

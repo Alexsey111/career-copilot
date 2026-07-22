@@ -23,7 +23,13 @@ function extractErrorMessage(error: any, status: number): string {
       const limit = detail.limit ?? null;
       const quota =
         used != null && limit != null ? ` (использовано ${used}/${limit})` : "";
-      return `Квота превышена: ${detail.reason}${quota}. План: ${detail.plan}.`;
+      // План paid_monthly не должен сюда попадать (безлимит), но если пришёл —
+      // подсказываем, что счётчик скользящий, а не «навсегда».
+      const planHint =
+        detail.plan === "free"
+          ? " Счётчик скользящий по окну — старые записи выйдут из него автоматически."
+          : "";
+      return `Квота превышена: ${detail.reason}${quota}.${planHint}`;
     }
     if (Array.isArray(detail)) {
       const msg = detail
