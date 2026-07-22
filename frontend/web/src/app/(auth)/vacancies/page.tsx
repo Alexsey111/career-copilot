@@ -4,7 +4,9 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
+import DemoBanner from "@/components/DemoBanner";
 
 interface Vacancy {
   id: string;
@@ -19,6 +21,7 @@ interface Vacancy {
 
 export default function VacanciesPage() {
   const { token } = useAuth();
+  const toast = useToastCtx();
   const router = useRouter();
   const [recommendations, setRecommendations] = useState<Vacancy[]>([]);
   const [searchResults, setSearchResults] = useState<Vacancy[]>([]);
@@ -28,6 +31,12 @@ export default function VacanciesPage() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [searchMode, setSearchMode] = useState<"text" | "semantic">("text");
+  const [fileInput, setFileInput] = useState<File | null>(null);
+  const [fileTitle, setFileTitle] = useState("");
+  const [fileCompany, setFileCompany] = useState("");
+  const [fileLocation, setFileLocation] = useState("");
+  const [fileSourceUrl, setFileSourceUrl] = useState("");
+  const [quotaRefreshKey, setQuotaRefreshKey] = useState(0);
 
   // Load recommendations based on profile
   useEffect(() => {
@@ -71,9 +80,11 @@ export default function VacanciesPage() {
     try {
       await api.importVacancyFromUrl(token, importUrl);
       setImportUrl("");
+      toast.success("Вакансия импортирована по ссылке");
+      setQuotaRefreshKey((k) => k + 1);
       if (searchQuery) handleSearch();
     } catch (err: any) {
-      alert(err.message || "Ошибка импорта");
+      toast.error(err.message || "Ошибка импорта");
     } finally {
       setImporting(false);
     }
@@ -85,24 +96,40 @@ export default function VacanciesPage() {
     try {
       const res = await api.importVacancyFromText(token, vacancyText) as any;
       setVacancyText("");
+      toast.success("Вакансия импортирована из текста");
+      setQuotaRefreshKey((k) => k + 1);
       router.push(`/vacancies/${res.vacancy_id}`);
     } catch (err: any) {
-      alert(err.message || "Ошибка импорта");
+      toast.error(err.message || "Ошибка импорта");
     } finally {
       setImporting(false);
     }
   };
 
-  const handleImportFromFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !token) return;
+  const handleImportFromFile = async () => {
+    if (!fileInput || !token) return;
+    if (!fileTitle.trim()) {
+      toast.error("Укажите название вакансии для файла");
+      return;
+    }
     setImporting(true);
     try {
-      const text = await file.text();
-      const res = await api.importVacancyFromText(token, text) as any;
+      const uploaded = (await api.uploadFile(token, fileInput, "vacancy")) as any;
+      const sourceFileId = uploaded?.source_file_id || uploaded?.id;
+      if (!sourceFileId) throw new Error("Файл не загружен");
+      const res = (await api.importVacancyFromFile(
+        token,
+        sourceFileId,
+        fileTitle.trim(),
+        fileCompany.trim() || undefined,
+        fileLocation.trim() || undefined,
+        fileSourceUrl.trim() || undefined
+      )) as any;
+      toast.success("Вакансия импортирована из файла");
+      setQuotaRefreshKey((k) => k + 1);
       router.push(`/vacancies/${res.vacancy_id}`);
     } catch (err: any) {
-      alert(err.message || "Ошибка загрузки файла");
+      toast.error(err.message || "Ошибка загрузки файла");
     } finally {
       setImporting(false);
     }
@@ -143,6 +170,8 @@ export default function VacanciesPage() {
     <div className="max-w-4xl">
       <h1 className="text-2xl font-bold mb-6">Вакансии</h1>
 
+      {token && <DemoBanner token={token} refreshKey={quotaRefreshKey} />}
+
       {/* Import from URL */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
         <h2 className="font-semibold mb-3">Добавить вакансию</h2>
@@ -153,10 +182,57 @@ export default function VacanciesPage() {
             <p className="text-sm text-gray-500">
               <span className="font-semibold">Перетащите файл</span> с описанием вакансии или нажмите для выбора
             </p>
-            <p className="text-xs text-gray-400">TXT, DOCX, PDF</p>
+            <p className="text-xs text-gray-400">
+              TXT, DOCX, PDF {fileInput ? `— выбран: ${fileInput.name}` : ""}
+            </p>
           </div>
-          <input type="file" accept=".txt,.docx,.pdf" onChange={handleImportFromFile} className="hidden" />
+          <input
+            type="file"
+            accept=".txt,.docx,.pdf"
+            onChange={(e) => setFileInput(e.target.files?.[0] ?? null)}
+            className="hidden"
+          />
         </label>
+
+        {fileInput && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3 p-3 bg-gray-50 rounded-lg">
+            <input
+              type="text"
+              value={fileTitle}
+              onChange={(e) => setFileTitle(e.target.value)}
+              placeholder="Название вакансии *"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <input
+              type="text"
+              value={fileCompany}
+              onChange={(e) => setFileCompany(e.target.value)}
+              placeholder="Компания"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <input
+              type="text"
+              value={fileLocation}
+              onChange={(e) => setFileLocation(e.target.value)}
+              placeholder="Локация"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <input
+              type="url"
+              value={fileSourceUrl}
+              onChange={(e) => setFileSourceUrl(e.target.value)}
+              placeholder="Ссылка-источник (необязательно)"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <button
+              onClick={handleImportFromFile}
+              disabled={importing || !fileTitle.trim()}
+              className="md:col-span-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+            >
+              {importing ? "Импорт..." : "Импортировать из файла"}
+            </button>
+          </div>
+        )}
 
         <div className="text-xs text-gray-500 mb-2">или вставьте текст:</div>
         <textarea

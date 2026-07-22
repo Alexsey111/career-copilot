@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select

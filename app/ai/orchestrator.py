@@ -14,7 +14,6 @@ from .clients.base import BaseLLMClient, LLMClientError
 from .config import AIOrchestratorConfig, AIModel
 from .registry.prompts import (
     PromptRenderingError,
-    PromptSpec,
     PromptTemplate,
     get_prompt,
     safe_render_prompt,

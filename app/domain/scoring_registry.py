@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import Protocol
 
 from app.domain.normalized_signals import NormalizedSignal, SignalType
 from app.domain.signal_normalizer import SignalContractNormalizer

@@ -163,6 +163,15 @@ class Settings(BaseSettings):
     billing_free_tier_generated_outputs_limit: int = Field(
         default=5, alias="BILLING_FREE_TIER_GENERATED_OUTPUTS_LIMIT"
     )
+    # Demo-режим: лимит импорта вакансий (3) в коротком скользящем окне. Окно —
+    # секунды, не дни: ``billing_quota_window_days`` здесь не применяется.
+    # 3 импорта → 402, затем ждать, пока старые выпадут из окна (≈ час).
+    billing_free_tier_vacancy_imports_limit: int = Field(
+        default=3, alias="BILLING_FREE_TIER_VACANCY_IMPORTS_LIMIT"
+    )
+    demo_vacancy_import_window_seconds: int = Field(
+        default=3600, alias="DEMO_VACANCY_IMPORT_WINDOW_SECONDS"
+    )
     billing_quota_window_days: int = Field(default=30, alias="BILLING_QUOTA_WINDOW_DAYS")
     billing_checkout_success_url: str = Field(
         default="http://localhost:3000/billing/success", alias="BILLING_CHECKOUT_SUCCESS_URL"

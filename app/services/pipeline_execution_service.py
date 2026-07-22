@@ -11,12 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.pipeline_models import (
     CareerCopilotRun,
-    PipelineEvent,
-    PipelineEventType,
     PipelineExecutionStep,
     PipelineExecutionSummary,
     PipelineStatus,
-    EventSeverity,
     StepStatus,
 )
 from app.domain.execution_event_payloads import (

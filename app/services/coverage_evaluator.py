@@ -6,7 +6,6 @@ from app.domain.constants import (
     EvidenceStrength,
     Priority,
     PRIORITY_WEIGHTS,
-    GENERIC_PHRASES,
     COVERAGE_STRENGTH_DIRECT_THRESHOLD,
 )
 from app.domain.coverage_eval_models import (

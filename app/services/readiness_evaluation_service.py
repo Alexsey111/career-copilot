@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ from app.domain.readiness_evaluation import (
 )
 from app.models import EvaluationSnapshot
 from app.repositories.document_version_repository import DocumentVersionRepository
-from app.services.deterministic_scoring_service import DeterministicScoringService, ExtractedReadinessFeatures
+from app.services.deterministic_scoring_service import DeterministicScoringService
 from app.services.readiness_feature_extraction_service import ReadinessFeatureExtractionService
 
 from dataclasses import dataclass

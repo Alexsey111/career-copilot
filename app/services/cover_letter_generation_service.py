@@ -43,11 +43,6 @@ from app.domain.evidence_alignment import (
     humanize_experience_phrase,
     score_alignment_item,
 )
-from app.domain.requirement_normalization import (
-    classify_requirement_phrase,
-    normalize_requirement_phrase,
-    requirement_match_key,
-)
 from app.domain.text_normalization import (
     clean_vacancy_title,
     dedupe_subsumed_phrases,
@@ -367,10 +362,6 @@ class CoverLetterGenerationService:
         relevance_paragraph = polished_sections["relevance_paragraph"]
         closing = polished_sections["closing"]
         claims_needing_confirmation = self._build_claims_needing_confirmation(
-            selected_achievements=user_facing_selected_achievements,
-        )
-        selection_rationale = self._build_selection_rationale(
-            matched_keywords=matched_keywords,
             selected_achievements=user_facing_selected_achievements,
         )
         warnings = self._build_warnings(

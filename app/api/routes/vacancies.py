@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_active_user
+from app.api.dependencies import get_current_active_user, require_quota
 from app.db.session import get_db_session
 from app.models import User
 from app.repositories.vacancy_analysis_repository import VacancyAnalysisRepository
@@ -21,7 +21,6 @@ from app.schemas.vacancy import (
     VacancyFitResponse,
     VacancyRead,
     VacancySearchItem,
-    VacancySearchRequest,
     VacancySearchResponse,
 )
 from app.services.hh_vacancy_import_service import HHVacancyImportService
@@ -135,7 +134,7 @@ async def semantic_search_vacancies(
 @router.post("/import", response_model=VacancyImportResponse)
 async def import_vacancy(
     payload: VacancyImportRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_quota("vacancy_import")),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyImportResponse:
     service = VacancyImportService()
@@ -149,6 +148,11 @@ async def import_vacancy(
         company=payload.company,
         location=payload.location,
         description_raw=payload.description_raw,
+        salary_from=payload.salary_from,
+        salary_to=payload.salary_to,
+        salary_currency=payload.salary_currency,
+        employment_type=payload.employment_type,
+        experience_level=payload.experience_level,
     )
 
     return VacancyImportResponse(
@@ -159,6 +163,11 @@ async def import_vacancy(
         title=vacancy.title,
         company=vacancy.company,
         location=vacancy.location,
+        salary_from=int(vacancy.salary_from) if vacancy.salary_from else None,
+        salary_to=int(vacancy.salary_to) if vacancy.salary_to else None,
+        salary_currency=vacancy.salary_currency,
+        employment_type=vacancy.employment_type,
+        experience_level=vacancy.experience_level,
         description_length=len(vacancy.description_raw),
         created_at=vacancy.created_at,
     )
@@ -168,7 +177,7 @@ async def import_vacancy(
 async def import_vacancy_from_url(
     payload: VacancyImportFromUrlRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_quota("vacancy_import")),
 ) -> VacancyImportResponse:
     hh_service = HHVacancyImportService()
     vacancy_payload = hh_service.map_to_import_payload(
@@ -202,7 +211,7 @@ async def import_vacancy_from_url(
 @router.post("/import-from-file", response_model=VacancyImportResponse)
 async def import_vacancy_from_file(
     payload: VacancyImportFromFileRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_quota("vacancy_import")),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyImportResponse:
     service = VacancyImportService()

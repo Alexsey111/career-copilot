@@ -4,6 +4,37 @@ interface RequestOptions extends RequestInit {
   token?: string;
 }
 
+/**
+ * Извлекает человекочитаемое сообщение об ошибке из ответа API.
+ * Бэкенд возвращает:
+ *   - строковый `detail` (HTTPException) — отдаём как есть;
+ *   - структурированный `detail` (QuotaErrorDetail: {action, plan, used, limit, reason})
+ *     — иначе `new Error(detail)` даст "[object Object]";
+ *   - fastapi-список ошибок валидации `detail: [{msg, ...}]`.
+ */
+function extractErrorMessage(error: any, status: number): string {
+  const detail = error?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (detail && typeof detail === "object") {
+    if (typeof detail.reason === "string" && detail.reason.trim()) {
+      const used = detail.used ?? null;
+      const limit = detail.limit ?? null;
+      const quota =
+        used != null && limit != null ? ` (использовано ${used}/${limit})` : "";
+      return `Квота превышена: ${detail.reason}${quota}. План: ${detail.plan}.`;
+    }
+    if (Array.isArray(detail)) {
+      const msg = detail
+        .map((e: any) => (typeof e?.msg === "string" ? e.msg : String(e)))
+        .join("; ");
+      if (msg.trim()) return msg;
+    }
+  }
+  return `API error: ${status}`;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -29,7 +60,7 @@ class ApiClient {
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(error.detail || `API error: ${res.status}`);
+      throw new Error(extractErrorMessage(error, res.status));
     }
 
     return res.json();
@@ -176,11 +207,14 @@ class ApiClient {
     return this.request(`/documents/${documentId}`, { token });
   }
 
-  async approveDocument(token: string, documentId: string) {
+  async approveDocument(token: string, documentId: string, setActive = true) {
     return this.request(`/documents/${documentId}/review`, {
       method: "PATCH",
       token,
-      body: JSON.stringify({ review_status: "approved" }),
+      body: JSON.stringify({
+        review_status: "approved",
+        set_active_when_approved: setActive,
+      }),
     });
   }
 
@@ -238,7 +272,10 @@ class ApiClient {
       body: formData,
     });
 
-    if (!res.ok) throw new Error("Upload failed");
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(extractErrorMessage(error, res.status));
+    }
     return res.json();
   }
 
@@ -248,6 +285,216 @@ class ApiClient {
     });
     if (!res.ok) throw new Error("Export failed");
     return res.text();
+  }
+
+  async exportDocumentBlob(token: string, documentId: string, format: string = "docx") {
+    const res = await fetch(`${this.baseUrl}/documents/${documentId}/export/${format}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(extractErrorMessage(error, res.status));
+    }
+    return res.blob();
+  }
+
+  // Vacancy fit
+  async getVacancyFit(token: string, vacancyId: string) {
+    return this.request(`/vacancies/${vacancyId}/fit`, { token });
+  }
+
+  // Vacancy import from file
+  async importVacancyFromFile(
+    token: string,
+    sourceFileId: string,
+    title: string,
+    company?: string,
+    location?: string,
+    sourceUrl?: string
+  ) {
+    return this.request("/vacancies/import-from-file", {
+      method: "POST",
+      token,
+      body: JSON.stringify({
+        source_file_id: sourceFileId,
+        title,
+        company: company || null,
+        location: location || null,
+        source_url: sourceUrl || null,
+      }),
+    });
+  }
+
+  // Documents — list/active/review/diff/enhance/activate
+  async getActiveDocument(token: string, documentKind: string, vacancyId?: string) {
+    const query = new URLSearchParams({ document_kind: documentKind });
+    if (vacancyId) query.set("vacancy_id", vacancyId);
+    return this.request(`/documents/active?${query.toString()}`, { token });
+  }
+
+  async getDocumentReviewSummary(token: string, documentId: string) {
+    return this.request(`/documents/${documentId}/review-summary`, { token });
+  }
+
+  async getDocumentDiff(token: string, documentId: string, targetId: string) {
+    return this.request(`/documents/${documentId}/diff/${targetId}`, { token });
+  }
+
+  async enhanceResume(token: string, documentId: string, resumeText: string) {
+    return this.request(`/documents/resumes/${documentId}/enhance`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ resume_text: resumeText }),
+    });
+  }
+
+  async enhanceCoverLetter(token: string, documentId: string, coverLetterText: string) {
+    return this.request(`/documents/letters/${documentId}/enhance`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ cover_letter_text: coverLetterText }),
+    });
+  }
+
+  async activateDocument(token: string, documentId: string) {
+    return this.request(`/documents/${documentId}/activate`, {
+      method: "POST",
+      token,
+    });
+  }
+
+  // Achievements review + intake
+  async reviewAchievement(token: string, achievementId: string, payload: Record<string, unknown>) {
+    return this.request(`/profile/achievements/${achievementId}/review`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async intakeManual(token: string, payload: Record<string, unknown>) {
+    return this.request("/profile/intake/manual", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async intakeGithubPublic(token: string, payload: Record<string, unknown>) {
+    return this.request("/profile/intake/github-public", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async generateRepositoryAchievements(token: string, payload: Record<string, unknown> = {}) {
+    return this.request("/profile/repository-achievements/generate", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  // Applications — workflow/timeline/activity/reminders/submit
+  async getApplicationReminders(token: string) {
+    return this.request("/applications/reminders", { token });
+  }
+
+  async getApplication(token: string, appId: string) {
+    return this.request(`/applications/${appId}`, { token });
+  }
+
+  async getApplicationWorkflow(token: string, appId: string) {
+    return this.request(`/applications/${appId}/workflow`, { token });
+  }
+
+  async getApplicationTimeline(token: string, appId: string) {
+    return this.request(`/applications/${appId}/timeline`, { token });
+  }
+
+  async getApplicationActivityLog(token: string, appId: string) {
+    return this.request(`/applications/${appId}/activity-log`, { token });
+  }
+
+  async submitApplication(token: string, appId: string, payload: { source?: string; external_link?: string }) {
+    return this.request(`/applications/${appId}/submit`, {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  // Evidence
+  async getEvidenceSnippets(token: string) {
+    return this.request("/evidence/snippets", { token });
+  }
+
+  async getEvidenceSnippet(token: string, snippetId: string) {
+    return this.request(`/evidence/snippets/${snippetId}`, { token });
+  }
+
+  async confirmEvidence(token: string, snippetId: string) {
+    return this.request(`/evidence/${snippetId}/confirm`, { method: "POST", token });
+  }
+
+  async rejectEvidence(token: string, snippetId: string) {
+    return this.request(`/evidence/${snippetId}/reject`, { method: "POST", token });
+  }
+
+  async getEvidenceUsages(token: string) {
+    return this.request("/evidence/usages", { token });
+  }
+
+  async getEvidenceInsights(token: string) {
+    return this.request("/evidence/insights", { token });
+  }
+
+  // Career insights
+  async getCareerInsights(token: string) {
+    return this.request("/career-insights/summary", { token });
+  }
+
+  // Interview prep
+  async listInterviewPrepSessions(token: string) {
+    return this.request("/interview-prep/sessions", { token });
+  }
+
+  async getInterviewPrepReadiness(token: string, sessionId: string) {
+    return this.request(`/interview-prep/sessions/${sessionId}/readiness`, { token });
+  }
+
+  async deleteInterviewPrepSession(token: string, sessionId: string) {
+    return this.request(`/interview-prep/sessions/${sessionId}`, {
+      method: "DELETE",
+      token,
+    });
+  }
+
+  // Trust / health
+  async getHealthDiagnostics(token: string) {
+    return this.request("/health/diagnostics", { token });
+  }
+
+  async getReviewSummary(token: string, entityType: "document" | "interview_prep", entityId: string) {
+    return this.request(`/review/summary/${entityType}/${entityId}`, { token });
+  }
+
+  // Billing
+  async getSubscription(token: string) {
+    return this.request("/me/billing/subscription", { token });
+  }
+
+  async createCheckout(token: string, payload: Record<string, unknown> = {}) {
+    return this.request("/billing/checkout", {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async createPortalSession(token: string) {
+    return this.request("/billing/portal", { method: "POST", token });
   }
 
   // Consent

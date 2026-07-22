@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
 
 interface Application {
@@ -12,6 +14,13 @@ interface Application {
   applied_at: string | null;
   created_at: string;
   vacancy?: { title: string; company: string | null };
+}
+
+interface Reminder {
+  application_id?: string;
+  kind?: string;
+  message?: string;
+  severity?: string;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -36,13 +45,16 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function ApplicationsPage() {
   const { token } = useAuth();
+  const toast = useToastCtx();
   const [applications, setApplications] = useState<Application[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
 
   useEffect(() => {
     if (token) {
       api.listApplications(token).then((data) => setApplications(data as Application[])).catch(() => {});
       api.getApplicationAnalytics(token).then((data) => setAnalytics(data)).catch(() => {});
+      api.getApplicationReminders(token).then((data) => setReminders(data as Reminder[])).catch(() => {});
     }
   }, [token]);
 
@@ -53,14 +65,28 @@ export default function ApplicationsPage() {
       setApplications((prev) =>
         prev.map((a) => (a.id === appId ? { ...a, status: newStatus } : a))
       );
+      toast.success("Статус обновлён");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
   return (
     <div className="max-w-4xl">
       <h1 className="text-2xl font-bold mb-6">Мои отклики</h1>
+
+      {reminders.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 mb-6">
+          <h2 className="font-semibold text-yellow-800 mb-2">Требует внимания</h2>
+          <ul className="space-y-1">
+            {reminders.map((r, i) => (
+              <li key={r.application_id ?? i} className="text-sm text-yellow-700">
+                • {r.message ?? r.kind}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {analytics && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
@@ -124,15 +150,15 @@ export default function ApplicationsPage() {
             className="bg-white rounded-xl shadow-sm border border-gray-200 p-4"
           >
             <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">
+              <Link href={`/applications/${app.id}`} className="block">
+                <h3 className="font-semibold text-blue-700 hover:underline">
                   {app.vacancy?.title || "Вакансия"}
                 </h3>
                 <p className="text-sm text-gray-500">
                   {app.vacancy?.company || ""} •{" "}
                   {new Date(app.created_at).toLocaleDateString("ru")}
                 </p>
-              </div>
+              </Link>
 
               <div className="flex items-center gap-2">
                 <select

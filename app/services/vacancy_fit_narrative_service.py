@@ -308,11 +308,6 @@ class VacancyFitNarrativeService:
         matched = self._join_labels([item.label for item in matched_strengths[:3]])
         transferable = self._join_labels([item.label for item in transferable_strengths[:2]])
 
-        non_soft_gaps = [
-            item for item in critical_gaps
-            if item.label.lower() not in self.SOFT_COMPETENCIES
-        ]
-
         if matched and transferable:
             return (
                 f"В письме связать опыт по направлениям {matched} "

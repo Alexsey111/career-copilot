@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AI Career Copilot for HH",
   description: "AI-powered career assistant for HeadHunter",
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png", sizes: "256x256" },
+    ],
+  },
 };
 
 export default function RootLayout({

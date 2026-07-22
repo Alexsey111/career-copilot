@@ -1,0 +1,10 @@
+# Dev override: сбрасывает entrypoint app-контейнеров, унаследованный от
+# docker-commit-фикса зависимостей (stripe). Compose подхватывает автоматически.
+# TODO: убрать после нормальной пересборки образа (docker compose build).
+services:
+  api:
+    entrypoint: []
+  celery-worker:
+    entrypoint: []
+  celery-beat:
+    entrypoint: []

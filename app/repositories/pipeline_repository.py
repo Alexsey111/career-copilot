@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tracing import enrich_execution_event_payload
@@ -942,21 +942,6 @@ class InMemoryPipelineRepository:
         ]
         executions.sort(key=lambda execution: execution.started_at or datetime.max.replace(tzinfo=timezone.utc))
         return executions[:limit]
-
-
-
-    async def save_run(self, run: CareerCopilotRun) -> None:
-        """Save a pipeline run (for testing compatibility)."""
-        self._executions[str(run.id)] = run
-        if str(run.id) not in self._steps:
-            self._steps[str(run.id)] = []
-        if str(run.id) not in self._events:
-            self._events[str(run.id)] = []
-
-    async def get_run(self, run_id: str) -> Optional[CareerCopilotRun]:
-        """Get a pipeline run by ID (for testing compatibility)."""
-        return self._executions.get(run_id)
-
 
 
     def save_run(self, run: CareerCopilotRun) -> None:

@@ -160,6 +160,27 @@ python .\scripts\smoke_mvp_flow.py
 Контракт провайдеров LLM зафиксирован в [docs/llm_provider_contract.md](docs/llm_provider_contract.md).
 Streamlit smoke checklist: [docs/streamlit_smoke_checklist.md](docs/streamlit_smoke_checklist.md).
 
+## Demo-режим (ограничение импорта вакансий)
+
+Сервис по умолчанию работает в demo-режиме: импорт вакансий ограничен **3
+вакансиями в час** на пользователя. После 3 импортов 4-й возвращает `402
+Payment Required` (деталь `QuotaErrorDetail` с `action=vacancy_import`); через
+час скользящее окно сдвигается, и лимит снова доступен — перерыв «на час»
+реализован именно скользящим окном, а не фиксированной паузой.
+
+Параметры (`.env`):
+
+- `BILLING_FREE_TIER_VACANCY_IMPORTS_LIMIT=3` — лимит импортов в окне.
+- `DEMO_VACANCY_IMPORT_WINDOW_SECONDS=3600` — ширина скользящего окна в
+  секундах (часовое окно задаётся отдельно, т.к. остальные квоты используют
+  дневное окно `BILLING_QUOTA_WINDOW_DAYS`).
+
+Платный план `paid_monthly` (активная подписка) не ограничен. На веб-фронте
+лимит отображается баннером `DemoBanner` на странице «Вакансии» (остаток
+читается из `GET /me/billing/subscription` → `usage.vacancy_import`).
+Поиск вакансий (семантический по похожим, текстовый по названию/триггерным
+словам, рекомендации по профилю) квотой **не** ограничен — только импорт.
+
 ## Portfolio / Demo Package
 
 Для advisor demo, portfolio video и controlled pilot walkthrough используйте:

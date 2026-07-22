@@ -8,12 +8,10 @@ from typing import Any
 from uuid import UUID
 
 from app.domain.readiness_models import ReadinessScore
-from app.domain.recommendation_models import RecommendationTask
 from app.domain.review_models import (
     ClaimResolution,
     DocumentWarning,
     ReviewWorkspace,
-    WarningSeverity,
 )
 from app.repositories.candidate_achievement_repository import CandidateAchievementRepository
 from app.repositories.document_version_repository import DocumentVersionRepository

@@ -23,6 +23,7 @@ from app.services.vacancy_text_extractors.trafilatura_extractor import (
     TrafilaturaVacancyExtractor,
 )
 from app.services.embedding_service import EmbeddingService
+from app.domain.vacancy_fields_extractor import VacancyFields, extract_vacancy_fields
 
 
 MAX_VACANCY_TEXT_LENGTH = 120_000
@@ -59,6 +60,11 @@ class VacancyImportService:
         company: str | None,
         location: str | None,
         description_raw: str | None,
+        salary_from: float | None = None,
+        salary_to: float | None = None,
+        salary_currency: str | None = None,
+        employment_type: str | None = None,
+        experience_level: str | None = None,
     ) -> Vacancy:
         final_description = (description_raw or "").strip()
         fetched_title: str | None = None
@@ -105,6 +111,40 @@ class VacancyImportService:
 
         final_title = (title or fetched_title or "Untitled vacancy").strip()
 
+        # Ручной импорт текста: попытаемся детерминированно извлечь
+        # структурированные поля (title/company/salary/опыт/занятость) из
+        # шапки hh-вакансии, если они не переданы явно. Без этого карточка
+        # вакансии показывала «-» в Компания/Локация/Зарплата.
+        extracted = self._extract_fields_if_missing(
+            text=final_description,
+            title=title,
+            company=company,
+            location=location,
+            salary_from=salary_from,
+            salary_to=salary_to,
+            salary_currency=salary_currency,
+            employment_type=employment_type,
+            experience_level=experience_level,
+        )
+        if not title:
+            # title приоритетнее fetched_title, но extract_vacancy_title обычно
+            # точнее «Untitled vacancy» для ручного текста.
+            final_title = (extracted.title or fetched_title or "Untitled vacancy").strip()
+        if not company:
+            company = extracted.company
+        if not location:
+            location = extracted.location
+        if salary_from is None:
+            salary_from = extracted.salary_from
+        if salary_to is None:
+            salary_to = extracted.salary_to
+        if not salary_currency:
+            salary_currency = extracted.salary_currency
+        if not employment_type:
+            employment_type = extracted.employment_type
+        if not experience_level:
+            experience_level = extracted.experience_level
+
         embedding_text = f"{final_title} {final_description[:2000]}"
         embedding = self.embedding_service.embed_text(embedding_text)
 
@@ -112,6 +152,11 @@ class VacancyImportService:
             "import_mode": "manual_text" if description_raw else "fetched_url",
             "raw_text_length": len(final_description),
             "fetched_title": fetched_title,
+            "fields_extraction": (
+                "vacancy_fields_extractor"
+                if (description_raw and not source_url)
+                else None
+            ),
             "extractor": (
                 extraction_result.extractor if extraction_result else None
             ),
@@ -134,11 +179,41 @@ class VacancyImportService:
             description_raw=final_description,
             normalized_json=normalized_json,
             embedding=embedding,
+            salary_from=salary_from,
+            salary_to=salary_to,
+            salary_currency=salary_currency,
+            employment_type=employment_type,
+            experience_level=experience_level,
         )
 
         await session.commit()
         await session.refresh(vacancy)
         return vacancy
+
+    def _extract_fields_if_missing(
+        self,
+        *,
+        text: str,
+        title: str | None,
+        company: str | None,
+        location: str | None,
+        salary_from: float | None,
+        salary_to: float | None,
+        salary_currency: str | None,
+        employment_type: str | None,
+        experience_level: str | None,
+    ) -> VacancyFields:
+        # Запускаем экстрактор, только если хоть одно поле не передано явно —
+        # иначе нет смысла парсить текст.
+        if all(
+            value
+            for value in (title, company, location, salary_from, salary_to, salary_currency, employment_type, experience_level)
+        ):
+            return VacancyFields()
+        return extract_vacancy_fields(
+            text,
+            fallback_title=title or "",
+        )
 
     async def import_vacancy_from_source_file(
         self,

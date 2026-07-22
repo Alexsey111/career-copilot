@@ -1,0 +1,2 @@
+DejaVu Fonts License (OFL/Bitstream):
+https://dejavu-fonts.github.io/License.html

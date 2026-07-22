@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from datetime import datetime, timedelta, timezone
 from statistics import mean, stdev
 from typing import Dict, List, Protocol, Tuple
@@ -92,7 +92,6 @@ class DefaultEvaluationAnalyticsService:
         recent_snapshots.sort(key=lambda s: self._ensure_utc(s.created_at))
 
         scores = [s.readiness_score for s in recent_snapshots]
-        confidences = [s.confidence for s in recent_snapshots]
 
         # Calculate metrics
         average_score = mean(scores) if scores else 0.0
@@ -184,7 +183,6 @@ class DefaultEvaluationAnalyticsService:
 
             # Weakness detection
             weakness_threshold = 0.6  # Configurable
-            is_weak = current_value < weakness_threshold
             persistent_weak = all(v < weakness_threshold for v in values[-5:]) if len(values) >= 5 else False
             weakness_duration = len([v for v in values if v < weakness_threshold])
 

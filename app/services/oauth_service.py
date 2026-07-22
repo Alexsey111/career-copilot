@@ -14,7 +14,6 @@ from fastapi import HTTPException, Request, status
 
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
-from app.models import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import issue_tokens, log_auth_event
 from app.schemas.auth import TokenResponse

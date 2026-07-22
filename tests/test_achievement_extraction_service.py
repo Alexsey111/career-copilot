@@ -419,3 +419,66 @@ def test_achievement_extraction_legacy_resume_layout_noise_can_be_disabled() -> 
     service = AchievementExtractionService(enable_legacy_recovery=False)
 
     assert service._looks_like_resume_layout_noise("АЛТАЙСКИЙ ГОСУДАРСТВЕННЫЙ") is False
+
+
+def test_achievement_extraction_keeps_internships_above_experience_section() -> None:
+    """Регрессия двухколоночного резюме: список из трёх стажировок расположен
+    в колонке «Профессиональные навыки» ВЫШЕ раздела «ОПЫТ РАБОТЫ» и без явного
+    заголовка «СТАЖИРОВКИ». Раньше fallback-маркер «ОПЫТ» обрезал candidate_lines
+    и нумерованные пункты терялись, а company-line в скобках обрывал цикл
+    после пункта 1 — итог: 0 достижений. После фикса должны извлечься все 3.
+    """
+    service = AchievementExtractionService()
+
+    drafts, warnings = service._build_achievement_drafts(
+        """
+Профессиональные навыки
+Python, Git, Искусственный интеллект, LLM, Нейросети Прошел 3 стажировки по
+(промптинг), Создание нейроассистентов, Чат-боты, API, SQL, направлению Data Science:
+Анализ данных, Tensorflow, Vibe-coding.
+1. Создание ИИ-системы
+для мониторинга безопасности в пансионатах для пожилых
+(ООО «СГЦ ОПЕКА»)
+2. Автоматизированный ИИ-контроль качества ПВХ оконных изделий по изображениям и видео
+(ООО «ТД «Проплекс»)
+3. ИИ-анализ текстовых отзывов населения о социальных объектах инфраструктуры
+ОПЫТ РАБОТЫ
+Алтайский Государственный Медицинский Университет, электромонтер по ремонту и обслуживанию
+01.01.2015 - по настоящее время
+"""
+    )
+
+    titles = [draft.title for draft in drafts]
+    assert len(drafts) == 3
+    assert titles[0].startswith("Создание ИИ-системы")
+    assert "Автоматизированный ИИ-контроль качества" in titles[1]
+    assert "ИИ-анализ текстовых отзывов населения" in titles[2]
+    # Layout-заголовок «Желаемая должность», вклеенный склейкой колонок, не должен
+    # ни попасть в title, ни заставить блок упасть в responsibility-фильтр.
+    assert all("должность" not in title.lower() for title in titles)
+    assert warnings == [
+        "normalized contribution signals were extracted; candidate ownership requires review"
+    ]
+
+
+def test_achievement_extraction_numbered_list_survives_company_line_between_items() -> None:
+    """Регрессия: company-line (организация в скобках) между нумерованными
+    пунктами не должна обрывать весь цикл — пункты 2 и 3 должны извлечься."""
+    service = AchievementExtractionService()
+
+    signals, _ = service.extract_contribution_signals_for_review(
+        """
+СТАЖИРОВКИ
+1. Создание ИИ-системы для мониторинга безопасности
+(ООО «СГЦ ОПЕКА»)
+2. Автоматизированный ИИ-контроль качества ПВХ окон
+(ООО «ТД «Проплекс»)
+3. ИИ-анализ текстовых отзывов населения
+"""
+    )
+
+    titles = [signal.title for signal in signals]
+    assert len(signals) == 3
+    assert titles[0].startswith("Создание ИИ-системы")
+    assert "Автоматизированный ИИ-контроль качества" in titles[1]
+    assert "ИИ-анализ текстовых отзывов населения" in titles[2]

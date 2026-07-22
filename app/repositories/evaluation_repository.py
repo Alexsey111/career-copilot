@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Protocol
 
 from app.domain.evaluation_models import EvaluationDiff, EvaluationSnapshot, SCHEMA_VERSION

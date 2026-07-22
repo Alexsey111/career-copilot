@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from datetime import datetime, timezone
 from typing import Protocol
-from uuid import uuid4
 
 from app.domain.evaluation_models import EvaluationDiff, EvaluationSnapshot, SCHEMA_VERSION, SIGNAL_TAXONOMY_VERSION
 from app.domain.normalized_signals import NormalizedSignal

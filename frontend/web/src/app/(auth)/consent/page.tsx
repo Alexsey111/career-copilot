@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
 
 interface Consent {
@@ -24,6 +25,7 @@ const CONSENT_ICONS: Record<string, string> = {
 
 export default function ConsentPage() {
   const { token } = useAuth();
+  const toast = useToastCtx();
   const [consents, setConsents] = useState<Consent[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -50,8 +52,9 @@ export default function ConsentPage() {
             : c
         )
       );
+      toast.success("Согласие предоставлено");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setSaving(null);
     }
@@ -69,8 +72,9 @@ export default function ConsentPage() {
             : c
         )
       );
+      toast.info("Согласие отозвано");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setSaving(null);
     }
@@ -172,7 +176,7 @@ export default function ConsentPage() {
 
       <div className="mt-6 p-4 bg-gray-50 rounded-xl">
         <p className="text-xs text-gray-500">
-          * Обязательные согласия необходимы для 기본ной работы сервиса. Вы не
+          * Обязательные согласия необходимы для базовой работы сервиса. Вы не
           можете отозвать обязательные согласия, пока используете сервис.
           Отзыв необязательных согласий может ограничить некоторые функции.
         </p>

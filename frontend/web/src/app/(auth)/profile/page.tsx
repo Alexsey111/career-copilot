@@ -1,58 +1,56 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
+import { runAiAction } from "@/lib/ai-action";
+import AchievementReviewCard from "@/components/AchievementReviewCard";
 
 export default function ProfilePage() {
   const { token } = useAuth();
-  const router = useRouter();
+  const toast = useToastCtx();
   const [profile, setProfile] = useState<any>(null);
   const [resumeText, setResumeText] = useState("");
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
+  // Intake-формы
+  const [githubUrl, setGithubUrl] = useState("");
+  const [githubRole, setGithubRole] = useState("");
+  const [repoCount, setRepoCount] = useState(12);
+  const [intaking, setIntaking] = useState(false);
+  // Ручной intake (упрощённый): headline, location, technologies
+  const [manualHeadline, setManualHeadline] = useState("");
+  const [manualLocation, setManualLocation] = useState("");
+  const [manualTech, setManualTech] = useState("");
+
+  const reloadProfile = () => {
+    if (!token) return;
+    api.getProfile(token).then(setProfile).catch(() => {});
+  };
+
   useEffect(() => {
     if (token) {
-      console.log("DEBUG: useEffect - loading profile with token");
-      api.getProfile(token).then((data) => {
-        console.log("DEBUG: profile loaded", data);
-        setProfile(data);
-      }).catch((err) => {
-        console.error("DEBUG: getProfile failed", err.message);
+      api.getProfile(token).then(setProfile).catch((err) => {
+        console.error("getProfile failed", err.message);
       });
-    } else {
-      console.log("DEBUG: useEffect - no token");
     }
   }, [token]);
 
   const handleUploadResume = async () => {
-    if (!resumeText.trim() || !token) {
-      console.log("DEBUG: no text or token");
-      return;
-    }
+    if (!resumeText.trim() || !token) return;
     setUploading(true);
     try {
-      console.log("DEBUG: step1 - import");
       const importResult: any = await api.importResume(token, resumeText);
-      console.log("DEBUG: step1 done", importResult?.extraction_id);
-      
       if (importResult?.extraction_id) {
-        console.log("DEBUG: step2 - extract");
-        const extractResult: any = await api.extractStructured(token, importResult.extraction_id);
-        console.log("DEBUG: step2 done", extractResult?.full_name);
+        await api.extractStructured(token, importResult.extraction_id);
       }
-      
-      console.log("DEBUG: step3 - getProfile");
-      const updated: any = await api.getProfile(token);
-      console.log("DEBUG: step3 done", updated?.structured_profile?.full_name);
-      setProfile(updated);
+      reloadProfile();
       setResumeText("");
-      console.log("DEBUG: all done");
+      toast.success("Резюме загружено");
     } catch (err: any) {
-      console.error("DEBUG: FAILED", err.message);
-      alert("Ошибка: " + err.message);
+      toast.error("Ошибка загрузки: " + (err?.message || "неизвестная"));
     } finally {
       setUploading(false);
     }
@@ -62,16 +60,18 @@ export default function ProfilePage() {
     if (!token) return;
     const extractionId = profile?.structured_profile?.extraction_id;
     if (!extractionId) {
-      alert("Сначала загрузите резюме");
+      toast.error("Сначала загрузите резюме");
       return;
     }
     setExtracting(true);
     try {
-      await api.extractAchievements(token, extractionId);
-      const updated = await api.getProfile(token);
-      setProfile(updated);
+      const result: any = await api.extractAchievements(token, extractionId);
+      const count = result?.achievement_count ?? result?.achievements?.length ?? 0;
+      reloadProfile();
+      if (count > 0) toast.success(`Извлечено достижений: ${count}`);
+      else toast.info("Достижения не найдены");
     } catch (err: any) {
-      alert(err.message);
+      toast.error("Ошибка извлечения: " + (err?.message || "неизвестная"));
     } finally {
       setExtracting(false);
     }
@@ -82,16 +82,70 @@ export default function ProfilePage() {
     if (!file || !token) return;
     setUploading(true);
     try {
-      const uploadResult = await api.uploadFile(token, file, "resume") as any;
+      const uploadResult = (await api.uploadFile(token, file, "resume")) as any;
+      let extractionId: string | undefined = uploadResult?.id;
       if (uploadResult?.id) {
-        await api.extractResume(token, uploadResult.id);
+        const importResult: any = await api.extractResume(token, uploadResult.id);
+        extractionId = importResult?.extraction_id ?? extractionId;
       }
-      const updated = await api.getProfile(token);
-      setProfile(updated);
+      if (extractionId) {
+        await api.extractStructured(token, extractionId);
+      }
+      reloadProfile();
+      toast.success("Резюме загружено");
     } catch (err: any) {
-      alert(err.message);
+      toast.error("Ошибка загрузки: " + (err?.message || "неизвестная"));
     } finally {
       setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleGithubIntake = async () => {
+    if (!token || !githubUrl.trim()) return;
+    setIntaking(true);
+    const result = await runAiAction(toast, "Импорт GitHub-профиля", () =>
+      api.intakeGithubPublic(token, {
+        github_url: githubUrl.trim(),
+        target_role: githubRole.trim() || undefined,
+        repository_count: repoCount,
+        include_readme_snippets: true,
+      })
+    );
+    setIntaking(false);
+    if (result) {
+      toast.success(
+        `GitHub импортирован: ${(result as any).project_count ?? 0} проектов, ${(result as any).evidence_snippet_count ?? 0} доказательств`
+      );
+      setGithubUrl("");
+      reloadProfile();
+    }
+  };
+
+  const handleManualIntake = async () => {
+    if (!token) return;
+    if (!manualHeadline.trim()) {
+      toast.error("Укажите целевую роль");
+      return;
+    }
+    setIntaking(true);
+    const result = await runAiAction(toast, "Ручное создание профиля", () =>
+      api.intakeManual(token, {
+        headline: manualHeadline.trim(),
+        location: manualLocation.trim() || undefined,
+        technologies: manualTech
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      })
+    );
+    setIntaking(false);
+    if (result) {
+      toast.success("Профиль создан вручную");
+      setManualHeadline("");
+      setManualLocation("");
+      setManualTech("");
+      reloadProfile();
     }
   };
 
@@ -112,12 +166,7 @@ export default function ProfilePage() {
             </p>
             <p className="text-xs text-gray-400">PDF, DOCX, TXT</p>
           </div>
-          <input
-            type="file"
-            accept=".pdf,.docx,.txt"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
+          <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileUpload} className="hidden" />
         </label>
         <div className="text-xs text-gray-500">или вставьте текст:</div>
         <textarea
@@ -133,6 +182,77 @@ export default function ProfilePage() {
         >
           {uploading ? "Загрузка..." : "Импортировать текст"}
         </button>
+      </div>
+
+      {/* Альтернативные источники профиля */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 className="font-semibold mb-3">Альтернативные источники</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Можно создать профиль без файла резюме — вручную или импортом публичного GitHub-профиля.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2 border border-gray-200 rounded-lg p-3">
+            <h3 className="text-sm font-medium">Ручное создание</h3>
+            <input
+              value={manualHeadline}
+              onChange={(e) => setManualHeadline(e.target.value)}
+              placeholder="Целевая роль *"
+              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+            />
+            <input
+              value={manualLocation}
+              onChange={(e) => setManualLocation(e.target.value)}
+              placeholder="Локация"
+              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+            />
+            <input
+              value={manualTech}
+              onChange={(e) => setManualTech(e.target.value)}
+              placeholder="Технологии через запятую"
+              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+            />
+            <button
+              onClick={handleManualIntake}
+              disabled={intaking}
+              className="px-3 py-1 text-sm bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+            >
+              {intaking ? "Создание…" : "Создать профиль"}
+            </button>
+          </div>
+
+          <div className="space-y-2 border border-gray-200 rounded-lg p-3">
+            <h3 className="text-sm font-medium">Импорт GitHub (public)</h3>
+            <input
+              value={githubUrl}
+              onChange={(e) => setGithubUrl(e.target.value)}
+              placeholder="https://github.com/username"
+              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+            />
+            <input
+              value={githubRole}
+              onChange={(e) => setGithubRole(e.target.value)}
+              placeholder="Целевая роль (необязательно)"
+              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+            />
+            <label className="text-xs text-gray-500 flex items-center gap-2">
+              Репозиториев: {repoCount}
+              <input
+                type="range"
+                min={1}
+                max={30}
+                value={repoCount}
+                onChange={(e) => setRepoCount(Number(e.target.value))}
+              />
+            </label>
+            <button
+              onClick={handleGithubIntake}
+              disabled={intaking || !githubUrl.trim()}
+              className="px-3 py-1 text-sm bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+            >
+              {intaking ? "Импорт…" : "Импортировать GitHub"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Profile State */}
@@ -207,12 +327,22 @@ export default function ProfilePage() {
 
           {profile.achievements?.achievements?.length > 0 && (
             <div className="mt-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Достижения</h3>
-              <ul className="space-y-1">
-                {profile.achievements.achievements.map((a: any, i: number) => (
-                  <li key={i} className="text-sm text-green-700">• {a.title}</li>
+              <h3 className="text-sm font-medium text-gray-700 mb-2">
+                Достижения ({profile.achievements.achievements.length})
+              </h3>
+              <p className="text-xs text-gray-500 mb-2">
+                Подтвердите достижения (статус «Подтверждено»), чтобы они попали в адаптированное резюме.
+              </p>
+              <div className="space-y-3">
+                {profile.achievements.achievements.map((a: any) => (
+                  <AchievementReviewCard
+                    key={a.id}
+                    token={token ?? ""}
+                    achievement={a}
+                    onSaved={reloadProfile}
+                  />
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 
@@ -231,7 +361,7 @@ export default function ProfilePage() {
 
       {!profile && (
         <div className="text-center text-gray-500 py-8">
-          Загрузите резюме, чтобы начать.
+          Загрузите резюме или создайте профиль вручную, чтобы начать.
         </div>
       )}
     </div>

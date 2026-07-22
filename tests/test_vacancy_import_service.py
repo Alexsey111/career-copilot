@@ -113,3 +113,73 @@ def test_truncate_large_vacancy_text() -> None:
     result = service._truncate_text(huge)
 
     assert len(result) <= 120000
+
+
+@pytest.mark.asyncio
+async def test_vacancy_import_extracts_structured_fields_from_manual_text() -> None:
+    """Ручной импорт текста hh-вакансии должен детерминированно извлечь
+    title/company/salary/занятость/опыт и сохранить их в БД (а не оставлять
+    «-» в карточке)."""
+    service = VacancyImportService()
+    captured: dict[str, object] = {}
+
+    manual_text = (
+        "Описание\n"
+        "Специалист по внедрению искусственного интеллекта\n"
+        "от 100 000 ₽ за месяц\n"
+        "Опыт работы: не требуется\n"
+        "Полная занятость\n"
+        "Формат работы: удалённо или гибрид\n"
+        "Ваc пригласили\n"
+        "ЗЕБРА\n"
+        "Кто мы\n"
+        "Городской портал.\n"
+    )
+
+    async def fake_create(session, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            id="vacancy-id",
+            title=kwargs["title"],
+            company=kwargs["company"],
+            location=kwargs["location"],
+            salary_from=kwargs["salary_from"],
+            salary_to=kwargs["salary_to"],
+            salary_currency=kwargs["salary_currency"],
+            employment_type=kwargs["employment_type"],
+            experience_level=kwargs["experience_level"],
+            description_raw=kwargs["description_raw"],
+            normalized_json=kwargs["normalized_json"],
+            created_at=None,
+        )
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+        async def refresh(self, obj) -> None:
+            return None
+
+    service.vacancy_repository.create = fake_create  # type: ignore[method-assign]
+    service.embedding_service.embed_text = lambda text: [0.0]  # type: ignore[method-assign]
+
+    vacancy = await service.import_vacancy(
+        FakeSession(),
+        user_id="user-id",
+        source="manual",
+        source_url=None,
+        external_id=None,
+        title=None,
+        company=None,
+        location=None,
+        description_raw=manual_text,
+    )
+
+    assert vacancy.title == "Специалист по внедрению искусственного интеллекта"
+    assert captured["company"] == "ЗЕБРА"
+    assert captured["location"] == "Удалённо или гибрид"
+    assert captured["salary_from"] == 100000
+    assert captured["salary_currency"] == "RUB"
+    assert captured["employment_type"] == "Полная занятость"
+    assert captured["experience_level"] == "Нет опыта"
+    assert captured["normalized_json"]["fields_extraction"] == "vacancy_fields_extractor"

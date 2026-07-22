@@ -208,7 +208,7 @@ class MetricsAggregator:
         Returns:
             ExecutionMetrics для указанного диапазона
         """
-        from app.domain.execution_metrics import MetricTimeWindow, ExecutionMetrics, PipelineHealthStatus
+        from app.domain.execution_metrics import MetricTimeWindow, ExecutionMetrics
 
         start_time = self._ensure_utc(start_time)
         if end_time is not None:

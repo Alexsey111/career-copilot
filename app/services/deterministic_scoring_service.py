@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from app.domain.readiness_models import ReadinessScore, ReadinessSignal, RecommendationItem, RecommendationCategory
 
@@ -84,15 +83,6 @@ class DeterministicScoringService:
 
         # Рассчитываем overall score
         overall_score = self._calculate_overall_score({
-            "ats": ats_score,
-            "evidence": evidence_score,
-            "coverage": coverage_score,
-            "interview": interview_score,
-            "quality": quality_score,
-        })
-
-        # Генерируем сигналы для прозрачности
-        signals = self._create_signals(features, {
             "ats": ats_score,
             "evidence": evidence_score,
             "coverage": coverage_score,

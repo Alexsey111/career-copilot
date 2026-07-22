@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from uuid import UUID
 
 from pydantic import Field
@@ -25,7 +24,10 @@ class PlanUsageItem(StrictBaseModel):
     action: str
     used: int = Field(..., ge=0)
     limit: int | None = Field(default=None, ge=0)
-    window_days: int = Field(..., ge=1)
+    # Дневное окно — для большинства действий; секундное окно — только для
+    # demo-действий (``vacancy_import``). Ровно одно из двух присутствует.
+    window_days: int | None = Field(default=None, ge=1)
+    window_seconds: int | None = Field(default=None, ge=1)
 
 
 class MySubscriptionResponse(StrictBaseModel):

@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { ToastProvider } from "@/contexts/ToastContext";
+import { SessionDocumentsProvider } from "@/contexts/SessionDocumentsContext";
 import Sidebar from "@/components/Sidebar";
 
 export default function AuthLayout({
@@ -32,7 +34,11 @@ export default function AuthLayout({
   return (
     <div className="flex h-screen">
       <Sidebar />
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+      <main className="flex-1 overflow-auto p-6">
+        <ToastProvider>
+          <SessionDocumentsProvider>{children}</SessionDocumentsProvider>
+        </ToastProvider>
+      </main>
     </div>
   );
 }

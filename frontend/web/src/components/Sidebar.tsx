@@ -9,8 +9,12 @@ const navItems = [
   { href: "/profile", label: "Профиль", icon: "👤" },
   { href: "/vacancies", label: "Вакансии", icon: "💼" },
   { href: "/documents", label: "Документы", icon: "📄" },
+  { href: "/evidence", label: "Доказательства", icon: "🔎" },
   { href: "/applications", label: "Отклики", icon: "📋" },
   { href: "/interview", label: "Интервью", icon: "🎤" },
+  { href: "/career", label: "Карьера", icon: "🎯" },
+  { href: "/trust", label: "Доверие", icon: "🛡️" },
+  { href: "/billing", label: "Биллинг", icon: "💳" },
   { href: "/consent", label: "Согласия", icon: "🔐" },
 ];
 

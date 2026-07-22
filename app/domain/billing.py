@@ -73,7 +73,17 @@ def status_grants_paid_access(status: str) -> bool:
 QUOTA_AI_REQUEST = "ai_request"
 QUOTA_DOC_UPLOAD = "doc_upload"
 QUOTA_GENERATED_OUTPUT = "generated_output"
-QUOTA_ACTIONS: tuple[str, ...] = (QUOTA_AI_REQUEST, QUOTA_DOC_UPLOAD, QUOTA_GENERATED_OUTPUT)
+# Demo-режим: лимит импорта вакансий в коротком скользящем окне (час). См.
+# ``app/core/config.py`` ``billing_free_tier_vacancy_imports_limit`` и
+# ``demo_vacancy_import_window_seconds``. Окно — секунды, а не дни (см.
+# ``QuotaService._window_start_for``).
+QUOTA_VACANCY_IMPORT = "vacancy_import"
+QUOTA_ACTIONS: tuple[str, ...] = (
+    QUOTA_AI_REQUEST,
+    QUOTA_DOC_UPLOAD,
+    QUOTA_GENERATED_OUTPUT,
+    QUOTA_VACANCY_IMPORT,
+)
 
 
 def is_valid_quota_action(action: str) -> bool:
@@ -99,6 +109,14 @@ FREE_TIER_LIMIT_ATTR: dict[str, str] = {
     QUOTA_AI_REQUEST: "billing_free_tier_ai_requests_limit",
     QUOTA_DOC_UPLOAD: "billing_free_tier_doc_uploads_limit",
     QUOTA_GENERATED_OUTPUT: "billing_free_tier_generated_outputs_limit",
+    QUOTA_VACANCY_IMPORT: "billing_free_tier_vacancy_imports_limit",
+}
+
+# Действия с секундным (а не дневным) скользящим окном → имя поля Settings с
+# длительностью окна в секундах. На данный момент только demo-лимит импорта
+# вакансий (час); остальные используют ``billing_quota_window_days``.
+QUOTA_WINDOW_SECONDS_ATTR: dict[str, str] = {
+    QUOTA_VACANCY_IMPORT: "demo_vacancy_import_window_seconds",
 }
 
 

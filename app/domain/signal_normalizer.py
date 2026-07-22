@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import Protocol
 
 from app.config.calibration import CALIBRATION_PROFILES, CALIBRATION_VERSIONS
-from app.domain.normalized_signals import NormalizedSignal, SignalType, SignalTaxonomy
+from app.domain.normalized_signals import NormalizedSignal, SignalType
 from app.domain.signals import UnifiedSignal
 
 

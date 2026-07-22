@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from app.domain.coverage_eval_models import CoverageCheckResult
 from app.domain.constants import (

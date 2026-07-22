@@ -14,14 +14,11 @@ from app.db.session import get_db_session
 from app.schemas.pipeline_schemas import (
     PipelineExecutionCreate,
     PipelineExecutionResponse,
-    PipelineExecutionSummaryResponse,
     PipelineExecutionListResponse,
     PipelineExecutionStepResponse,
     PipelineEventResponse,
     PipelineStatusEnum,
-    StepStatusEnum,
     ExecutionUpdateRequest,
-    StepUpdateRequest,
     CareerCopilotRunResponse,
 )
 from app.services.career_pipeline_orchestrator import CareerPipelineOrchestrator
@@ -176,8 +173,6 @@ async def get_career_copilot_run(
     # Try to get review workspace data
     review_workspace = None
     try:
-        # Build workspace ID from execution data
-        workspace_id = f"ws_{summary.execution.resume_document_id}_{summary.execution.user_id}"
         review_workspace = await review_service.build_review_workspace(
             document_id=summary.execution.resume_document_id,
             user_id=summary.execution.user_id,

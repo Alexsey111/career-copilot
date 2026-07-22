@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from uuid import UUID
 
 from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fpdf import FPDF
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -62,7 +64,13 @@ SUPPORTED_EXPORT_FORMATS = {
     "txt": "text/plain; charset=utf-8",
     "md": "text/markdown; charset=utf-8",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
 }
+
+# Unicode TTF (DejaVu Sans, OFL) с полной кириллицей — bundled в репозитории,
+# чтобы PDF-экспорт работал и на Windows, и в Docker без системных шрифтов.
+# Core-шрифты fpdf2 (Helvetica) — latin-1, кириллицу не поддерживают.
+_BUNDLED_FONT_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts" / "DejaVuSans.ttf"
 
 
 def _build_export_filename(
@@ -107,6 +115,56 @@ def _build_docx_export_bytes(*, rendered_text: str) -> bytes:
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
+
+
+def _build_pdf_export_bytes(*, rendered_text: str) -> bytes:
+    """PDF из отрендеренного текста документа.
+
+    Использует bundled DejaVu Sans (OFL) — единственный надёжный способ
+    корректно отрисовать кириллицу без системных шрифтов (Windows/Docker).
+    ``rendered_text`` — plain-text с переносами строк (как ``resume_renderer``
+    формирует для txt/md); Markdown-разметка не интерпретируется (как и в txt).
+
+    Перенос строк делается вручную по измерению ширины (``get_string_width``) с
+    посимвольным накоплением и ``cell`` на каждую визуальную строку. Это
+    детерминированно и не падает/не зависает на длинных неразрывных токенах
+    (URL, длинное слово) — в отличие от ``multi_cell`` word-wrap'а fpdf2
+    (``FPDFException: Not enough horizontal space``) и ``wrapmode="CHAR"``
+    (зависает на многих строках с auto_page_break).
+    """
+    if not _BUNDLED_FONT_PATH.exists():  # pragma: no cover - defensive
+        raise RuntimeError(
+            f"bundled font not found: {_BUNDLED_FONT_PATH} "
+            "(re-add app/assets/fonts/DejaVuSans.ttf)"
+        )
+
+    pdf = FPDF(format="A4")
+    # Поля задаём ДО add_page — иначе epw (ширина текста) посчитается по умолчанию.
+    pdf.set_margins(15, 15, 15)
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.add_font("DejaVu", "", str(_BUNDLED_FONT_PATH))
+    pdf.set_font("DejaVu", size=11)
+
+    avail_width = pdf.epw  # эффективная ширина текста (A4 − поля)
+
+    for line in rendered_text.splitlines():
+        if not line:
+            pdf.ln(4)
+            continue
+        # Жадный посимвольный перенос: accum chars, пока ширина ≤ avail_width.
+        buf = ""
+        for ch in line:
+            if pdf.get_string_width(buf + ch) <= avail_width:
+                buf += ch
+            else:
+                pdf.cell(0, 6, buf, new_x="LEFT", new_y="NEXT")
+                buf = ch
+        if buf:
+            pdf.cell(0, 6, buf, new_x="LEFT", new_y="NEXT")
+
+    out = pdf.output()
+    return bytes(out)
 
 
 def _snapshot_to_history_item(snapshot):
@@ -484,7 +542,7 @@ async def export_document(
     if normalized_format not in SUPPORTED_EXPORT_FORMATS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="unsupported export format; use txt, md or docx",
+            detail="unsupported export format; use txt, md, docx or pdf",
         )
 
     repo = DocumentVersionRepository()
@@ -520,6 +578,8 @@ async def export_document(
 
     if normalized_format == "docx":
         content = _build_docx_export_bytes(rendered_text=document.rendered_text)
+    elif normalized_format == "pdf":
+        content = _build_pdf_export_bytes(rendered_text=document.rendered_text)
     else:
         content = document.rendered_text
 

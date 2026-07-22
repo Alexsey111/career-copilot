@@ -3,11 +3,16 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToastCtx } from "@/contexts/ToastContext";
+import { useSessionDocs } from "@/contexts/SessionDocumentsContext";
 import { api } from "@/lib/api";
+import VacancyFitBlock from "@/components/VacancyFitBlock";
 
 export default function VacancyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token } = useAuth();
+  const toast = useToastCtx();
+  const sessionDocs = useSessionDocs();
   const router = useRouter();
   const [vacancy, setVacancy] = useState<any>(null);
   const [analysis, setAnalysis] = useState<any>(null);
@@ -20,18 +25,25 @@ export default function VacancyDetailPage() {
   useEffect(() => {
     if (token && id) {
       api.getVacancy(token, id).then(setVacancy).catch(() => {});
-      api.getVacancyAnalysis(token, id).then(setAnalysis).catch(() => {});
+      api.getVacancyAnalysis(token, id)
+        .then((res: any) => {
+          setAnalysis(res);
+          if (res?.analysis_id) sessionDocs.setSessionDoc(id, "analysisId", res.analysis_id);
+        })
+        .catch(() => {});
     }
-  }, [token, id]);
+  }, [token, id, sessionDocs]);
 
   const handleAnalyze = async () => {
     if (!token || !id) return;
     setAnalyzing(true);
     try {
-      const res = await api.analyzeVacancy(token, id);
+      const res: any = await api.analyzeVacancy(token, id);
       setAnalysis(res);
+      if (res?.analysis_id) sessionDocs.setSessionDoc(id, "analysisId", res.analysis_id);
+      toast.success("Анализ готов");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setAnalyzing(false);
     }
@@ -43,8 +55,10 @@ export default function VacancyDetailPage() {
     try {
       const res = await api.generateResume(token, id) as any;
       setResume(res);
+      if (res?.document_id) sessionDocs.setSessionDoc(id, "resumeId", res.document_id);
+      toast.success("Резюме сгенерировано");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setGenerating(false);
     }
@@ -56,8 +70,10 @@ export default function VacancyDetailPage() {
     try {
       const res = await api.generateCoverLetter(token, id, letterVariant) as any;
       setCoverLetter(res);
+      if (res?.document_id) sessionDocs.setSessionDoc(id, "coverLetterId", res.document_id);
+      toast.success("Письмо сгенерировано");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setGenerating(false);
     }
@@ -67,9 +83,10 @@ export default function VacancyDetailPage() {
     if (!token || !id) return;
     try {
       const res = await api.createApplication(token, id, resume?.document_id, coverLetter?.document_id) as any;
-      alert("Отклик создан! ID: " + res.id);
+      if (res?.id) sessionDocs.setSessionDoc(id, "applicationId", res.id);
+      toast.success("Отклик создан. Открыть раздел «Отклики».");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -140,6 +157,11 @@ export default function VacancyDetailPage() {
             </div>
           )}
 
+          {/* Fit-анализ (детерминированный) */}
+          {token && id && (
+            <VacancyFitBlock token={token} vacancyId={id} analysisId={analysis?.analysis_id} />
+          )}
+
           {/* Generated Resume */}
           {resume && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -178,9 +200,17 @@ export default function VacancyDetailPage() {
                 <dt className="text-gray-500">Зарплата</dt>
                 <dd className="font-medium">
                   {vacancy.salary_from || vacancy.salary_to
-                    ? `${vacancy.salary_from || "?"} - ${vacancy.salary_to || "?"}`
+                    ? `${vacancy.salary_from || "?"} - ${vacancy.salary_to || "?"}${vacancy.salary_currency ? " " + vacancy.salary_currency : ""}`
                     : "-"}
                 </dd>
+              </div>
+              <div>
+                <dt className="text-gray-500">Занятость</dt>
+                <dd className="font-medium">{vacancy.employment_type || "-"}</dd>
+              </div>
+              <div>
+                <dt className="text-gray-500">Опыт</dt>
+                <dd className="font-medium">{vacancy.experience_level || "-"}</dd>
               </div>
             </dl>
           </div>

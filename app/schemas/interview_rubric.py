@@ -10,7 +10,6 @@ enum-поля (``case_type``, ``level``, ``grade``, ``trend``) — ``str`` бе�
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from pydantic import Field

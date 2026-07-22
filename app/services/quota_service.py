@@ -31,12 +31,14 @@ from app.domain.billing import (
     QUOTA_AI_REQUEST,
     QUOTA_DOC_UPLOAD,
     QUOTA_GENERATED_OUTPUT,
+    QUOTA_VACANCY_IMPORT,
+    QUOTA_WINDOW_SECONDS_ATTR,
     QuotaDecision,
     free_tier_limit,
     plan_is_unlimited,
     status_grants_paid_access,
 )
-from app.models import AIRun, DocumentVersion, SourceFile
+from app.models import AIRun, DocumentVersion, SourceFile, Vacancy
 from app.repositories.subscription_repository import SubscriptionRepository
 
 
@@ -71,6 +73,17 @@ class QuotaService:
         days = self._settings.billing_quota_window_days
         return datetime.now(timezone.utc) - timedelta(days=days)
 
+    def _window_start_for(self, action: str) -> datetime:
+        """Скользящее окно для действия. Действия из ``QUOTA_WINDOW_SECONDS_ATTR``
+        (demo-лимит импорта вакансий) используют секундное окно; остальные —
+        ``billing_quota_window_days``.
+        """
+        seconds_attr = QUOTA_WINDOW_SECONDS_ATTR.get(action)
+        if seconds_attr is not None:
+            seconds = int(getattr(self._settings, seconds_attr))
+            return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+        return self._window_start()
+
     async def count_usage(
         self,
         session: AsyncSession,
@@ -78,8 +91,12 @@ class QuotaService:
         user_id: UUID,
         action: str,
     ) -> int:
-        """Считает usage действия в скользящем окне (``billing_quota_window_days``)."""
-        window_start = self._window_start()
+        """Считает usage действия в скользящем окне.
+
+        ``vacancy_import`` — секунды (``demo_vacancy_import_window_seconds``);
+        остальные — дни (``billing_quota_window_days``).
+        """
+        window_start = self._window_start_for(action)
 
         if action == QUOTA_AI_REQUEST:
             stmt = (
@@ -104,6 +121,13 @@ class QuotaService:
                 .where(DocumentVersion.created_at >= window_start)
                 .where(DocumentVersion.derived_from_id.is_(None))
                 .where(DocumentVersion.document_kind.in_(GENERATED_OUTPUT_KINDS))
+            )
+        elif action == QUOTA_VACANCY_IMPORT:
+            stmt = (
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.user_id == user_id)
+                .where(Vacancy.created_at >= window_start)
             )
         else:
             raise ValueError(f"unknown quota action: {action!r}")
@@ -157,15 +181,29 @@ class QuotaService:
         *,
         user_id: UUID,
     ) -> dict[str, Any]:
-        """Текущее usage по всем действиям (для ``/me/billing/subscription``)."""
+        """Текущее usage по всем действиям (для ``/me/billing/subscription``).
+
+        ``vacancy_import`` использует секундное окно (``window_seconds``),
+        остальные — дневное (``window_days``).
+        """
         plan, status = await self.get_subscription_view(session, user_id=user_id)
         unlimited = plan_is_unlimited(plan) and status_grants_paid_access(status)
         usage: dict[str, Any] = {}
-        for action in (QUOTA_AI_REQUEST, QUOTA_DOC_UPLOAD, QUOTA_GENERATED_OUTPUT):
+        for action in (
+            QUOTA_AI_REQUEST,
+            QUOTA_DOC_UPLOAD,
+            QUOTA_GENERATED_OUTPUT,
+            QUOTA_VACANCY_IMPORT,
+        ):
             used = await self.count_usage(session, user_id=user_id, action=action)
-            usage[action] = {
+            entry: dict[str, Any] = {
                 "used": used,
                 "limit": None if unlimited else free_tier_limit(self._settings, action),
-                "window_days": self._settings.billing_quota_window_days,
             }
+            seconds_attr = QUOTA_WINDOW_SECONDS_ATTR.get(action)
+            if seconds_attr is not None:
+                entry["window_seconds"] = int(getattr(self._settings, seconds_attr))
+            else:
+                entry["window_days"] = self._settings.billing_quota_window_days
+            usage[action] = entry
         return usage

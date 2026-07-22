@@ -88,9 +88,18 @@ async def test_get_my_subscription_free_default(client, test_user):
     assert body["stripe_customer_id"] is None
     assert body["stripe_subscription_id"] is None
     usage = {item["action"]: item for item in body["usage"]}
-    assert set(usage) == {"ai_request", "doc_upload", "generated_output"}
+    assert set(usage) == {
+        "ai_request",
+        "doc_upload",
+        "generated_output",
+        "vacancy_import",
+    }
     assert usage["ai_request"]["used"] == 0
     assert usage["ai_request"]["limit"] is not None  # free-tier limit
+    # demo-лимит импорта вакансий — секундное окно (window_seconds, не days).
+    assert usage["vacancy_import"]["limit"] is not None
+    assert usage["vacancy_import"]["window_seconds"] is not None
+    assert usage["vacancy_import"]["window_days"] is None
 
 
 @pytest.mark.asyncio
@@ -116,3 +125,4 @@ async def test_get_my_subscription_paid_unlimited(client, test_user, db_session)
     assert usage["ai_request"]["limit"] is None
     assert usage["doc_upload"]["limit"] is None
     assert usage["generated_output"]["limit"] is None
+    assert usage["vacancy_import"]["limit"] is None

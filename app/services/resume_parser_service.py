@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
 
 from fastapi import HTTPException, status
 
@@ -176,8 +175,6 @@ class ResumeParserService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="DOCX parsing is unavailable because docx2txt is not installed",
             )
-
-        suffix = Path(filename).suffix or ".docx"
 
         # docx2txt.process принимает file-like (zipfile.ZipFile) — передаём BytesIO
         # напрямую. NamedTemporaryFile на Windows залочен пока открыт, и docx2txt

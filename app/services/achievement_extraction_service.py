@@ -215,18 +215,14 @@ class AchievementExtractionService:
         if not lines:
             return []
 
-        section_start = self._find_contribution_section_start(lines)
-        candidate_lines = lines[section_start + 1 :] if section_start is not None else lines
-        blocks = self._split_contribution_blocks(candidate_lines)
+        blocks = self._select_contribution_blocks(lines)
 
         signals: list[NormalizedContributionSignal] = []
         for block in blocks:
             title = self._strip_inline_layout_heading_tail(
                 self._clean_contribution_title(block)
             )
-            source_text = self._strip_inline_layout_heading_tail(
-                re.sub(r"\s+", " ", " ".join(block)).strip()
-            )
+            source_text = self._build_contribution_source_text(block)
             titles = self._split_inline_contribution_items(title)
             for split_title in titles:
                 if (
@@ -286,8 +282,41 @@ class AchievementExtractionService:
             for item in reviewed_items
         ]
 
-    def _find_contribution_section_start(self, lines: list[str]) -> int | None:
-        preferred_markers = [
+    def _select_contribution_blocks(self, lines: list[str]) -> list[list[str]]:
+        """Выбирает блоки строк, из которых будут извлечены achievement-сигналы.
+
+        Приоритет:
+
+        1. Явный раздел достижений/проектов/стажировок — наиболее надёжный
+           сигнал; ограничиваем поиск строками после этого заголовка.
+        2. Нет явного раздела, но есть нумерованный список. В двухколоночных
+           резюме такой список (стажировки/проекты) часто расположен в колонке
+           «Профессиональные навыки» ВЫШЕ раздела «ОПЫТ РАБОТЫ». Если ограничить
+           поиск fallback-маркером «ОПЫТ», эти пункты будут отброшены — поэтому
+           нумерованные блоки ищутся по всему тексту.
+        3. Fallback на prose-поиск от раздела «ОПЫТ», чтобы не подтягивать
+           контакты, образование и курсы в резюме без списков.
+        """
+        preferred_start = self._find_preferred_contribution_section_start(lines)
+        if preferred_start is not None:
+            return self._split_contribution_blocks(lines[preferred_start + 1 :])
+
+        numbered = self._split_numbered_blocks(lines)
+        if numbered:
+            return numbered
+
+        fallback_start = self._find_fallback_contribution_section_start(lines)
+        candidate_lines = lines[fallback_start + 1 :] if fallback_start is not None else lines
+        return self._split_contribution_blocks(candidate_lines)
+
+    def _find_preferred_contribution_section_start(self, lines: list[str]) -> int | None:
+        return self._find_section_start(lines, self._preferred_contribution_markers())
+
+    def _find_fallback_contribution_section_start(self, lines: list[str]) -> int | None:
+        return self._find_section_start(lines, self._fallback_contribution_markers())
+
+    def _preferred_contribution_markers(self) -> tuple[str, ...]:
+        return (
             "КЛЮЧЕВЫЕ ДОСТИЖЕНИЯ",
             "ДОСТИЖЕНИЯ",
             "РЕЗУЛЬТАТЫ",
@@ -300,18 +329,19 @@ class AchievementExtractionService:
             "PORTFOLIO",
             "СТАЖИРОВКИ",
             "INTERNSHIPS",
-        ]
-        fallback_markers = [
+        )
+
+    def _fallback_contribution_markers(self) -> tuple[str, ...]:
+        return (
             "ОПЫТ",
             "EXPERIENCE",
-        ]
+        )
 
-        for markers in (preferred_markers, fallback_markers):
-            for idx, line in enumerate(lines):
-                normalized = self._normalize(line)
-                if any(marker in normalized for marker in markers):
-                    return idx
-
+    def _find_section_start(self, lines: list[str], markers: tuple[str, ...]) -> int | None:
+        for idx, line in enumerate(lines):
+            normalized = self._normalize(line)
+            if any(marker in normalized for marker in markers):
+                return idx
         return None
 
     def _split_contribution_blocks(self, lines: list[str]) -> list[list[str]]:
@@ -428,6 +458,29 @@ class AchievementExtractionService:
         ).strip()
 
         return cleaned
+
+    def _build_contribution_source_text(self, block: list[str]) -> str:
+        """Собирает source_text блока, вычищая layout-заголовки так же,
+        как это делает ``_clean_contribution_title`` для title.
+
+        Раньше source_text собирался прямым ``" ".join(block)`` и тащил
+        внутрь layout-заголовки, вклеенные в блок при склейке двух колонок
+        PDF (например, «Желаемая должность»). Это ломало responsibility-фильтр
+        (маркер «должност») и classify/skills-экстракцию мусором. Title уже
+        чистился, source_text — нет; теперь оба формируются из одного набора
+        отфильтрованных строк.
+        """
+        parts: list[str] = []
+        for line in block:
+            if self._looks_like_layout_heading(line):
+                continue
+            if self._looks_like_resume_layout_noise(line):
+                continue
+            cleaned = self._strip_inline_noise(line)
+            if cleaned.strip():
+                parts.append(cleaned.strip())
+        joined = re.sub(r"\s+", " ", " ".join(parts)).strip()
+        return self._strip_inline_layout_heading_tail(joined)
 
     def _clean_contribution_title(self, lines: list[str]) -> str:
         recovered = self._recover_private_noisy_ai_achievement_title_legacy(lines)
@@ -658,10 +711,17 @@ class AchievementExtractionService:
                 break
 
             if current:
+                # Company line внутри нумерованного списка — это, как правило,
+                # организация-работодатель текущего пункта (стажировки/проекта
+                # в скобках), а не граница раздела «ОПЫТ РАБОТЫ». Организация
+                # остаётся в source_text и отрезается от title (_strip_inline_company_tail);
+                # но главное — мы НЕ прерываем цикл, иначе пункт 1 обрубил бы
+                # пункты 2 и 3 списка.
                 if self._looks_like_company_line(line):
+                    current.append(line)
                     blocks.append(current)
                     current = []
-                    break
+                    continue
                 current.append(line)
 
         if current:

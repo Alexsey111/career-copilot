@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 
 from app.domain.markets import normalize_market
 from app.domain.text_normalization import clean_vacancy_title

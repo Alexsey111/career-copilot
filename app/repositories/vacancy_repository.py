@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select, or_, text, func
@@ -25,6 +26,11 @@ class VacancyRepository:
         description_raw: str,
         normalized_json: dict,
         embedding: list[float] | None = None,
+        salary_from: float | None = None,
+        salary_to: float | None = None,
+        salary_currency: str | None = None,
+        employment_type: str | None = None,
+        experience_level: str | None = None,
     ) -> Vacancy:
         vacancy = Vacancy(
             user_id=user_id,
@@ -34,6 +40,11 @@ class VacancyRepository:
             title=title,
             company=company,
             location=location,
+            salary_from=salary_from,
+            salary_to=salary_to,
+            salary_currency=salary_currency,
+            employment_type=employment_type,
+            experience_level=experience_level,
             description_raw=description_raw,
             normalized_json=normalized_json,
             embedding=embedding,

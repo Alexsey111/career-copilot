@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from app.domain.readiness_models import ReadinessScore, RecommendationItem, RecommendationCategory
 from app.domain.recommendation_models import (

@@ -80,7 +80,8 @@ async def get_my_subscription(
             action=action,
             used=item["used"],
             limit=item["limit"],
-            window_days=item["window_days"],
+            window_days=item.get("window_days"),
+            window_seconds=item.get("window_seconds"),
         )
         for action, item in usage_map.items()
     ]

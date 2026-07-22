@@ -1786,12 +1786,6 @@ class ResumeGenerationService:
             self._normalize_display_skill(part)
             for part in self._split_skill_text(value)
         ]
-        normalized_terms = {
-            term.strip().lower()
-            for term in terms
-            if term and term.strip().lower() not in LOW_SIGNAL_SKILLS
-        }
-        corpus = " ".join(sorted(normalized_terms))
 
         return ", ".join(self._dedupe_preserve_order(terms)) or value.strip()
 

@@ -6,7 +6,6 @@ from app.domain.application_status import (
     ALLOWED_TRANSITIONS,
     APPLICATION_STATUSES as APPLICATION_STATUS_ENUMS,
     ApplicationStatus,
-    FINAL_APPLICATION_STATUSES,
 )
 
 APPLICATION_STATUSES: set[str] = {status.value for status in APPLICATION_STATUS_ENUMS}

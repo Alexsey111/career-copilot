@@ -22,7 +22,6 @@ class ReadinessGateService:
     def evaluate_document_readiness(self, document) -> ReadinessGateResult:
         content = document.content_json or {}
         sections = content.get("sections", {})
-        review = content.get("review", {})
         evaluation = content.get("evaluation", {})
         meta = content.get("meta", {})
 

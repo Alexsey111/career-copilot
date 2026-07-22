@@ -138,10 +138,10 @@ async def test_document_export_returns_txt_and_md_for_approved_document(client) 
 async def test_document_export_rejects_unknown_format(client) -> None:
     resume_document_id, _ = await _create_resume_and_cover_letter(client)
 
-    response = await client.get(f"{API_PREFIX}/documents/{resume_document_id}/export/pdf")
+    response = await client.get(f"{API_PREFIX}/documents/{resume_document_id}/export/html")
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "unsupported export format; use txt, md or docx"
+    assert response.json()["detail"] == "unsupported export format; use txt, md, docx or pdf"
 
 
 async def test_docx_export_has_sanitized_core_properties(client) -> None:
@@ -174,3 +174,38 @@ async def test_docx_export_has_sanitized_core_properties(client) -> None:
     assert cp.title == ""
     assert cp.subject == ""
     assert cp.keywords == ""
+
+
+async def test_pdf_export_renders_cyrillic(client) -> None:
+    """PDF-экспорт (fpdf2 + bundled DejaVu Sans) должен отдавать валидный PDF
+    с корректно отрисованной кириллицей (core-шрифты fpdf2 её не поддерживают)."""
+    import re
+
+    import fitz  # PyMuPDF
+
+    resume_document_id, _ = await _create_resume_and_cover_letter(client)
+
+    approve = await client.patch(
+        f"{API_PREFIX}/documents/{resume_document_id}/review",
+        json={
+            "review_status": "approved",
+            "review_comment": "Approved.",
+            "set_active_when_approved": True,
+        },
+    )
+    assert approve.status_code == 200
+
+    export = await client.get(f"{API_PREFIX}/documents/{resume_document_id}/export/pdf")
+    assert export.status_code == 200, export.text
+    assert export.headers["content-type"].startswith("application/pdf")
+    assert export.content.startswith(b"%PDF")
+
+    pdf = fitz.open(stream=export.content, filetype="pdf")
+    try:
+        assert pdf.page_count >= 1
+        text = "".join(page.get_text() for page in pdf)
+        assert text, "PDF должен содержать извлекаемый текст"
+        # Кириллица отрисована и извлекается (валидация embedded-шрифта).
+        assert re.search(r"[А-яЁё]", text), text
+    finally:
+        pdf.close()

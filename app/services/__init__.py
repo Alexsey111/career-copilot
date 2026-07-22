@@ -8,15 +8,6 @@ from app.services.artifact_registry import (
     ArtifactType,
     validate_execution_consistency,
 )
-from app.services.retry_policy import (
-    RetryPolicy,
-    BackoffStrategy,
-    RecoveryPoint,
-    ExecutionRecoveryState,
-    PipelineRecoveryManager,
-    resume_execution_from_step,
-    StepExecutorWithRetry,
-)
 from app.services.review_action_loop import (
     RecommendationExecutor,
     ReviewActionLoop,
@@ -29,10 +20,6 @@ from app.services.review_action_loop import (
 from app.services.metrics_aggregator import (
     MetricsAggregator,
     PipelineMetricsService,
-)
-from app.services.snapshot_lineage_service import (
-    SnapshotBranch,
-    SnapshotLineageService,
 )
 from app.services.snapshot_comparison_service import (
     SnapshotComparison,
@@ -81,14 +68,6 @@ __all__ = [
     "ArtifactRegistry",
     "ArtifactType",
     "validate_execution_consistency",
-    # Retry & Recovery
-    "RetryPolicy",
-    "BackoffStrategy",
-    "RecoveryPoint",
-    "ExecutionRecoveryState",
-    "PipelineRecoveryManager",
-    "resume_execution_from_step",
-    "StepExecutorWithRetry",
     # Review Action Loop
     "RecommendationExecutor",
     "ReviewActionLoop",
@@ -100,9 +79,6 @@ __all__ = [
     # Metrics Aggregation
     "MetricsAggregator",
     "PipelineMetricsService",
-    # Snapshot Lineage
-    "SnapshotBranch",
-    "SnapshotLineageService",
     # Snapshot Comparison
     "SnapshotComparison",
     "SnapshotComparisonService",

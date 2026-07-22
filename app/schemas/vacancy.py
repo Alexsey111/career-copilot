@@ -19,6 +19,11 @@ class VacancyImportRequest(StrictBaseModel):
     company: str | None = None
     location: str | None = None
     description_raw: str | None = None
+    salary_from: float | None = None
+    salary_to: float | None = None
+    salary_currency: str | None = None
+    employment_type: str | None = None
+    experience_level: str | None = None
 
     @model_validator(mode="after")
     def validate_source_payload(self) -> "VacancyImportRequest":
@@ -50,6 +55,11 @@ class VacancyImportResponse(StrictBaseModel):
     title: str
     company: str | None
     location: str | None
+    salary_from: int | None = None
+    salary_to: int | None = None
+    salary_currency: str | None = None
+    employment_type: str | None = None
+    experience_level: str | None = None
     description_length: int
     created_at: datetime
 
