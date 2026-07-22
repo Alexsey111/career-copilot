@@ -99,6 +99,13 @@ def get_stripe_client():
     return StripeClient()
 
 
+def get_telegram_client():
+    """FastAPI dependency для получения TelegramClient (DI-mockable в тестах)."""
+    from app.services.telegram_client import TelegramClient
+
+    return TelegramClient()
+
+
 def require_quota(action: str):
     """Factory зависимостей: жёсткий enforcement free-tier квоты перед действием.
 
@@ -139,5 +146,6 @@ __all__ = [
     "require_ai_consent",
     "require_data_processing_consent",
     "get_stripe_client",
+    "get_telegram_client",
     "require_quota",
 ]

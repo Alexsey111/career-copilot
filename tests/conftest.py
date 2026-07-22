@@ -152,6 +152,10 @@ async def prepare_test_db():
     # Stripe price_id для checkout-тестов (mock; реальных ключей нет по выбору
     # пользователя). Тест 503-при-отсутствии-price переопределяет локально.
     os.environ["STRIPE_PRICE_PAID_MONTHLY_ID"] = "price_test_monthly"
+    # Telegram companion (Этап 5): bot_username для deep-link тестов /me/telegram/link.
+    # bot_token/webhook_secret не задаются — TelegramClient в тестах подменяется
+    # через DI (FakeTelegramClient); webhook-secret-тесты переопределяют локально.
+    os.environ["TELEGRAM_BOT_USERNAME"] = "career_copilot_test_bot"
     get_settings.cache_clear()
 
     alembic_cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))

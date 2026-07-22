@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
+    false,
     func,
 )
 from sqlalchemy import Uuid
@@ -81,6 +82,23 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Telegram companion (ТЗ §3.6). ``telegram_chat_id`` — pseudonymous
+    # identifier (как ``oauth_provider_id``), НЕ ПДн по ФЗ-152; хранится plain
+    # (lookup-key для webhook chat_id → user). Без unique-constraint: один
+    # Telegram-аккаунт может быть перелинкован к другому user (пересоздание
+    # аккаунта) — перезапись с audit event, старый user отвязывается.
+    telegram_chat_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    telegram_linked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Per-user opt-in для proactive push (Celery beat). Глобальный флаг —
+    # settings.telegram_dispatch_enabled; per-user — эта колонка.
+    telegram_dispatch_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
 
     profile: Mapped["CandidateProfile | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
     source_files: Mapped[list["SourceFile"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -1365,4 +1383,33 @@ class PipelineEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("idx_pipeline_events_execution_type", "execution_id", "event_type"),
         Index("idx_pipeline_events_type_severity", "event_type", "severity"),
+    )
+
+
+class TelegramDispatchLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Дедуп proactive Telegram-уведомлений (Этап 5, ТЗ §3.6).
+
+    ``dispatch_key`` = ``{reminder_type}:{application_id}:{YYYY-MM-DD}`` →
+    максимум 1 уведомление типа на application в день (UTC). Second слой
+    защиты от Celery-beat гонок — ``UniqueConstraint(user_id, dispatch_key)``.
+    ``payload_hash`` (sha256 текста, первые 16 символов) — для отладки, не для
+    дедупа. ``user_id`` FK CASCADE (удаление user → удаление лога).
+    """
+
+    __tablename__ = "telegram_dispatch_log"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    dispatch_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    dispatch_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "dispatch_key", name="uq_telegram_dispatch_log_user_key"
+        ),
     )

@@ -174,6 +174,24 @@ class Settings(BaseSettings):
         default="http://localhost:3000/billing", alias="BILLING_PORTAL_RETURN_URL"
     )
 
+    # Telegram companion (ТЗ §3.6). Bot API через httpx напрямую. Секреты
+    # (bot_token, webhook_secret) хранятся только в settings/env, НИКОГДА в БД.
+    # ``telegram_chat_id`` на User — plain String (pseudonymous identifier, как
+    # ``oauth_provider_id``), нужен для webhook lookup chat_id → user.
+    telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_webhook_secret: str | None = Field(
+        default=None, alias="TELEGRAM_WEBHOOK_SECRET"
+    )
+    telegram_bot_username: str | None = Field(default=None, alias="TELEGRAM_BOT_USERNAME")
+    telegram_link_token_ttl_minutes: int = Field(
+        default=15, alias="TELEGRAM_LINK_TOKEN_TTL_MINUTES"
+    )
+    # Global feature flag для proactive push (Celery beat). Per-user opt-in —
+    # отдельная колонка ``User.telegram_dispatch_enabled``.
+    telegram_dispatch_enabled: bool = Field(default=False, alias="TELEGRAM_DISPATCH_ENABLED")
+    # Webhook URL для setup-скрипта setWebhook (не для runtime-валидации).
+    telegram_webhook_url: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_URL")
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "prod"
@@ -277,6 +295,24 @@ class Settings(BaseSettings):
                 raise ValueError("STRIPE_WEBHOOK_SECRET is required in production")
             if not self.stripe_price_paid_monthly_id:
                 raise ValueError("STRIPE_PRICE_PAID_MONTHLY_ID is required in production")
+
+            # Telegram companion (ТЗ §3.6): если proactive push включён,
+            # bot_token + webhook_secret + bot_username обязательны в prod
+            # (webhook-секрет проверяется в /webhooks/telegram по заголовку
+            # X-Telegram-Bot-Api-Secret-Token). Секреты — только в env, не в БД.
+            if self.telegram_dispatch_enabled:
+                if not self.telegram_bot_token:
+                    raise ValueError(
+                        "TELEGRAM_BOT_TOKEN is required when TELEGRAM_DISPATCH_ENABLED in production"
+                    )
+                if not self.telegram_webhook_secret:
+                    raise ValueError(
+                        "TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_DISPATCH_ENABLED in production"
+                    )
+                if not self.telegram_bot_username:
+                    raise ValueError(
+                        "TELEGRAM_BOT_USERNAME is required when TELEGRAM_DISPATCH_ENABLED in production"
+                    )
 
         return self
 

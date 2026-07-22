@@ -36,11 +36,16 @@ celery_app.conf.update(
         "app.tasks.cover_letter_tasks.*": {"queue": "cover_letter"},
         "app.tasks.interview_tasks.*": {"queue": "interview"},
         "app.tasks.pipeline_tasks.*": {"queue": "pipeline"},
+        "app.tasks.notification_tasks.*": {"queue": "notification"},
     },
     beat_schedule={
         "cleanup-stale-executions": {
             "task": "app.tasks.pipeline_tasks.cleanup_stale_executions",
             "schedule": 300.0,
+        },
+        "telegram-dispatch-alerts": {
+            "task": "app.tasks.notification_tasks.dispatch_telegram_alerts",
+            "schedule": 3600.0,
         },
     },
 )

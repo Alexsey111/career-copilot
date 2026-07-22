@@ -22,6 +22,7 @@ from app.api.routes.profile import router as profile_router
 from app.api.routes.review_workspace_routes import router as review_workspace_router
 from app.api.routes.review_summary import router as review_summary_router
 from app.api.routes.tasks import router as tasks_router
+from app.api.routes.telegram import router as telegram_router
 from app.api.routes.vacancies import router as vacancies_router
 from app.core.config import get_settings
 
@@ -51,6 +52,7 @@ def build_api_router() -> APIRouter:
     api_router.include_router(review_workspace_router)
     api_router.include_router(review_summary_router)
     api_router.include_router(tasks_router)
+    api_router.include_router(telegram_router)
 
     root_router = APIRouter()
     root_router.include_router(health_router)
