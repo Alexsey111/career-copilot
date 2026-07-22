@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle, Info } from "lucide-react";
 
 interface Consent {
   consent_type: string;
@@ -83,7 +88,9 @@ export default function ConsentPage() {
   if (loading) {
     return (
       <div className="max-w-2xl">
-        <div className="text-gray-500">Загрузка...</div>
+        <Skeleton className="h-8 w-48 mb-2" />
+        <Skeleton className="h-4 w-full mb-6" />
+        <Skeleton className="h-32 w-full" />
       </div>
     );
   }
@@ -95,92 +102,98 @@ export default function ConsentPage() {
   return (
     <div className="max-w-2xl">
       <h1 className="text-2xl font-bold mb-2">Согласия</h1>
-      <p className="text-gray-600 mb-6">
+      <p className="text-muted-foreground mb-6">
         Управляйте своими согласиями на обработку данных и использование AI.
       </p>
 
       {!allRequiredGranted && (
-        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-          <p className="text-sm text-yellow-800">
+        <Alert className="mb-6 border-yellow-200 bg-yellow-50 text-yellow-800">
+          <AlertCircle />
+          <AlertDescription>
             Для полного использования сервиса необходимо предоставить обязательные
             согласия (отмечены звездочкой).
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="space-y-4">
         {consents.map((consent) => (
-          <div
-            key={consent.consent_type}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">
-                  {CONSENT_ICONS[consent.consent_type] || "📋"}
-                </span>
+          <Card key={consent.consent_type}>
+            <CardContent className="pt-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">
+                    {CONSENT_ICONS[consent.consent_type] || "📋"}
+                  </span>
+                  <div>
+                    <h3 className="font-semibold">
+                      {consent.description}
+                      {consent.required && (
+                        <span className="text-destructive ml-1">*</span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Версия: {consent.version}
+                      {consent.granted_at && (
+                        <span>
+                          {" "}
+                          • Предоставлено:{" "}
+                          {new Date(consent.granted_at).toLocaleDateString("ru")}
+                        </span>
+                      )}
+                      {consent.revoked_at && (
+                        <span>
+                          {" "}
+                          • Отозвано:{" "}
+                          {new Date(consent.revoked_at).toLocaleDateString("ru")}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
                 <div>
-                  <h3 className="font-semibold">
-                    {consent.description}
-                    {consent.required && (
-                      <span className="text-red-500 ml-1">*</span>
-                    )}
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Версия: {consent.version}
-                    {consent.granted_at && (
-                      <span>
-                        {" "}
-                        • Предоставлено:{" "}
-                        {new Date(consent.granted_at).toLocaleDateString("ru")}
-                      </span>
-                    )}
-                    {consent.revoked_at && (
-                      <span>
-                        {" "}
-                        • Отозвано:{" "}
-                        {new Date(consent.revoked_at).toLocaleDateString("ru")}
-                      </span>
-                    )}
-                  </p>
+                  {consent.granted ? (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleRevoke(consent.consent_type)}
+                      disabled={saving === consent.consent_type || consent.required}
+                    >
+                      {saving === consent.consent_type
+                        ? "..."
+                        : consent.required
+                        ? "Обязательное"
+                        : "Отозвать"}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => handleGrant(consent.consent_type)}
+                      disabled={saving === consent.consent_type}
+                    >
+                      {saving === consent.consent_type ? "..." : "Предоставить"}
+                    </Button>
+                  )}
                 </div>
               </div>
-
-              <div>
-                {consent.granted ? (
-                  <button
-                    onClick={() => handleRevoke(consent.consent_type)}
-                    disabled={saving === consent.consent_type || consent.required}
-                    className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {saving === consent.consent_type
-                      ? "..."
-                      : consent.required
-                      ? "Обязательное"
-                      : "Отозвать"}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleGrant(consent.consent_type)}
-                    disabled={saving === consent.consent_type}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {saving === consent.consent_type ? "..." : "Предоставить"}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      <div className="mt-6 p-4 bg-gray-50 rounded-xl">
-        <p className="text-xs text-gray-500">
-          * Обязательные согласия необходимы для базовой работы сервиса. Вы не
-          можете отозвать обязательные согласия, пока используете сервис.
-          Отзыв необязательных согласий может ограничить некоторые функции.
-        </p>
-      </div>
+      <Card className="mt-6 bg-muted/50">
+        <CardContent className="pt-4">
+          <p className="text-xs text-muted-foreground flex items-start gap-2">
+            <Info className="size-4 shrink-0 mt-0.5" />
+            <span>
+              * Обязательные согласия необходимы для базовой работы сервиса. Вы не
+              можете отозвать обязательные согласия, пока используете сервис.
+              Отзыв необязательных согласий может ограничить некоторые функции.
+            </span>
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

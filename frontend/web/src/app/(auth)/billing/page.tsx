@@ -6,6 +6,9 @@ import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
 import UsageMeter from "@/components/UsageMeter";
 import type { MySubscriptionResponse } from "@/lib/types";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function BillingPage() {
   const { token } = useAuth();
@@ -58,67 +61,69 @@ export default function BillingPage() {
     }
   };
 
-  if (loading) return <div className="text-gray-500">Загрузка…</div>;
+  if (loading) {
+    return (
+      <div className="max-w-3xl space-y-4">
+        <h1 className="text-2xl font-bold">Биллинг</h1>
+        <Skeleton className="h-48" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl">
       <h1 className="text-2xl font-bold mb-6">Биллинг</h1>
 
       {sub && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-semibold capitalize">{sub.plan}</h2>
-              <p className="text-sm text-gray-500">
-                Статус: {sub.status ?? "—"}
-              </p>
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="capitalize">{sub.plan}</CardTitle>
+                <CardDescription>Статус: {sub.status ?? "—"}</CardDescription>
+              </div>
+              {sub.current_period_end && (
+                <p className="text-xs text-muted-foreground">
+                  до {new Date(sub.current_period_end).toLocaleDateString("ru")}
+                </p>
+              )}
             </div>
-            {sub.current_period_end && (
-              <p className="text-xs text-gray-500">
-                до {new Date(sub.current_period_end).toLocaleDateString("ru")}
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleCheckout} disabled={busy}>
+                Улучшить план
+              </Button>
+              <Button variant="outline" onClick={handlePortal} disabled={busy}>
+                Управление подпиской
+              </Button>
+            </div>
+
+            <div>
+              <h3 className="font-medium mb-3">Использование квот</h3>
+              {sub.usage && sub.usage.length > 0 ? (
+                <div className="space-y-3">
+                  {sub.usage.map((u, i) => (
+                    <UsageMeter key={i} usage={u} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Квоты не настроены для этого плана.
+                </p>
+              )}
+            </div>
+
+            {sub.canceled_at && (
+              <p className="text-xs text-destructive">
+                Подписка отменена: {new Date(sub.canceled_at).toLocaleDateString("ru")}
               </p>
             )}
-          </div>
-
-          <div className="flex flex-wrap gap-2 mb-6">
-            <button
-              onClick={handleCheckout}
-              disabled={busy}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
-            >
-              Улучшить план
-            </button>
-            <button
-              onClick={handlePortal}
-              disabled={busy}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 text-sm"
-            >
-              Управление подпиской
-            </button>
-          </div>
-
-          <h3 className="font-medium mb-3">Использование квот</h3>
-          {sub.usage && sub.usage.length > 0 ? (
-            <div className="space-y-3">
-              {sub.usage.map((u, i) => (
-                <UsageMeter key={i} usage={u} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">Квоты не настроены для этого плана.</p>
-          )}
-
-          {sub.canceled_at && (
-            <p className="text-xs text-red-600 mt-4">
-              Подписка отменена: {new Date(sub.canceled_at).toLocaleDateString("ru")}
-            </p>
-          )}
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      {!sub && (
-        <p className="text-gray-500">Подписка не найдена.</p>
-      )}
+      {!sub && <p className="text-muted-foreground">Подписка не найдена.</p>}
     </div>
   );
 }

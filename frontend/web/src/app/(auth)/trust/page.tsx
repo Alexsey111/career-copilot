@@ -11,6 +11,12 @@ import type {
   ActiveDocumentResponse,
   InterviewPrepSessionListItem,
 } from "@/lib/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function TrustPage() {
   const { token } = useAuth();
@@ -56,139 +62,161 @@ export default function TrustPage() {
     }
   };
 
-  if (loading) return <div className="text-gray-500">Загрузка…</div>;
+  if (loading) {
+    return (
+      <div className="max-w-4xl space-y-4">
+        <h1 className="text-2xl font-bold">Панель доверия</h1>
+        <Skeleton className="h-32" />
+        <Skeleton className="h-48" />
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-4xl">
-      <h1 className="text-2xl font-bold mb-2">Панель доверия</h1>
-      <DeterministicDisclaimer text="Сводка проверки документа или подготовки к интервью без вероятностных оценок." />
-
-      {health && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <h2 className="font-semibold mb-3">Диагностика</h2>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <span className="px-3 py-1 rounded-full bg-green-100 text-green-800">
-              Backend: {health.status ?? "ok"}
-            </span>
-            <span className="text-gray-600">
-              Вакансий: {health.counts?.vacancies ?? 0} · Откликов: {health.counts?.applications ?? 0} · Документов: {health.counts?.documents ?? 0}
-            </span>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold mb-3">Сводка проверки</h2>
-        <div className="flex flex-wrap gap-2 mb-3">
-          <button
-            onClick={() => { setEntityType("document"); setEntityId(""); setSummary(null); }}
-            className={`px-3 py-1 text-sm rounded-lg ${entityType === "document" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}
-          >
-            Документ
-          </button>
-          <button
-            onClick={() => { setEntityType("interview_prep"); setEntityId(""); setSummary(null); }}
-            className={`px-3 py-1 text-sm rounded-lg ${entityType === "interview_prep" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}
-          >
-            Подготовка к интервью
-          </button>
-        </div>
-
-        <select
-          value={entityId}
-          onChange={(e) => setEntityId(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2"
-        >
-          <option value="">— выберите —</option>
-          {entityType === "document"
-            ? docs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.document_kind} · {d.id.slice(0, 8)}…
-                </option>
-              ))
-            : sessions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  Сессия {s.id.slice(0, 8)}…
-                </option>
-              ))}
-        </select>
-        <button
-          onClick={handleFetch}
-          disabled={fetching || !entityId}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
-        >
-          {fetching ? "Загрузка…" : "Получить сводку"}
-        </button>
+    <div className="max-w-4xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold mb-2">Панель доверия</h1>
+        <DeterministicDisclaimer text="Сводка проверки документа или подготовки к интервью без вероятностных оценок." />
       </div>
 
-      {summary && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-          <div className="flex flex-wrap gap-4 text-sm">
-            {summary.ready != null && (
-              <span className={`px-3 py-1 rounded-full ${summary.ready ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}>
-                {summary.ready ? "Готово" : "Требует внимания"}
+      {health && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Диагностика</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <Badge variant="secondary">Backend: {health.status ?? "ok"}</Badge>
+              <span className="text-muted-foreground">
+                Вакансий: {health.counts?.vacancies ?? 0} · Откликов: {health.counts?.applications ?? 0} · Документов: {health.counts?.documents ?? 0}
               </span>
-            )}
-            {summary.risk_level && (
-              <span className="text-gray-600">Риск: {summary.risk_level}</span>
-            )}
-            {summary.requires_human_review && (
-              <span className="text-orange-700">Требует ручной проверки</span>
-            )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Сводка проверки</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={entityType === "document" ? "default" : "outline"}
+              size="sm"
+              onClick={() => { setEntityType("document"); setEntityId(""); setSummary(null); }}
+            >
+              Документ
+            </Button>
+            <Button
+              variant={entityType === "interview_prep" ? "default" : "outline"}
+              size="sm"
+              onClick={() => { setEntityType("interview_prep"); setEntityId(""); setSummary(null); }}
+            >
+              Подготовка к интервью
+            </Button>
           </div>
 
-          {summary.blockers && summary.blockers.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-red-700 mb-1">Блокеры</h3>
-              <ul className="space-y-1">
-                {summary.blockers.map((b, i) => (
-                  <li key={i} className="text-sm text-red-600">
-                    • {String((b as Record<string, unknown>).message ?? b)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label>Выберите сущность</Label>
+            <Select value={entityId} onValueChange={(v) => setEntityId(v ?? "")}>
+              <SelectTrigger>
+                <SelectValue placeholder="— выберите —" />
+              </SelectTrigger>
+              <SelectContent>
+                {entityType === "document"
+                  ? docs.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.document_kind} · {d.id.slice(0, 8)}…
+                      </SelectItem>
+                    ))
+                  : sessions.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        Сессия {s.id.slice(0, 8)}…
+                      </SelectItem>
+                    ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          {summary.warnings && summary.warnings.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-yellow-700 mb-1">Предупреждения</h3>
-              <ul className="space-y-1">
-                {summary.warnings.map((w, i) => (
-                  <li key={i} className="text-sm text-yellow-600">
-                    • {String((w as Record<string, unknown>).message ?? w)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <Button onClick={handleFetch} disabled={fetching || !entityId}>
+            {fetching ? "Загрузка…" : "Получить сводку"}
+          </Button>
+        </CardContent>
+      </Card>
 
-          {summary.claims_requiring_confirmation && summary.claims_requiring_confirmation.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-yellow-700 mb-1">Утверждения, требующие подтверждения</h3>
-              <ul className="space-y-1">
-                {summary.claims_requiring_confirmation.map((c, i) => (
-                  <li key={i} className="text-sm text-gray-700">
-                    • {String((c as Record<string, unknown>).title ?? c)}
-                  </li>
-                ))}
-              </ul>
+      {summary && (
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {summary.ready != null && (
+                <Badge variant={summary.ready ? "default" : "secondary"}>
+                  {summary.ready ? "Готово" : "Требует внимания"}
+                </Badge>
+              )}
+              {summary.risk_level && (
+                <span className="text-muted-foreground">Риск: {summary.risk_level}</span>
+              )}
+              {summary.requires_human_review && (
+                <Badge variant="destructive">Требует ручной проверки</Badge>
+              )}
             </div>
-          )}
 
-          {summary.recommended_actions && summary.recommended_actions.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-1">Рекомендуемые действия</h3>
-              <ul className="space-y-1">
-                {summary.recommended_actions.map((a, i) => (
-                  <li key={i} className="text-sm text-blue-700">
-                    → {String((a as Record<string, unknown>).title ?? (a as Record<string, unknown>).action ?? a)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+            {summary.blockers && summary.blockers.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-destructive mb-1">Блокеры</h3>
+                <ul className="space-y-1">
+                  {summary.blockers.map((b, i) => (
+                    <li key={i} className="text-sm text-destructive">
+                      • {String((b as Record<string, unknown>).message ?? b)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {summary.warnings && summary.warnings.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Предупреждения</h3>
+                <ul className="space-y-1">
+                  {summary.warnings.map((w, i) => (
+                    <li key={i} className="text-sm text-muted-foreground">
+                      • {String((w as Record<string, unknown>).message ?? w)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {summary.claims_requiring_confirmation && summary.claims_requiring_confirmation.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">
+                  Утверждения, требующие подтверждения
+                </h3>
+                <ul className="space-y-1">
+                  {summary.claims_requiring_confirmation.map((c, i) => (
+                    <li key={i} className="text-sm text-muted-foreground">
+                      • {String((c as Record<string, unknown>).title ?? c)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {summary.recommended_actions && summary.recommended_actions.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-1">Рекомендуемые действия</h3>
+                <ul className="space-y-1">
+                  {summary.recommended_actions.map((a, i) => (
+                    <li key={i} className="text-sm text-primary">
+                      → {String((a as Record<string, unknown>).title ?? (a as Record<string, unknown>).action ?? a)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -8,6 +8,11 @@ import { useSessionDocs } from "@/contexts/SessionDocumentsContext";
 import { api } from "@/lib/api";
 import DocumentActions from "@/components/DocumentActions";
 import type { ActiveDocumentResponse } from "@/lib/types";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface DocEntry {
   id: string;
@@ -105,7 +110,12 @@ export default function DocumentsPage() {
     <div className="max-w-4xl">
       <h1 className="text-2xl font-bold mb-6">Документы</h1>
 
-      {loading && <p className="text-gray-500 mb-4">Загрузка активных документов…</p>}
+      {loading && (
+        <div className="mb-4 space-y-3">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      )}
 
       {/* Активные документы */}
       {active.length > 0 && (
@@ -113,32 +123,36 @@ export default function DocumentsPage() {
           <h2 className="font-semibold mb-3">Активные документы</h2>
           <div className="space-y-3">
             {active.map((d) => (
-              <div key={d.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="font-medium text-gray-800">{d.label}</p>
-                    <p className="text-xs text-gray-400">
-                      {d.id.slice(0, 8)}… · статус: {d.reviewStatus ?? "—"} · {d.isActive ? "активен" : "не активен"}
-                    </p>
+              <Card key={d.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <CardTitle>{d.label}</CardTitle>
+                      <CardDescription>
+                        {d.id.slice(0, 8)}… · статус: {d.reviewStatus ?? "—"} · {d.isActive ? "активен" : "не активен"}
+                      </CardDescription>
+                    </div>
+                    <Link
+                      href={`/documents/${d.id}`}
+                      className={cn(buttonVariants({ variant: "link" }))}
+                    >
+                      Открыть workspace →
+                    </Link>
                   </div>
-                  <Link
-                    href={`/documents/${d.id}`}
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    Открыть workspace →
-                  </Link>
-                </div>
-                {token && (
-                  <DocumentActions
-                    token={token}
-                    documentId={d.id}
-                    filename={d.kind}
-                    reviewStatus={d.reviewStatus}
-                    isActive={d.isActive}
-                    onApproved={reloadActive}
-                  />
-                )}
-              </div>
+                </CardHeader>
+                <CardContent>
+                  {token && (
+                    <DocumentActions
+                      token={token}
+                      documentId={d.id}
+                      filename={d.kind}
+                      reviewStatus={d.reviewStatus}
+                      isActive={d.isActive}
+                      onApproved={reloadActive}
+                    />
+                  )}
+                </CardContent>
+              </Card>
             ))}
           </div>
         </div>
@@ -153,10 +167,14 @@ export default function DocumentsPage() {
               <Link
                 key={d.id}
                 href={`/documents/${d.id}`}
-                className="block bg-white rounded-lg border border-gray-200 p-3 hover:shadow-sm"
+                className="block rounded-lg hover:bg-muted/50 transition-colors"
               >
-                <span className="text-sm text-gray-700">{d.label}</span>
-                <span className="text-xs text-gray-400 ml-2">{d.id.slice(0, 8)}…</span>
+                <Card>
+                  <CardContent className="flex items-center gap-2 py-3">
+                    <span className="text-sm text-foreground">{d.label}</span>
+                    <span className="text-xs text-muted-foreground ml-2">{d.id.slice(0, 8)}…</span>
+                  </CardContent>
+                </Card>
               </Link>
             ))}
           </div>
@@ -164,31 +182,37 @@ export default function DocumentsPage() {
       )}
 
       {/* Ручной ввод ID */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold mb-3">Открыть по ID</h2>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={manualId}
-            onChange={(e) => setManualId(e.target.value)}
-            placeholder="ID документа"
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-          />
-          {manualId.trim() && (
-            <Link
-              href={`/documents/${manualId.trim()}`}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-            >
-              Открыть
-            </Link>
-          )}
-        </div>
-      </div>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Открыть по ID</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              value={manualId}
+              onChange={(e) => setManualId(e.target.value)}
+              placeholder="ID документа"
+              className="flex-1"
+            />
+            {manualId.trim() && (
+              <Link
+                href={`/documents/${manualId.trim()}`}
+                className={cn(buttonVariants({ variant: "default" }))}
+              >
+                Открыть
+              </Link>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {active.length === 0 && recentOnly.length === 0 && !loading && (
-        <div className="text-center text-gray-500 py-8">
-          Сгенерируйте резюме или письмо из страницы вакансии — они появятся здесь.
-        </div>
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            Сгенерируйте резюме или письмо из страницы вакансии — они появятся здесь.
+          </CardContent>
+        </Card>
       )}
     </div>
   );

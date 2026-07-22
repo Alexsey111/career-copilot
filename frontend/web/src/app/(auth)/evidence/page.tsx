@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 import EvidenceCard from "@/components/EvidenceCard";
 import DeterministicDisclaimer from "@/components/DeterministicDisclaimer";
 import type { EvidenceSnippetItem, EvidenceUsageItem } from "@/lib/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function EvidencePage() {
   const { token } = useAuth();
@@ -30,7 +32,7 @@ export default function EvidencePage() {
     });
   }, [token]);
 
-  if (loading) return <div className="text-gray-500">Загрузка…</div>;
+  if (loading) return <Skeleton className="h-32 w-full max-w-4xl" />;
 
   return (
     <div className="max-w-4xl">
@@ -40,18 +42,24 @@ export default function EvidencePage() {
       {/* Инсайты */}
       {insights && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div className="text-2xl font-bold text-red-600">{insights.weak_evidence_count ?? 0}</div>
-            <div className="text-xs text-gray-500">Слабых доказательств</div>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div className="text-2xl font-bold text-yellow-600">{insights.missing_metrics_count ?? 0}</div>
-            <div className="text-xs text-gray-500">Без метрик</div>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div className="text-2xl font-bold text-blue-600">{snippets.length}</div>
-            <div className="text-xs text-gray-500">Всего сниппетов</div>
-          </div>
+          <Card>
+            <CardContent className="text-center py-4">
+              <div className="text-2xl font-bold text-red-600">{insights.weak_evidence_count ?? 0}</div>
+              <div className="text-xs text-muted-foreground mt-1">Слабых доказательств</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="text-center py-4">
+              <div className="text-2xl font-bold text-yellow-600">{insights.missing_metrics_count ?? 0}</div>
+              <div className="text-xs text-muted-foreground mt-1">Без метрик</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="text-center py-4">
+              <div className="text-2xl font-bold text-blue-600">{snippets.length}</div>
+              <div className="text-xs text-muted-foreground mt-1">Всего сниппетов</div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -68,22 +76,30 @@ export default function EvidencePage() {
           />
         ))}
         {snippets.length === 0 && (
-          <p className="text-gray-500 text-sm col-span-2">Доказательства не найдены. Загрузите резюме или импортируйте GitHub.</p>
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground col-span-2">
+              Доказательства не найдены. Загрузите резюме или импортируйте GitHub.
+            </CardContent>
+          </Card>
         )}
       </div>
 
       {/* Использования */}
       {usages.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="font-semibold mb-3">Использования</h2>
-          <ul className="space-y-1 text-sm">
-            {usages.map((u, i) => (
-              <li key={i} className="text-gray-700">
-                {u.target_type ?? ""} {u.target_id ? `· ${u.target_id.slice(0, 8)}…` : ""} {u.note ? `— ${u.note}` : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Использования</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1 text-sm">
+              {usages.map((u, i) => (
+                <li key={i} className="text-muted-foreground">
+                  {u.target_type ?? ""} {u.target_id ? `· ${u.target_id.slice(0, 8)}…` : ""} {u.note ? `— ${u.note}` : ""}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

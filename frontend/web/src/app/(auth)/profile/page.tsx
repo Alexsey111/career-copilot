@@ -7,6 +7,15 @@ import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
 import { runAiAction } from "@/lib/ai-action";
 import AchievementReviewCard from "@/components/AchievementReviewCard";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
+import { Upload, Sparkles, CheckCircle2, AlertTriangle } from "lucide-react";
 
 export default function ProfilePage() {
   const { token } = useAuth();
@@ -152,269 +161,263 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="max-w-4xl">
-      <h1 className="text-2xl font-bold mb-6">Профиль кандидата</h1>
+    <div className="max-w-4xl space-y-6">
+      <h1 className="text-2xl font-bold">Профиль кандидата</h1>
 
       {/* Upload Resume */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold mb-3">Загрузить резюме</h2>
-        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors mb-4">
-          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-            <svg className="w-8 h-8 mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <p className="text-sm text-gray-500">
-              <span className="font-semibold">Нажмите для выбора</span> или перетащите файл
-            </p>
-            <p className="text-xs text-gray-400">PDF, DOCX, TXT</p>
-          </div>
-          <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileUpload} className="hidden" />
-        </label>
-        <div className="text-xs text-gray-500">или вставьте текст:</div>
-        <textarea
-          value={resumeText}
-          onChange={(e) => setResumeText(e.target.value)}
-          placeholder="Вставьте текст резюме..."
-          className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 text-sm"
-        />
-        <button
-          onClick={handleUploadResume}
-          disabled={uploading || !resumeText.trim()}
-          className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
-        >
-          {uploading ? "Загрузка..." : "Импортировать текст"}
-        </button>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Загрузить резюме</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors mb-4">
+            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+              <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold">Нажмите для выбора</span> или перетащите файл
+              </p>
+              <p className="text-xs text-muted-foreground/70">PDF, DOCX, TXT</p>
+            </div>
+            <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileUpload} className="hidden" />
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">или вставьте текст:</p>
+          <Textarea
+            value={resumeText}
+            onChange={(e) => setResumeText(e.target.value)}
+            placeholder="Вставьте текст резюме..."
+            className="min-h-32"
+          />
+          <Button
+            onClick={handleUploadResume}
+            disabled={uploading || !resumeText.trim()}
+            className="mt-3"
+          >
+            {uploading ? "Загрузка..." : "Импортировать текст"}
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Альтернативные источники профиля */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold mb-3">Альтернативные источники</h2>
-        <p className="text-xs text-gray-500 mb-3">
-          Можно создать профиль без файла резюме — вручную или импортом публичного GitHub-профиля.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2 border border-gray-200 rounded-lg p-3">
-            <h3 className="text-sm font-medium">Ручное создание</h3>
-            <input
-              value={manualHeadline}
-              onChange={(e) => setManualHeadline(e.target.value)}
-              placeholder="Целевая роль *"
-              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-            />
-            <input
-              value={manualLocation}
-              onChange={(e) => setManualLocation(e.target.value)}
-              placeholder="Локация"
-              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-            />
-            <input
-              value={manualTech}
-              onChange={(e) => setManualTech(e.target.value)}
-              placeholder="Технологии через запятую"
-              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-            />
-            <button
-              onClick={handleManualIntake}
-              disabled={intaking}
-              className="px-3 py-1 text-sm bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
-            >
-              {intaking ? "Создание…" : "Создать профиль"}
-            </button>
-          </div>
-
-          <div className="space-y-2 border border-gray-200 rounded-lg p-3">
-            <h3 className="text-sm font-medium">Импорт GitHub (public)</h3>
-            <input
-              value={githubUrl}
-              onChange={(e) => setGithubUrl(e.target.value)}
-              placeholder="https://github.com/username"
-              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-            />
-            <input
-              value={githubRole}
-              onChange={(e) => setGithubRole(e.target.value)}
-              placeholder="Целевая роль (необязательно)"
-              className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-            />
-            <label className="text-xs text-gray-500 flex items-center gap-2">
-              Репозиториев: {repoCount}
-              <input
-                type="range"
-                min={1}
-                max={30}
-                value={repoCount}
-                onChange={(e) => setRepoCount(Number(e.target.value))}
+      <Card>
+        <CardHeader>
+          <CardTitle>Альтернативные источники</CardTitle>
+          <CardDescription>
+            Можно создать профиль без файла резюме — вручную или импортом публичного GitHub-профиля.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2 border border-border rounded-lg p-3">
+              <h3 className="text-sm font-medium">Ручное создание</h3>
+              <Input
+                value={manualHeadline}
+                onChange={(e) => setManualHeadline(e.target.value)}
+                placeholder="Целевая роль *"
               />
-            </label>
-            <button
-              onClick={handleGithubIntake}
-              disabled={intaking || !githubUrl.trim()}
-              className="px-3 py-1 text-sm bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
-            >
-              {intaking ? "Импорт…" : "Импортировать GitHub"}
-            </button>
+              <Input
+                value={manualLocation}
+                onChange={(e) => setManualLocation(e.target.value)}
+                placeholder="Локация"
+              />
+              <Input
+                value={manualTech}
+                onChange={(e) => setManualTech(e.target.value)}
+                placeholder="Технологии через запятую"
+              />
+              <Button
+                onClick={handleManualIntake}
+                disabled={intaking}
+                variant="secondary"
+                size="sm"
+              >
+                {intaking ? "Создание…" : "Создать профиль"}
+              </Button>
+            </div>
+
+            <div className="space-y-2 border border-border rounded-lg p-3">
+              <h3 className="text-sm font-medium">Импорт GitHub (public)</h3>
+              <Input
+                value={githubUrl}
+                onChange={(e) => setGithubUrl(e.target.value)}
+                placeholder="https://github.com/username"
+              />
+              <Input
+                value={githubRole}
+                onChange={(e) => setGithubRole(e.target.value)}
+                placeholder="Целевая роль (необязательно)"
+              />
+              <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                Репозиториев: {repoCount}
+                <input
+                  type="range"
+                  min={1}
+                  max={30}
+                  value={repoCount}
+                  onChange={(e) => setRepoCount(Number(e.target.value))}
+                />
+              </Label>
+              <Button
+                onClick={handleGithubIntake}
+                disabled={intaking || !githubUrl.trim()}
+                variant="secondary"
+                size="sm"
+              >
+                {intaking ? "Импорт…" : "Импортировать GitHub"}
+              </Button>
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Profile State */}
       {profile && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Текущий профиль</h2>
-            <button
-              onClick={handleExtractAchievements}
-              disabled={extracting}
-              className="px-3 py-1 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
-            >
-              {extracting ? "Извлечение..." : "Извлечь достижения"}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-gray-500">Имя:</span>{" "}
-              <span className="font-medium">{profile.structured_profile?.full_name || "—"}</span>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Текущий профиль</CardTitle>
+              <Button
+                onClick={handleExtractAchievements}
+                disabled={extracting}
+                variant="default"
+                size="sm"
+              >
+                <Sparkles />
+                {extracting ? "Извлечение..." : "Извлечь достижения"}
+              </Button>
             </div>
-            <div>
-              <span className="text-gray-500">Должность:</span>{" "}
-              <span className="font-medium">{profile.structured_profile?.headline || "—"}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Статус:</span>{" "}
-              <span className="font-medium">{profile.resume_import?.status || "—"}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Локация:</span>{" "}
-              <span className="font-medium">{profile.structured_profile?.location || "—"}</span>
-            </div>
-          </div>
-
-          {profile.structured_profile?.technologies?.length > 0 && (
-            <div className="mt-3 text-sm">
-              <span className="text-gray-500">Навыки:</span>{" "}
-              <span className="font-medium">{profile.structured_profile.technologies.join(", ")}</span>
-            </div>
-          )}
-
-          {profile.structured_profile?.ai_tools?.length > 0 && (
-            <div className="mt-2 text-sm">
-              <span className="text-gray-500">AI инструменты:</span>{" "}
-              <span className="font-medium">{profile.structured_profile.ai_tools.join(", ")}</span>
-            </div>
-          )}
-
-          {profile.structured_profile?.automation_tools?.length > 0 && (
-            <div className="mt-2 text-sm">
-              <span className="text-gray-500">Automation:</span>{" "}
-              <span className="font-medium">{profile.structured_profile.automation_tools.join(", ")}</span>
-            </div>
-          )}
-
-          {profile.structured_profile?.structured_evidence?.length > 0 && (
-            <div className="mt-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Факты из резюме</h3>
-              <div className="space-y-2">
-                {profile.structured_profile.structured_evidence.map((e: any, i: number) => (
-                  <div key={i} className="p-2 bg-gray-50 rounded text-sm">
-                    <span className="font-medium">{e.title}</span>
-                    {e.skills?.length > 0 && (
-                      <span className="text-gray-500 ml-2">({e.skills.join(", ")})</span>
-                    )}
-                  </div>
-                ))}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Имя:</span>{" "}
+                <span className="font-medium">{profile.structured_profile?.full_name || "—"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Должность:</span>{" "}
+                <span className="font-medium">{profile.structured_profile?.headline || "—"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Статус:</span>{" "}
+                <span className="font-medium">{profile.resume_import?.status || "—"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Локация:</span>{" "}
+                <span className="font-medium">{profile.structured_profile?.location || "—"}</span>
               </div>
             </div>
-          )}
 
-          {profile.achievements?.achievements?.length > 0 && (() => {
-            const list = profile.achievements.achievements as any[];
-            const total = list.length;
-            const confirmed = list.filter((a) => a.fact_status === "confirmed").length;
-            const allConfirmed = confirmed === total;
-            return (
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium text-gray-700">
-                    Достижения ({total})
-                  </h3>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      allConfirmed
-                        ? "bg-green-100 text-green-800"
-                        : "bg-yellow-100 text-yellow-800"
-                    }`}
-                  >
-                    Подтверждено {confirmed} / {total}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500 mb-2">
-                  Подтвердите достижения (статус «Подтверждено»), чтобы они попали в адаптированное резюме.
-                </p>
-                <div className="space-y-3">
-                  {list.map((a: any) => (
-                    <AchievementReviewCard
-                      key={a.id}
-                      token={token ?? ""}
-                      achievement={a}
-                      onSaved={reloadProfile}
-                    />
+            {profile.structured_profile?.technologies?.length > 0 && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">Навыки:</span>{" "}
+                <span className="font-medium">{profile.structured_profile.technologies.join(", ")}</span>
+              </div>
+            )}
+
+            {profile.structured_profile?.ai_tools?.length > 0 && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">AI инструменты:</span>{" "}
+                <span className="font-medium">{profile.structured_profile.ai_tools.join(", ")}</span>
+              </div>
+            )}
+
+            {profile.structured_profile?.automation_tools?.length > 0 && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">Automation:</span>{" "}
+                <span className="font-medium">{profile.structured_profile.automation_tools.join(", ")}</span>
+              </div>
+            )}
+
+            {profile.structured_profile?.structured_evidence?.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-2">Факты из резюме</h3>
+                <div className="space-y-2">
+                  {profile.structured_profile.structured_evidence.map((e: any, i: number) => (
+                    <div key={i} className="p-2 bg-muted/50 rounded text-sm">
+                      <span className="font-medium">{e.title}</span>
+                      {e.skills?.length > 0 && (
+                        <span className="text-muted-foreground ml-2">({e.skills.join(", ")})</span>
+                      )}
+                    </div>
                   ))}
                 </div>
-                <div
-                  className={`mt-4 p-3 rounded-lg border ${
-                    allConfirmed
-                      ? "bg-green-50 border-green-200"
-                      : "bg-gray-50 border-gray-200"
-                  }`}
-                >
-                  {allConfirmed ? (
-                    <>
-                      <p className="text-sm text-green-800 mb-2">
-                        Все достижения подтверждены. Можно перейти к подбору вакансий.
-                      </p>
-                      <button
-                        onClick={() => router.push("/vacancies")}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
-                      >
-                        Перейти к вакансиям →
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm text-gray-700 mb-2">
-                        Осталось подтвердить {total - confirmed} из {total} достижений.
-                      </p>
-                      <button
-                        onClick={() => router.push("/vacancies")}
-                        className="text-sm text-blue-600 hover:text-blue-800 underline"
-                      >
-                        Пропустить и перейти к вакансиям
-                      </button>
-                    </>
-                  )}
-                </div>
               </div>
-            );
-          })()}
+            )}
 
-          {profile.structured_profile?.warnings?.length > 0 && (
-            <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
-              <h3 className="text-sm font-medium text-yellow-800 mb-2">Рекомендации</h3>
-              <ul className="space-y-1">
-                {profile.structured_profile.warnings.map((w: string, i: number) => (
-                  <li key={i} className="text-sm text-yellow-700">• {w}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+            {profile.achievements?.achievements?.length > 0 && (() => {
+              const list = profile.achievements.achievements as any[];
+              const total = list.length;
+              const confirmed = list.filter((a) => a.fact_status === "confirmed").length;
+              const allConfirmed = confirmed === total;
+              return (
+                <div>
+                  <Separator className="my-4" />
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-foreground">
+                      Достижения ({total})
+                    </h3>
+                    <Badge variant={allConfirmed ? "default" : "secondary"}>
+                      Подтверждено {confirmed} / {total}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Подтвердите достижения (статус «Подтверждено»), чтобы они попали в адаптированное резюме.
+                  </p>
+                  <div className="space-y-3">
+                    {list.map((a: any) => (
+                      <AchievementReviewCard
+                        key={a.id}
+                        token={token ?? ""}
+                        achievement={a}
+                        onSaved={reloadProfile}
+                      />
+                    ))}
+                  </div>
+                  <Alert className={`mt-4 ${allConfirmed ? "border-green-200 bg-green-50" : ""}`}>
+                    {allConfirmed ? <CheckCircle2 className="text-green-600" /> : <AlertTriangle />}
+                    <AlertTitle>
+                      {allConfirmed ? "Все достижения подтверждены" : `Осталось подтвердить ${total - confirmed} из ${total}`}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {allConfirmed
+                        ? "Можно перейти к подбору вакансий."
+                        : "Часть достижений не подтверждена."}
+                    </AlertDescription>
+                    <Button
+                      onClick={() => router.push("/vacancies")}
+                      className="mt-2"
+                      size="sm"
+                      variant={allConfirmed ? "default" : "link"}
+                    >
+                      {allConfirmed ? "Перейти к вакансиям →" : "Пропустить и перейти к вакансиям"}
+                    </Button>
+                  </Alert>
+                </div>
+              );
+            })()}
+
+            {profile.structured_profile?.warnings?.length > 0 && (
+              <Alert className="mt-4">
+                <AlertTriangle />
+                <AlertTitle>Рекомендации</AlertTitle>
+                <AlertDescription>
+                  <ul className="space-y-1 mt-2">
+                    {profile.structured_profile.warnings.map((w: string, i: number) => (
+                      <li key={i}>• {w}</li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {!profile && (
-        <div className="text-center text-gray-500 py-8">
-          Загрузите резюме или создайте профиль вручную, чтобы начать.
-        </div>
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            Загрузите резюме или создайте профиль вручную, чтобы начать.
+          </CardContent>
+        </Card>
       )}
     </div>
   );
