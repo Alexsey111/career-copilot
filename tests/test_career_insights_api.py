@@ -192,9 +192,9 @@ async def test_career_insights_summary_api_returns_operational_guidance(
     assert payload["strategic_recommendations"]
     assert any(
         item["title"] in {
-            "Add stronger leadership evidence",
-            "Create STAR examples for Kubernetes",
-            "Strengthen quantified impact metrics",
+            "Добавьте более сильные примеры лидерства",
+            "Создайте STAR-пример по Kubernetes",
+            "Усильте метрики количественного эффекта",
         }
         for item in payload["strategic_recommendations"]
     )

@@ -250,8 +250,11 @@ class CareerInsightsService:
                 recommendations.append(
                     {
                         "code": "strengthen_leadership_evidence",
-                        "title": "Add stronger leadership evidence",
-                        "message": f"Repeated gap: {keyword}. Add a stronger leadership STAR example that shows scope and coordination.",
+                        "title": "Добавьте более сильные примеры лидерства",
+                        "message": (
+                            f"Повторяющийся пробел: {keyword}. Добавьте показательный "
+                            "STAR-пример о лидерстве с указанием масштаба и координации."
+                        ),
                         "priority": "high",
                     }
                 )
@@ -259,17 +262,23 @@ class CareerInsightsService:
                 recommendations.append(
                     {
                         "code": "create_kubernetes_star",
-                        "title": "Create STAR examples for Kubernetes",
-                        "message": "Kubernetes appears as a recurring gap. Build one precise STAR story that shows actual delivery or operations work.",
+                        "title": "Создайте STAR-пример по Kubernetes",
+                        "message": (
+                            "Kubernetes встречается как повторяющийся пробел. "
+                            "Подготовьте точный STAR-рассказ о реальной эксплуатации или доставке."
+                        ),
                         "priority": "high",
                     }
                 )
             if "system design" in lower or "architecture" in lower:
                 recommendations.append(
                     {
-                        "code": "strengthen_system_design",
-                        "title": "Strengthen system design evidence",
-                        "message": "System design is recurring. Capture an example with tradeoffs, scale, and rationale.",
+                        "code": "strengthen_system_design_evidence",
+                        "title": "Усильте доказательства по system design",
+                        "message": (
+                            "System design встречается повторно. Зафиксируйте пример "
+                            "с описанием компромиссов, масштаба и обоснования решений."
+                        ),
                         "priority": "medium",
                     }
                 )
@@ -282,8 +291,12 @@ class CareerInsightsService:
                 recommendations.append(
                     {
                         "code": "improve_metrics",
-                        "title": "Strengthen quantified impact metrics",
-                        "message": f"Evidence around {skill} looks weak or repeated. Add numbers, outcomes, or scale indicators to improve reuse.",
+                        "title": "Усильте метрики количественного эффекта",
+                        "message": (
+                            f"Доказательства по «{skill}» выглядят слабыми или повторяющимися. "
+                            "Добавьте цифры, результаты и индикаторы масштаба, "
+                            "чтобы повысить переиспользуемость."
+                        ),
                         "priority": "medium",
                     }
                 )
@@ -293,8 +306,11 @@ class CareerInsightsService:
             recommendations.append(
                 {
                     "code": "reuse_unused_evidence",
-                    "title": "Reuse unused evidence",
-                    "message": "You have unused evidence that could support future resume or interview drafts.",
+                    "title": "Используйте неиспользованные доказательства",
+                    "message": (
+                        "У вас есть неиспользованные доказательства, которые пригодятся "
+                        "в будущих версиях резюме или подготовке к интервью."
+                    ),
                     "priority": "low",
                 }
             )
@@ -303,8 +319,11 @@ class CareerInsightsService:
             recommendations.append(
                 {
                     "code": "add_metrics",
-                    "title": "Add quantified impact metrics",
-                    "message": "Some evidence still lacks metrics. Quantified outcomes usually make fit and reuse stronger.",
+                    "title": "Добавьте метрики количественного эффекта",
+                    "message": (
+                        "В части доказательств всё ещё нет метрик. Количественные "
+                        "результаты обычно усиливают оценку соответствия и переиспользуемость."
+                    ),
                     "priority": "medium",
                 }
             )
@@ -314,8 +333,11 @@ class CareerInsightsService:
             recommendations.append(
                 {
                     "code": "address_rejection_stage",
-                    "title": "Focus on the common rejection stage",
-                    "message": f"Most rejections are happening around {stage}. Review the matching evidence and gaps for that stage.",
+                    "title": "Сфокусируйтесь на частом этапе отказа",
+                    "message": (
+                        f"Большинство отказов приходится на этап «{stage}». "
+                        "Пересмотрите доказательства и пробелы по этому этапу."
+                    ),
                     "priority": "medium",
                 }
             )
@@ -324,8 +346,11 @@ class CareerInsightsService:
             recommendations.append(
                 {
                     "code": "maintain_current_direction",
-                    "title": "Keep building reusable evidence",
-                    "message": "Current signals look stable. Keep collecting confirmed evidence and use it across future vacancies.",
+                    "title": "Продолжайте копить переиспользуемые доказательства",
+                    "message": (
+                        "Сигналы стабильны. Продолжайте собирать подтверждённые "
+                        "доказательства и применять их в новых вакансиях."
+                    ),
                     "priority": "low",
                 }
             )

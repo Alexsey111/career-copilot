@@ -143,9 +143,9 @@ async def test_career_insights_service_builds_deterministic_guidance() -> None:
     assert summary["application_patterns"]["most_common_rejection_stage"] == "screening"
 
     rec_titles = {item["title"] for item in summary["strategic_recommendations"]}
-    assert "Add stronger leadership evidence" in rec_titles
-    assert "Create STAR examples for Kubernetes" in rec_titles
-    assert "Strengthen quantified impact metrics" in rec_titles
+    assert "Добавьте более сильные примеры лидерства" in rec_titles
+    assert "Создайте STAR-пример по Kubernetes" in rec_titles
+    assert "Усильте метрики количественного эффекта" in rec_titles
 
 
 @pytest.mark.asyncio
