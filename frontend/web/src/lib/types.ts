@@ -281,6 +281,24 @@ export interface InterviewPrepWeakArea {
   category?: string;
 }
 
+export interface InterviewPrepSuggestedAnswer {
+  format?: string;
+  situation?: string;
+  task?: string;
+  action?: string;
+  result?: string;
+  tech_stack?: string[];
+  tradeoffs?: string[];
+  talking_points?: string[];
+  source_evidence_id?: string | null;
+  source_title?: string | null;
+  fact_status?: string;
+  grounding_status?: string;
+  requires_human_review?: boolean;
+  draft_text?: string;
+  quality?: Record<string, unknown>;
+}
+
 export interface InterviewPrepQuestion {
   id?: string;
   prompt: string;
@@ -288,7 +306,10 @@ export interface InterviewPrepQuestion {
   competency_name?: string;
   requires_careful_answer?: boolean;
   recommended_evidence_ids?: string[];
-  suggested_answer?: string;
+  // Бэк отдаёт структурированный объект (см. InterviewPrepSuggestedAnswer)
+  // с полями format/situation/task/action/result/tech_stack/talking_points/draft_text.
+  // Для обратной совместимости допускаем строку.
+  suggested_answer?: InterviewPrepSuggestedAnswer | string;
   answer_quality?: Record<string, unknown>;
 }
 

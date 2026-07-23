@@ -146,9 +146,45 @@ export default function InterviewSessionPage() {
                 {q.suggested_answer && (
                   <div className="mt-2">
                     <p className="text-xs font-medium text-gray-500">Предлагаемый ответ:</p>
-                    <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded mt-1">
-                      {q.suggested_answer}
-                    </pre>
+                    {typeof q.suggested_answer === "string" ? (
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded mt-1">
+                        {q.suggested_answer}
+                      </pre>
+                    ) : (
+                      <div className="text-xs text-gray-700 space-y-1 mt-1">
+                        {q.suggested_answer.draft_text && (
+                          <pre className="whitespace-pre-wrap bg-white p-2 rounded">
+                            {q.suggested_answer.draft_text}
+                          </pre>
+                        )}
+                        {q.suggested_answer.tech_stack && q.suggested_answer.tech_stack.length > 0 && (
+                          <div>
+                            <span className="font-medium">Стек:</span>{" "}
+                            {q.suggested_answer.tech_stack.join(", ")}
+                          </div>
+                        )}
+                        {q.suggested_answer.tradeoffs && q.suggested_answer.tradeoffs.length > 0 && (
+                          <div>
+                            <span className="font-medium">Компромиссы:</span>
+                            <ul className="list-disc list-inside">
+                              {q.suggested_answer.tradeoffs.map((t, i) => (
+                                <li key={i}>{t}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {q.suggested_answer.talking_points && q.suggested_answer.talking_points.length > 0 && (
+                          <div>
+                            <span className="font-medium">Ключевые тезисы:</span>
+                            <ul className="list-disc list-inside">
+                              {q.suggested_answer.talking_points.map((tp, i) => (
+                                <li key={i}>{tp}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
