@@ -85,7 +85,12 @@ export default function AuthLayout({
             <SidebarInset>
               <header className="flex h-14 items-center gap-2 border-b px-4">
                 <SidebarTrigger />
-                <span className="text-sm text-muted-foreground">
+                {/* Bug#36: добавили логотип в шапку. Раньше здесь был только
+                    текст «AI Career Copilot» — пользователь жаловался, что
+                    «логотипа в шапке нет». Теперь header консистентен с
+                    Sidebar и login-страницей. */}
+                <img src="/logo.svg" alt="" className="size-6" aria-hidden="true" />
+                <span className="text-sm font-semibold text-foreground">
                   AI Career Copilot
                 </span>
               </header>
