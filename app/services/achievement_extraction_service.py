@@ -229,6 +229,7 @@ class AchievementExtractionService:
                     not split_title
                     or self._looks_like_noise_title(split_title)
                     or self._looks_like_invalid_contribution_title(split_title)
+                    or self._looks_like_capability_only_contribution(split_title, source_text)
                     or self._looks_like_responsibility_like_contribution(split_title, source_text)
                 ):
                     continue
@@ -501,6 +502,13 @@ class AchievementExtractionService:
         title = re.sub(r"\s+", " ", " ".join(part.strip() for part in useful_lines if part.strip()))
         title = title.strip(" -–—•")
 
+        # Bug#10: обрезаем title на служебных подзаголовках, которые парсер
+        # захватил вместе с достижением (склейка колонок PDF / однострочный
+        # markdown). Сюда попадают маркеры разделов «Роль», «Функционал»,
+        # «Технологии», «Дополнительно», а также markdown-разделитель «---»
+        # и подзаголовки «## …» / «### …», которые шли в одной строке.
+        title = self._truncate_title_at_layout_marker(title)
+
         sentence_match = re.match(r"^(.{12,180}?[.!?])\s+", title)
         if sentence_match:
             title = sentence_match.group(1).strip()
@@ -512,6 +520,40 @@ class AchievementExtractionService:
             title = title[:180].rsplit(" ", 1)[0].strip()
 
         return self._strip_inline_company_tail(title)
+
+    @staticmethod
+    def _truncate_title_at_layout_marker(title: str) -> str:
+        """Bug#10: обрезать title на первом вхождении layout-маркера.
+
+        Защищаемся от случаев, когда парсер в одном блоке склеил буллет
+        достижения с подзаголовком следующего раздела («… MVP --- ## 💼
+        ПРАКТИЧЕСКИЙ ОПЫТ»). Маркеры должны быть достаточно уникальными,
+        чтобы не сожрать хвост нормального title.
+        """
+        text = str(title or "").strip()
+        if not text:
+            return text
+
+        # Маркеры-подстроки, на которых обрезаем title.
+        cutoff_substrings = (
+            " --- ",  # markdown hr
+            "## 💼", "## 🎓", "## 📚", "## 🔎", "## 📌", "## 🎯", "## 🧠",
+            "## ОПЫТ", "## ПРАКТИЧЕСКИЙ", "## ОБРАЗОВАНИЕ", "## ДОПОЛНИТЕЛЬНО",
+            "### 💼", "### 🎓", "### 📚", "### 🔎", "### 📌",
+            "**РОЛЬ:**", "**ФУНКЦИОНАЛ:**", "**ТЕХНОЛОГИИ:**",
+            "**Роль:**", "**Функционал:**", "**Технологии:**",
+            "ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ", "ДОПОЛНИТЕЛЬНО",
+            "ПРАКТИЧЕСКИЙ ОПЫТ", "ВАЖНОЕ ПОЗИЦИОНИРОВАНИЕ",
+        )
+
+        earliest = len(text)
+        for marker in cutoff_substrings:
+            idx = text.find(marker)
+            if idx != -1 and idx < earliest:
+                earliest = idx
+        if earliest < len(text):
+            text = text[:earliest].rstrip(" -–—•,:;")
+        return text
 
     def _strip_inline_company_tail(self, title: str) -> str:
         cleaned = re.sub(r"\s+", " ", str(title or "")).strip(" -–—•")
@@ -626,6 +668,123 @@ class AchievementExtractionService:
             "обработк",
         )
         return any(marker in text for marker in responsibility_markers)
+
+    def _looks_like_capability_only_contribution(self, title: str, source_text: str) -> bool:
+        """Bug#10: отсекаем буллеты из секций «Функционал», «Технологии»,
+        «Дополнительно», «Навыки», которые парсер тащит в achievements.
+
+        Эти буллеты описывают CAPABILITIES (что умеет продукт) или
+        RESPONSIBILITIES (что делал на проекте), но НЕ являются
+        измеримыми достижениями (нет результата/метрики). В отличие от
+        ``_looks_like_responsibility_like_contribution``, этот фильтр
+        срабатывает ДО проверки contribution-сигнала, потому что
+        в фразах типа «генерация ATS-резюме и подготовка к собеседованиям»
+        уже есть глагол результата («подготов»), но весь смысл — это
+        описание функционала SaaS-продукта, а не личное достижение.
+
+        Возвращает ``True`` если текст состоит ИСКЛЮЧИТЕЛЬНО из
+        capability-маркеров (т.е. это не достижение, а feature list).
+        """
+        text = re.sub(r"\s+", " ", f"{title} {source_text}").strip().lower()
+        if not text:
+            return False
+
+        # Bug#10: «число» в capability-фильтре НЕ равно результат.
+        # Год (2022), количество лет (5 лет), количество сущностей (8 проектов) —
+        # это атрибуты, а не KPI. Поэтому НЕ отсекаем по наличию цифры.
+        # Отсекаем только по «%» (явный KPI) — и то осторожно, потому что
+        # «снизил на 30%» это achievement, не capability. Здесь НЕ фильтруем.
+
+        # Конкретные результативные глаголы первого лица
+        # (снизил/сократил/внедрил/запустил/...) → achievement, не
+        # capability, даже если рядом есть capability-слова.
+        if any(verb.casefold() in text for verb in CONTRIBUTION_ACTION_VERBS):
+            # Но «подготов» (подготовил/подготовка) — слишком слабый маркер,
+            # оставляем как capability если других results-слов нет.
+            strong_result_markers = (
+                "снизил", "снизила", "сниз",
+                "сократил", "сократила", "сократ",
+                "ускорил", "ускорила", "ускор",
+                "увеличил", "увеличила", "увелич",
+                "улучшил", "улучшила", "улучш",
+                "внедрил", "внедрила", "внедр",
+                "создал", "создала",
+                "разработал", "разработала", "разработ",
+                "запуст", "запустил", "запустила",
+                "навел", "навела", "навёл",
+                "реализ",
+                "автоматизировал", "автоматизировала", "автоматиз",
+                "оптимиз",
+            )
+            if any(marker in text for marker in strong_result_markers):
+                return False
+            # только слабые «подготов/участв» → считаем capability
+            weak_only_markers = (
+                "подготов",
+                "участв",
+                "участие",
+                "ведение",
+            )
+            if any(marker in text for marker in weak_only_markers):
+                pass  # fall through to capability check
+            else:
+                return False
+
+        # Capability-маркеры: «функционал», «генерация», «модуль», ...
+        capability_markers = (
+            "функционал",
+            "функциональн",
+            "возможности",
+            "возможность",
+            "модуль",
+            "генерация",
+            "генерируем",
+            "генерирует",
+            "отслеживание",
+            "отслежива",
+            "построение",
+            "построени",
+            "семантический поиск",
+            "rag-поиск",
+            "rag поиск",
+            "автоматизация процессов",
+            "анализ вакансий",
+            "анализа вакансий",
+            "анализе вакансий",
+            "анализ данных",
+            "анализа данных",
+            "анализе данных",
+            "разработка архитектуры",
+            "разработке архитектуры",
+            "проектирование архитектуры",
+            "проектировании архитектуры",
+            "продуктовая логика",
+            "продуктовой логик",
+            "роль:",
+            "функционал:",
+            "технологии:",
+            "практический опыт",
+            "упор на",
+            "фокус на",
+            "ориентация на",
+            "опыт создания",
+            "опыт разработки",
+            "опыт внедрения",
+            "опыт проектирования",
+            "опыт автоматизации",
+            "опыт интеграции",
+            # Bug#10: курсы / обучение / сертификаты
+            "data science",
+            "нейросети",
+            "нейронн",
+            "python разработка",
+            "python с нуля",
+            "аналитика данных",
+            "prompt engineering",
+            "ai/neural networks",
+            "ai/neural",
+        )
+        return any(marker in text for marker in capability_markers)
 
     def _extract_contribution_skills(self, title: str, source_text: str) -> list[str]:
         tags = extract_skill_tags(title, source_text)
@@ -772,10 +931,23 @@ class AchievementExtractionService:
             "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
             "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
             "ОПЫТ РАБОТЫ",
+            "ОПЫТ",
+            "ПРАКТИЧЕСКИЙ ОПЫТ",
             "ОБРАЗОВАНИЕ",
             "НАВЫКИ",
+            "КЛЮЧЕВЫЕ НАВЫКИ",
             "КОНТАКТЫ",
             "ОБЯЗАННОСТИ",
+            "РОЛЬ",
+            "ФУНКЦИОНАЛ",
+            "ТЕХНОЛОГИИ",
+            "КУРСЫ",
+            "ОБУЧЕНИЕ",
+            "ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ",
+            "ДОПОЛНИТЕЛЬНО",
+            "ВАЖНОЕ ПОЗИЦИОНИРОВАНИЕ",
+            "ПОЗИЦИОНИРОВАНИЕ",
+            "ЦЕЛЬ",
         }
 
     def _looks_like_resume_layout_noise(self, line: str) -> bool:
@@ -787,23 +959,53 @@ class AchievementExtractionService:
     def _looks_like_hard_achievement_stop(self, line: str) -> bool:
         normalized = self._normalize(line)
 
+        # Bug#10: расширяемый blacklist — заголовки, под которыми точно нет
+        # фактических достижений (там роли/функционал/курсы/контакты).
+        # Любая строка, начинающаяся с этих маркеров, обрывает накопление
+        # блока. Регистр/эмодзи уже съедены в _normalize.
         hard_stop_markers = {
             "НАВЫКИ",
             "ОБРАЗОВАНИЕ",
             "ОПЫТ РАБОТЫ",
+            "ОПЫТ",
+            "ПРАКТИЧЕСКИЙ ОПЫТ",
             "КОНТАКТЫ",
             "КУРСЫ",
+            "ОБУЧЕНИЕ",
+            "ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ",
+            "ДОПОЛНИТЕЛЬНОЕ",
+            "ДОПОЛНИТЕЛЬНО",
             "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+            "ВАЖНОЕ ПОЗИЦИОНИРОВАНИЕ",
+            "ПОЗИЦИОНИРОВАНИЕ",
+            "ЦЕЛЬ",
+            "КЛЮЧЕВЫЕ НАВЫКИ",
             "ПРОМПТ-ИНЖИНИРИНГ УНИВЕРСИТЕТ",
         }
 
         if normalized in hard_stop_markers:
             return True
 
-        if normalized.startswith(("НАВЫКИ ", "ОБРАЗОВАНИЕ ", "ОПЫТ РАБОТЫ ", "КОНТАКТЫ ", "КУРСЫ ")):
+        if normalized.startswith(
+            (
+                "НАВЫКИ ",
+                "ОБРАЗОВАНИЕ ",
+                "ОПЫТ РАБОТЫ ",
+                "КОНТАКТЫ ",
+                "КУРСЫ ",
+                "ОБУЧЕНИЕ ",
+                "ЦЕЛЬ ",
+                "РОЛЬ ",
+                "ФУНКЦИОНАЛ ",
+                "ТЕХНОЛОГИИ ",
+            )
+        ):
             return True
 
         if normalized.startswith("ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ"):
+            return True
+
+        if normalized.startswith("ДОПОЛНИТЕЛЬНО "):
             return True
 
         return False

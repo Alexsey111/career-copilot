@@ -482,3 +482,122 @@ def test_achievement_extraction_numbered_list_survives_company_line_between_item
     assert titles[0].startswith("Создание ИИ-системы")
     assert "Автоматизированный ИИ-контроль качества" in titles[1]
     assert "ИИ-анализ текстовых отзывов населения" in titles[2]
+
+
+# --- Bug#10: регрессионные тесты против мусорных буллетов из чужих разделов ---
+
+
+REAL_RESUME_TEXT = """
+📄 РЕЗЮМЕ
+**Перминов Алексей Иванович**
+г. Барнаул, Россия
+📞 +7 903 911-51-33
+--- ## 🎯 ЦЕЛЬ AI Product Developer / Junior AI Engineer / LLM & SaaS Developer
+Ищу роль в команде, создающей AI SaaS продукты
+--- ## 🧠 КЛЮЧЕВЫЕ НАВЫКИ **Backend & AI:** * Python (основной язык разработки) * LLM API
+* RAG (retrieval-augmented generation) * Semantic search / embeddings * Prompt engineering
+**Backend / Integration:** * REST API * Telegram Bot API * SQL * Автоматизация процессов
+--- ## 🚀 ПРОЕКТЫ ### 🤖 AI Career Copilot (SaaS платформа)
+AI-платформа для анализа вакансий и подготовки кандидатов.
+**Функционал:** * анализ вакансий HH * построение профиля кандидата и банка достижений
+* генерация ATS-совместимых резюме и cover letter через LLM * модуль подготовки к собеседованиям
+* отслеживание откликов **Технологии:** Python, LLM API, RAG-логика, SQL, API-интеграции
+**Роль:** Проектирование архитектуры, реализация MVP, интеграция LLM, продуктовая логика
+--- ## 💼 ПРАКТИЧЕСКИЙ ОПЫТ
+**Электромонтер по ремонту и обслуживанию электрооборудования**
+Алтайский государственный медицинский университет
+2015 — настоящее время
+--- ## 🎓 ОБРАЗОВАНИЕ
+**Алтайский государственный технический университет им.И.И. Ползунова**
+Инженер (автомобиле- и тракторостроение)
+1999 — 2001
+--- ## 📚 ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ
+* Data Science и нейросети (2022) * Python разработка с ChatGPT (2023) * Аналитика данных (2024)
+* Prompt Engineering (2025) * AI/Neural Networks PRO (2026)
+--- ## 🔎 ДОПОЛНИТЕЛЬНО
+* Практический опыт создания AI-ориентированных MVP и SaaS-решений
+* Упор на прикладную разработку и быстрые итерации продуктов
+* Фокус на LLM, автоматизации и создании AI-агентов
+* Ориентация на продуктовую разработку, а не только код
+"""
+
+
+def test_bug10_real_resume_does_not_extract_capability_bullets_as_achievements() -> None:
+    """Bug#10: парсер не должен извлекать буллеты из разделов «Функционал»,
+    «Роль», «Дополнительное обучение», «Дополнительно» как achievements.
+
+    Реальное резюме, на котором до фикса парсер выдавал 6 мусорных
+    достижений: «AI-платформа для анализа вакансий», «* генерация ATS...»,
+    «**Роль:** Проектирование архитектуры», «* Data Science и нейросети (2022)»
+    и т.д. После фикса все они отбрасываются как capabilities / courses /
+    layout noise.
+    """
+    service = AchievementExtractionService(enable_legacy_recovery=True)
+
+    drafts, warnings = service._build_achievement_drafts(REAL_RESUME_TEXT)
+
+    # Допускаем 0 (если в резюме нет реальных STAR-достижений) или 1-2
+    # нормальных, но НЕ мусор из разделов «Функционал» / «Роль» / курсы.
+    titles = [d.title for d in drafts]
+
+    forbidden_substrings = (
+        "Функционал",
+        "Роль:",
+        "ДОПОЛНИТЕЛЬНО",
+        "Data Science и нейросети",
+        "Python разработка с ChatGPT",
+        "Аналитика данных",
+        "Prompt Engineering",
+        "AI/Neural Networks",
+        "Практический опыт создания AI",
+        "Упор на",
+        "Фокус на",
+        "Ориентация на",
+        "AI-платформа для анализа вакансий и подготовки кандидатов",
+        "**Роль:**",
+        "**Функционал:**",
+        "**Технологии:**",
+        "генерация ATS",
+        "модуль подготовки",
+        "отслеживание откликов",
+    )
+    for forbidden in forbidden_substrings:
+        assert all(forbidden not in t for t in titles), (
+            f"парсер извлёк мусор из чужого раздела: {forbidden!r} in {titles!r}"
+        )
+
+
+def test_bug10_capability_filter_blocks_product_functionality_bullets() -> None:
+    """Bug#10: capability-only-фильтр отдельно. Буллет из секции «Функционал»
+    с capability-маркером (анализ вакансий) должен ловиться как capability.
+    """
+    service = AchievementExtractionService()
+
+    title = "AI-платформа для анализа вакансий и подготовки кандидатов."
+    assert service._looks_like_capability_only_contribution(title, title) is True
+
+
+def test_bug10_capability_filter_keeps_real_internship_with_action_verb() -> None:
+    """Bug#10: стажировка с результативным глаголом (создание/мониторинг)
+    НЕ должна отбрасываться как capability даже если в ней есть слова
+    «ИИ-система» и т.п.
+    """
+    service = AchievementExtractionService()
+
+    title = "Создание ИИ-системы для мониторинга безопасности в пансионатах"
+    assert service._looks_like_capability_only_contribution(title, title) is False
+
+
+def test_bug10_layout_heading_truncates_title_at_company_or_next_section() -> None:
+    """Bug#10: title не должен склеиваться с markdown-разделителем ---
+    или следующим ##-заголовком.
+    """
+    service = AchievementExtractionService()
+
+    title = "Проектирование архитектуры, реализация MVP --- ## 💼 ПРАКТИЧЕСКИЙ ОПЫТ"
+    cleaned = service._truncate_title_at_layout_marker(title)
+    assert "---" not in cleaned
+    assert "##" not in cleaned
+    assert "ПРАКТИЧЕСКИЙ" not in cleaned
+    assert "Проектирование архитектуры" in cleaned
+
