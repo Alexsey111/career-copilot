@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Upload, Sparkles, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Upload, Sparkles, CheckCircle2, AlertTriangle, User, Target, MapPin, BarChart3 } from "lucide-react";
 
 export default function ProfilePage() {
   const { token } = useAuth();
@@ -274,7 +274,10 @@ export default function ProfilePage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle>Текущий профиль</CardTitle>
+              <div className="flex items-center gap-2">
+                <User className="h-5 w-5 text-muted-foreground" />
+                <CardTitle>Текущий профиль</CardTitle>
+              </div>
               <Button
                 onClick={handleExtractAchievements}
                 disabled={extracting}
@@ -285,6 +288,29 @@ export default function ProfilePage() {
                 {extracting ? "Извлечение..." : "Извлечь достижения"}
               </Button>
             </div>
+            {(() => {
+              const sp = profile.structured_profile;
+              const fields = [
+                sp?.full_name, sp?.headline, sp?.location,
+                sp?.technologies?.length, sp?.ai_tools?.length,
+                sp?.automation_tools?.length, sp?.structured_evidence?.length,
+              ];
+              const filled = fields.filter((v) => v && (Array.isArray(v) ? v.length > 0 : true)).length;
+              const pct = Math.round((filled / fields.length) * 100);
+              return (
+                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  <span>Заполнено {filled} из {fields.length} полей</span>
+                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-32">
+                    <div
+                      className={`h-full transition-all ${pct >= 80 ? "bg-green-500" : pct >= 50 ? "bg-amber-500" : "bg-red-400"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="tabular-nums">{pct}%</span>
+                </div>
+              );
+            })()}
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
@@ -343,7 +369,7 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {profile.achievements?.achievements?.length > 0 && (() => {
+            {profile.achievements?.achievements?.length > 0 ? (() => {
               const list = profile.achievements.achievements as any[];
               const total = list.length;
               const confirmed = list.filter((a) => a.fact_status === "confirmed").length;
@@ -393,7 +419,27 @@ export default function ProfilePage() {
                   </Alert>
                 </div>
               );
-            })()}
+            })() : (
+              <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
+                <Target className="mx-auto h-8 w-8 text-muted-foreground/60" />
+                <p className="mt-2 text-sm font-medium text-foreground">
+                  Достижений пока нет
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Нажмите «Извлечь достижения» — парсер найдёт результаты с метриками в вашем резюме.
+                </p>
+                <Button
+                  onClick={handleExtractAchievements}
+                  disabled={extracting}
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                >
+                  <Sparkles />
+                  {extracting ? "Извлечение..." : "Извлечь достижения"}
+                </Button>
+              </div>
+            )}
 
             {profile.structured_profile?.warnings?.length > 0 && (
               <Alert className="mt-4">
