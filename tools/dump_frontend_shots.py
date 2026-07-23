@@ -36,6 +36,16 @@ MOCK_RESUME = {
         ]
     },
 }
+# Bug#3.2: oldest_in_window заполняется бэком (UTC ISO). Для UI-мока
+# вычислим «через 25 мин» и «через 14 дней 6 ч» от текущего момента.
+from datetime import datetime, timedelta, timezone
+
+_NOW = datetime.now(timezone.utc)
+_VACANCY_OLDEST = (_NOW - timedelta(minutes=35)).isoformat().replace("+00:00", "Z")
+_AI_OLDEST = (_NOW - timedelta(days=16)).isoformat().replace("+00:00", "Z")
+_UPLOAD_OLDEST = (_NOW - timedelta(days=2, hours=4)).isoformat().replace("+00:00", "Z")
+_OUTPUT_OLDEST = (_NOW - timedelta(days=27)).isoformat().replace("+00:00", "Z")
+
 MOCK_SUBSCRIPTION = {
     "user_id": "00000000-0000-0000-0000-000000000001",
     "plan": "free",
@@ -45,10 +55,34 @@ MOCK_SUBSCRIPTION = {
     "current_period_end": None,
     "canceled_at": None,
     "usage": [
-        {"action": "vacancy_import", "used": 3, "limit": 3, "window_seconds": 3600},
-        {"action": "ai_request", "used": 8, "limit": 20, "window_days": 30},
-        {"action": "doc_upload", "used": 1, "limit": 5, "window_days": 30},
-        {"action": "generated_output", "used": 3, "limit": 3, "window_days": 30},
+        {
+            "action": "vacancy_import",
+            "used": 3,
+            "limit": 3,
+            "window_seconds": 3600,
+            "oldest_in_window": _VACANCY_OLDEST,
+        },
+        {
+            "action": "ai_request",
+            "used": 8,
+            "limit": 20,
+            "window_days": 30,
+            "oldest_in_window": _AI_OLDEST,
+        },
+        {
+            "action": "doc_upload",
+            "used": 1,
+            "limit": 5,
+            "window_days": 30,
+            "oldest_in_window": _UPLOAD_OLDEST,
+        },
+        {
+            "action": "generated_output",
+            "used": 3,
+            "limit": 3,
+            "window_days": 30,
+            "oldest_in_window": _OUTPUT_OLDEST,
+        },
     ],
 }
 MOCK_VACANCIES = {

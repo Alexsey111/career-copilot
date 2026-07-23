@@ -339,6 +339,10 @@ export interface PlanUsageItem {
   limit: number | null;
   window_days?: number | null;
   window_seconds?: number | null;
+  // Самая старая запись в текущем окне (ISO 8601, UTC). null если used=0.
+  // Фронт использует для обратного отсчёта «сброс через X мин» — когда
+  // эта запись выйдет за окно, used уменьшится на 1.
+  oldest_in_window?: string | null;
 }
 
 export interface MySubscriptionResponse {

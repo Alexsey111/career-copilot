@@ -177,6 +177,59 @@ async def test_count_unknown_action_raises(db_session, test_user):
         await service.count_usage(db_session, user_id=test_user.id, action="bogus")
 
 
+# --- count_usage_with_oldest (Bug#3.2) ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_count_usage_with_oldest_returns_none_when_empty(
+    db_session, test_user
+):
+    service = QuotaService()
+    used, oldest = await service.count_usage_with_oldest(
+        db_session, user_id=test_user.id, action=QUOTA_AI_REQUEST
+    )
+    assert used == 0
+    assert oldest is None
+
+
+@pytest.mark.asyncio
+async def test_count_usage_with_oldest_picks_min_created_at(
+    db_session, test_user
+):
+    await _add_ai_run(db_session, user_id=test_user.id, workflow_name="resume_enhance")
+    await _add_ai_run(db_session, user_id=test_user.id, workflow_name="interview_coach")
+
+    service = QuotaService()
+    used, oldest = await service.count_usage_with_oldest(
+        db_session, user_id=test_user.id, action=QUOTA_AI_REQUEST
+    )
+    assert used == 2
+    assert oldest is not None
+    # oldest — timestamp самой первой записи; две записи в этом тесте
+    # создаются последовательно, поэтому oldest <= now и oldest == MIN.
+    from datetime import datetime, timezone
+
+    assert oldest <= datetime.now(timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_count_usage_with_oldest_excludes_generated_workflows(
+    db_session, test_user
+):
+    # generated-output workflow ``resume_tailoring`` исключается из
+    # ``ai_request`` — он не должен влиять ни на used, ни на oldest.
+    await _add_ai_run(
+        db_session, user_id=test_user.id, workflow_name="resume_tailoring"
+    )
+
+    service = QuotaService()
+    used, oldest = await service.count_usage_with_oldest(
+        db_session, user_id=test_user.id, action=QUOTA_AI_REQUEST
+    )
+    assert used == 0
+    assert oldest is None
+
+
 # --- check_quota ------------------------------------------------------------
 
 
@@ -267,6 +320,19 @@ async def test_get_usage_reports_all_actions(db_session, test_user):
     assert usage[QUOTA_DOC_UPLOAD]["used"] == 1
     assert usage[QUOTA_GENERATED_OUTPUT]["used"] == 1
     assert usage[QUOTA_AI_REQUEST]["limit"] == get_settings().billing_free_tier_ai_requests_limit
+    # oldest_in_window заполнен хотя бы для тех действий, у которых used>0.
+    assert usage[QUOTA_AI_REQUEST]["oldest_in_window"] is not None
+    assert usage[QUOTA_DOC_UPLOAD]["oldest_in_window"] is not None
+    assert usage[QUOTA_GENERATED_OUTPUT]["oldest_in_window"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_usage_oldest_is_none_when_used_zero(db_session, test_user):
+    service = QuotaService()
+    usage = await service.get_usage(db_session, user_id=test_user.id)
+    for action, entry in usage.items():
+        assert entry["used"] == 0
+        assert entry["oldest_in_window"] is None, action
 
 
 # --- Enforcement 402 (endpoint) --------------------------------------------

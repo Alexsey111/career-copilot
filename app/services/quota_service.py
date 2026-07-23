@@ -97,24 +97,99 @@ class QuotaService:
         остальные — дни (``billing_quota_window_days``).
         """
         window_start = self._window_start_for(action)
+        return await self._count_stmt(session, user_id=user_id, action=action, window_start=window_start)
 
+    async def count_usage_with_oldest(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        action: str,
+    ) -> tuple[int, datetime | None]:
+        """Считает usage + возвращает timestamp самой старой записи в окне.
+
+        Самая старая запись — это та, что «выйдет» из окна следующей, поэтому
+        фронт использует её для обратного отсчёта «сброс через X мин».
+        Если used=0, возвращает (0, None).
+        """
+        window_start = self._window_start_for(action)
+        count = await self._count_stmt(
+            session, user_id=user_id, action=action, window_start=window_start
+        )
+        if count == 0:
+            return 0, None
+        oldest = await self._oldest_stmt(
+            session, user_id=user_id, action=action, window_start=window_start
+        )
+        return count, oldest
+
+    async def _count_stmt(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        action: str,
+        window_start: datetime,
+    ) -> int:
+        stmt = self._build_window_stmt(action, user_id=user_id, window_start=window_start)
+        result = await session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def _oldest_stmt(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        action: str,
+        window_start: datetime,
+    ) -> datetime | None:
+        # Берём те же фильтры что и для count, но aggregate MIN(created_at).
+        model = self._model_for_action(action)
+        stmt = (
+            select(func.min(model.created_at))
+            .where(model.user_id == user_id)
+            .where(model.created_at >= window_start)
+        )
         if action == QUOTA_AI_REQUEST:
+            stmt = stmt.where(model.workflow_name.not_in(GENERATED_OUTPUT_WORKFLOWS))
+        elif action == QUOTA_GENERATED_OUTPUT:
             stmt = (
+                stmt.where(model.derived_from_id.is_(None))
+                .where(model.document_kind.in_(GENERATED_OUTPUT_KINDS))
+            )
+        result = await session.execute(stmt)
+        value = result.scalar_one_or_none()
+        return value if value is None else value
+
+    def _model_for_action(self, action: str):
+        if action == QUOTA_AI_REQUEST:
+            return AIRun
+        if action == QUOTA_DOC_UPLOAD:
+            return SourceFile
+        if action == QUOTA_GENERATED_OUTPUT:
+            return DocumentVersion
+        if action == QUOTA_VACANCY_IMPORT:
+            return Vacancy
+        raise ValueError(f"unknown quota action: {action!r}")
+
+    def _build_window_stmt(self, action: str, *, user_id: UUID, window_start: datetime):
+        if action == QUOTA_AI_REQUEST:
+            return (
                 select(func.count())
                 .select_from(AIRun)
                 .where(AIRun.user_id == user_id)
                 .where(AIRun.created_at >= window_start)
                 .where(AIRun.workflow_name.not_in(GENERATED_OUTPUT_WORKFLOWS))
             )
-        elif action == QUOTA_DOC_UPLOAD:
-            stmt = (
+        if action == QUOTA_DOC_UPLOAD:
+            return (
                 select(func.count())
                 .select_from(SourceFile)
                 .where(SourceFile.user_id == user_id)
                 .where(SourceFile.created_at >= window_start)
             )
-        elif action == QUOTA_GENERATED_OUTPUT:
-            stmt = (
+        if action == QUOTA_GENERATED_OUTPUT:
+            return (
                 select(func.count())
                 .select_from(DocumentVersion)
                 .where(DocumentVersion.user_id == user_id)
@@ -122,18 +197,14 @@ class QuotaService:
                 .where(DocumentVersion.derived_from_id.is_(None))
                 .where(DocumentVersion.document_kind.in_(GENERATED_OUTPUT_KINDS))
             )
-        elif action == QUOTA_VACANCY_IMPORT:
-            stmt = (
+        if action == QUOTA_VACANCY_IMPORT:
+            return (
                 select(func.count())
                 .select_from(Vacancy)
                 .where(Vacancy.user_id == user_id)
                 .where(Vacancy.created_at >= window_start)
             )
-        else:
-            raise ValueError(f"unknown quota action: {action!r}")
-
-        result = await session.execute(stmt)
-        return int(result.scalar_one())
+        raise ValueError(f"unknown quota action: {action!r}")
 
     async def check_quota(
         self,
@@ -195,7 +266,9 @@ class QuotaService:
             QUOTA_GENERATED_OUTPUT,
             QUOTA_VACANCY_IMPORT,
         ):
-            used = await self.count_usage(session, user_id=user_id, action=action)
+            used, oldest = await self.count_usage_with_oldest(
+                session, user_id=user_id, action=action
+            )
             entry: dict[str, Any] = {
                 "used": used,
                 "limit": None if unlimited else free_tier_limit(self._settings, action),
@@ -205,5 +278,6 @@ class QuotaService:
                 entry["window_seconds"] = int(getattr(self._settings, seconds_attr))
             else:
                 entry["window_days"] = self._settings.billing_quota_window_days
+            entry["oldest_in_window"] = oldest
             usage[action] = entry
         return usage

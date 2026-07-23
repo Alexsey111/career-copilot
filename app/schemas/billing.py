@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
 from pydantic import Field
@@ -28,6 +30,10 @@ class PlanUsageItem(StrictBaseModel):
     # demo-действий (``vacancy_import``). Ровно одно из двух присутствует.
     window_days: int | None = Field(default=None, ge=1)
     window_seconds: int | None = Field(default=None, ge=1)
+    # Самая старая запись в текущем окне (UTC). None если used=0.
+    # Фронт использует для обратного отсчёта «сброс через X мин» — когда
+    # эта запись выйдет за окно, used уменьшится на 1.
+    oldest_in_window: Optional[datetime] = None
 
 
 class MySubscriptionResponse(StrictBaseModel):

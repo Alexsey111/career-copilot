@@ -82,6 +82,7 @@ async def get_my_subscription(
             limit=item["limit"],
             window_days=item.get("window_days"),
             window_seconds=item.get("window_seconds"),
+            oldest_in_window=item.get("oldest_in_window"),
         )
         for action, item in usage_map.items()
     ]
