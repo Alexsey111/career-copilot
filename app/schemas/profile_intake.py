@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain.markets import Market
 
@@ -70,11 +70,23 @@ class GitHubProfileIntakeRequest(BaseModel):
 
 
 class GitHubPublicProfileImportRequest(BaseModel):
-    profile_url: str
+    # Bug#30a: фронт раньше слал `github_url`, бэк ждал `profile_url` → 422.
+    # Чтобы старые клиенты не падали, принимаем оба ключа в `profile_url`.
+    profile_url: str | None = None
+    github_url: str | None = None
     target_role: str | None = None
     market: Market | None = None
     max_repositories: int = Field(default=12, ge=1, le=30)
     include_readme: bool = True
+
+    @model_validator(mode="after")
+    def _resolve_profile_url(self) -> "GitHubPublicProfileImportRequest":
+        # Если profile_url пустое, но прислали github_url (старый фронт) — берём его.
+        if not self.profile_url and self.github_url:
+            object.__setattr__(self, "profile_url", self.github_url)
+        if not self.profile_url:
+            raise ValueError("profile_url is required")
+        return self
 
 
 class ProfileIntakeResponse(BaseModel):

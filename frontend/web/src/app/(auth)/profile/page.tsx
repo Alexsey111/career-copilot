@@ -144,11 +144,17 @@ export default function ProfilePage() {
     if (!token || !githubUrl.trim()) return;
     setIntaking(true);
     const result = await runAiAction(toast, "Импорт GitHub-профиля", () =>
+      // Bug#30a: бэк-схема GitHubPublicProfileImportRequest ждёт
+      // `profile_url`, не `github_url`. Старый фронт отправлял
+      // `github_url` → 422 «Request validation failed» (field required).
       api.intakeGithubPublic(token, {
-        github_url: githubUrl.trim(),
+        profile_url: githubUrl.trim(),
         target_role: githubRole.trim() || undefined,
-        repository_count: repoCount,
-        include_readme_snippets: true,
+        // Bug#30a: GitHubPublicProfileImportRequest.max_repositories/include_readme,
+        // НЕ repository_count/include_readme_snippets (старые нестандартные
+        // имена — pydantic их игнорирует, и парсер падал на defaults).
+        max_repositories: repoCount,
+        include_readme: true,
       })
     );
     setIntaking(false);

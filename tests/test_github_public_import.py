@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.services.github_public_import_service import GitHubPublicImportService
+from app.schemas.profile_intake import GitHubPublicProfileImportRequest
 
 
 API_PREFIX = "/api/v1"
@@ -241,3 +242,28 @@ def test_github_public_username_parser_rejects_non_github_url() -> None:
 
     with pytest.raises(ValueError):
         service._extract_username("https://example.com/alex-ai")
+
+
+def test_github_public_import_request_accepts_legacy_github_url_key() -> None:
+    """Bug#30a: фронт раньше слал `github_url`, бэк ждал `profile_url`.
+    Схема должна принимать оба ключа для обратной совместимости.
+    """
+    payload = GitHubPublicProfileImportRequest(
+        github_url="https://github.com/alex-ai",
+    )
+    assert payload.profile_url == "https://github.com/alex-ai"
+
+
+def test_github_public_import_request_prefers_profile_url_over_github_url() -> None:
+    """Bug#30a: если прислали оба, побеждает profile_url (явный новый ключ)."""
+    payload = GitHubPublicProfileImportRequest(
+        profile_url="https://github.com/explicit",
+        github_url="https://github.com/legacy",
+    )
+    assert payload.profile_url == "https://github.com/explicit"
+
+
+def test_github_public_import_request_rejects_when_both_missing() -> None:
+    """Bug#30a: оба пустые — ValueError на уровне модели, до бэка."""
+    with pytest.raises(Exception):  # ValidationError
+        GitHubPublicProfileImportRequest(profile_url=None, github_url=None)
