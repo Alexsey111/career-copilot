@@ -73,10 +73,14 @@ def status_grants_paid_access(status: str) -> bool:
 QUOTA_AI_REQUEST = "ai_request"
 QUOTA_DOC_UPLOAD = "doc_upload"
 QUOTA_GENERATED_OUTPUT = "generated_output"
-# Demo-режим: лимит импорта вакансий в коротком скользящем окне (час). См.
-# ``app/core/config.py`` ``billing_free_tier_vacancy_imports_limit`` и
-# ``demo_vacancy_import_window_seconds``. Окно — секунды, а не дни (см.
-# ``QuotaService._window_start_for``).
+# Demo-режим: лимит на запуск **анализа** вакансии в коротком скользящем
+# окне (час). Слот списывается когда создан ``VacancyAnalysis`` (то есть
+# когда AI реально потратился), а НЕ на сам импорт — вставка/правка
+# текста бесплатна, можно править сколько угодно. См. ``app/core/config.py``
+# ``billing_free_tier_vacancy_imports_limit`` и
+# ``demo_vacancy_import_window_seconds``. Окно — секунды (см.
+# ``QuotaService._window_start_for``). Считаем по ``vacancy_analyses`` JOIN
+# ``vacancies`` по user_id.
 QUOTA_VACANCY_IMPORT = "vacancy_import"
 QUOTA_ACTIONS: tuple[str, ...] = (
     QUOTA_AI_REQUEST,

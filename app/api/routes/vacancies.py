@@ -134,7 +134,7 @@ async def semantic_search_vacancies(
 @router.post("/import", response_model=VacancyImportResponse)
 async def import_vacancy(
     payload: VacancyImportRequest,
-    current_user: User = Depends(require_quota("vacancy_import")),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyImportResponse:
     service = VacancyImportService()
@@ -177,7 +177,7 @@ async def import_vacancy(
 async def import_vacancy_from_url(
     payload: VacancyImportFromUrlRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(require_quota("vacancy_import")),
+    current_user: User = Depends(get_current_active_user),
 ) -> VacancyImportResponse:
     hh_service = HHVacancyImportService()
     vacancy_payload = hh_service.map_to_import_payload(
@@ -211,7 +211,7 @@ async def import_vacancy_from_url(
 @router.post("/import-from-file", response_model=VacancyImportResponse)
 async def import_vacancy_from_file(
     payload: VacancyImportFromFileRequest,
-    current_user: User = Depends(require_quota("vacancy_import")),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyImportResponse:
     service = VacancyImportService()
@@ -285,7 +285,7 @@ async def get_vacancy(
 @router.post("/{vacancy_id}/analyze", response_model=VacancyAnalysisResponse)
 async def analyze_vacancy(
     vacancy_id: UUID,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_quota("vacancy_import")),
     session: AsyncSession = Depends(get_db_session),
 ) -> VacancyAnalysisResponse:
     service = VacancyAnalysisService()

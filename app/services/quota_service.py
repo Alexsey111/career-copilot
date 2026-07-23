@@ -38,7 +38,7 @@ from app.domain.billing import (
     plan_is_unlimited,
     status_grants_paid_access,
 )
-from app.models import AIRun, DocumentVersion, SourceFile, Vacancy
+from app.models import AIRun, DocumentVersion, SourceFile, Vacancy, VacancyAnalysis
 from app.repositories.subscription_repository import SubscriptionRepository
 
 
@@ -144,6 +144,19 @@ class QuotaService:
         window_start: datetime,
     ) -> datetime | None:
         # Берём те же фильтры что и для count, но aggregate MIN(created_at).
+        # Для ``vacancy_import`` — отдельный путь: VacancyAnalysis JOIN Vacancy
+        # (у VacancyAnalysis нет user_id — он лежит на родительской Vacancy).
+        if action == QUOTA_VACANCY_IMPORT:
+            stmt = (
+                select(func.min(VacancyAnalysis.created_at))
+                .join(Vacancy, Vacancy.id == VacancyAnalysis.vacancy_id)
+                .where(Vacancy.user_id == user_id)
+                .where(VacancyAnalysis.created_at >= window_start)
+            )
+            result = await session.execute(stmt)
+            value = result.scalar_one_or_none()
+            return value if value is None else value
+
         model = self._model_for_action(action)
         stmt = (
             select(func.min(model.created_at))
@@ -169,7 +182,9 @@ class QuotaService:
         if action == QUOTA_GENERATED_OUTPUT:
             return DocumentVersion
         if action == QUOTA_VACANCY_IMPORT:
-            return Vacancy
+            # Слот «импорта» теперь = запуск анализа (VacancyAnalysis JOIN
+            # Vacancy по user_id). Импорт самой вакансии — бесплатный.
+            return VacancyAnalysis
         raise ValueError(f"unknown quota action: {action!r}")
 
     def _build_window_stmt(self, action: str, *, user_id: UUID, window_start: datetime):
@@ -198,11 +213,15 @@ class QuotaService:
                 .where(DocumentVersion.document_kind.in_(GENERATED_OUTPUT_KINDS))
             )
         if action == QUOTA_VACANCY_IMPORT:
+            # Считаем анализы (VacancyAnalysis), отфильтрованные по владельцу
+            # вакансии (JOIN Vacancy). created_at берём с VacancyAnalysis —
+            # это момент запуска анализа.
             return (
                 select(func.count())
-                .select_from(Vacancy)
+                .select_from(VacancyAnalysis)
+                .join(Vacancy, Vacancy.id == VacancyAnalysis.vacancy_id)
                 .where(Vacancy.user_id == user_id)
-                .where(Vacancy.created_at >= window_start)
+                .where(VacancyAnalysis.created_at >= window_start)
             )
         raise ValueError(f"unknown quota action: {action!r}")
 
