@@ -7,6 +7,8 @@ import DeterministicDisclaimer from "@/components/DeterministicDisclaimer";
 import type { CareerInsightsResponse } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Target } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 
 const PRIORITY_COLORS: Record<string, string> = {
   high: "border-l-red-400",
@@ -132,9 +134,12 @@ export default function CareerPage() {
       )}
 
       {repeatedGaps.length === 0 && recommendations.length === 0 && (
-        <p className="text-muted-foreground text-sm">
-          Недостаточно данных. Отправьте несколько откликов, чтобы появились рекомендации.
-        </p>
+        <EmptyState
+          icon={Target}
+          title="Недостаточно данных"
+          description="Отправьте несколько откликов, чтобы появились рекомендации."
+          action={{ label: "Найти вакансию", href: "/vacancies" }}
+        />
       )}
     </div>
   );

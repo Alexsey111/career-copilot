@@ -14,7 +14,6 @@ import {
   Lock,
   ChevronsUpDown,
   LogOut,
-  Sparkles,
   BarChart3,
 } from "lucide-react";
 import {
@@ -104,8 +103,9 @@ export default function AppSidebar() {
               render={<Link href="/profile" />}
               className="data-[active=true]:bg-sidebar-accent"
             >
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                <Sparkles className="size-4" />
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden bg-sidebar-primary">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/logo.svg" alt="AI Career Copilot" className="size-8" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">AI Career Copilot</span>

@@ -9,6 +9,8 @@ import type { InterviewPrepSessionListItem } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Mic } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 
 export default function InterviewPage() {
   const { token } = useAuth();
@@ -110,7 +112,11 @@ export default function InterviewPage() {
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm text-center py-8">Сессий пока нет.</p>
+            <EmptyState
+              icon={Mic}
+              title="Сессий пока нет"
+              description="Подготовьтесь к интервью: выберите вакансию и начните сессию."
+            />
           )}
         </CardContent>
       </Card>

@@ -12,7 +12,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
+import { FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import EmptyState from "@/components/EmptyState";
 
 interface DocEntry {
   id: string;
@@ -208,11 +210,12 @@ export default function DocumentsPage() {
       </Card>
 
       {active.length === 0 && recentOnly.length === 0 && !loading && (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            Сгенерируйте резюме или письмо из страницы вакансии — они появятся здесь.
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={FileText}
+          title="Нет документов"
+          description="Сгенерируйте резюме или письмо из страницы вакансии — они появятся здесь."
+          action={{ label: "К вакансиям", href: "/vacancies" }}
+        />
       )}
     </div>
   );

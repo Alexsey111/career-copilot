@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description: "AI-powered career assistant for HeadHunter",
   icons: {
     icon: [
-      { url: "/icon.png", type: "image/png", sizes: "256x256" },
+      { url: "/logo.svg", type: "image/svg+xml" },
     ],
   },
 };

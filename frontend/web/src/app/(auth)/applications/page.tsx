@@ -7,6 +7,8 @@ import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Send } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 
 interface Application {
   id: string;
@@ -190,11 +192,12 @@ export default function ApplicationsPage() {
         ))}
 
         {applications.length === 0 && (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              Нет откликов. Начните с поиска вакансий.
-            </CardContent>
-          </Card>
+          <EmptyState
+            icon={Send}
+            title="Нет откликов"
+            description="Найдите подходящую вакансию и отправьте первое сопроводительное письмо."
+            action={{ label: "Перейти к вакансиям →", href: "/vacancies" }}
+          />
         )}
       </div>
     </div>
