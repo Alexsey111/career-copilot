@@ -35,6 +35,21 @@ export default function ProfilePage() {
   const [manualHeadline, setManualHeadline] = useState("");
   const [manualLocation, setManualLocation] = useState("");
   const [manualTech, setManualTech] = useState("");
+  // Bug#34: история текстовых импортов (localStorage), чтобы можно было
+  // повторно применить ранее загруженное резюме без файла.
+  const [resumeHistory, setResumeHistory] = useState<{ text: string; savedAt: number }[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem("resume_text_history");
+      if (!raw) return;
+      const list = JSON.parse(raw) as { text: string; savedAt: number }[];
+      if (Array.isArray(list)) setResumeHistory(list.slice(0, 5));
+    } catch {
+      // Не блокируем UI на повреждённом localStorage
+    }
+  }, []);
 
   const reloadProfile = () => {
     if (!token) return;
@@ -56,6 +71,19 @@ export default function ProfilePage() {
       const importResult: any = await api.importResume(token, resumeText);
       if (importResult?.extraction_id) {
         await api.extractStructured(token, importResult.extraction_id);
+      }
+      // Bug#34: сохраняем текст в localStorage (последние 5).
+      try {
+        const raw = localStorage.getItem("resume_text_history");
+        const list = raw ? (JSON.parse(raw) as { text: string; savedAt: number }[]) : [];
+        const next = [
+          { text: resumeText, savedAt: Date.now() },
+          ...list.filter((it) => it.text !== resumeText),
+        ].slice(0, 5);
+        localStorage.setItem("resume_text_history", JSON.stringify(next));
+        setResumeHistory(next);
+      } catch {
+        // localStorage недоступен (приватный режим) — не критично.
       }
       reloadProfile();
       setResumeText("");
@@ -196,6 +224,61 @@ export default function ProfilePage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Bug#34: недавние текстовые импорты — повторное использование без файла */}
+      {resumeHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Ранее загруженные текстовые резюме</CardTitle>
+            <CardDescription>
+              Хранятся локально в вашем браузере (последние {resumeHistory.length}). Нажмите, чтобы подставить текст в поле выше.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {resumeHistory.map((item, i) => (
+                <li
+                  key={i}
+                  className="flex items-center justify-between gap-2 p-2 border border-border rounded text-sm"
+                >
+                  <span className="truncate text-muted-foreground flex-1" title={item.text.slice(0, 200)}>
+                    {item.text.slice(0, 100).replace(/\s+/g, " ")}
+                    {item.text.length > 100 ? "…" : ""}
+                  </span>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {new Date(item.savedAt).toLocaleString("ru")}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setResumeText(item.text)}
+                  >
+                    Применить
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-3"
+              onClick={() => {
+                try {
+                  localStorage.removeItem("resume_text_history");
+                  setResumeHistory([]);
+                  toast.info("История очищена");
+                } catch {
+                  // ignore
+                }
+              }}
+            >
+              Очистить историю
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Альтернативные источники профиля */}
       <Card>
