@@ -1,25 +1,20 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import { ToastContainer, type ToastItem, type ToastType } from "@/components/Toast";
+import { createContext, useContext, type ReactNode } from "react";
+import { toast as sonnerToast, type ExternalToast } from "sonner";
 
 /**
  * Глобальный toast-провайдер для всей (auth)-зоны.
  *
- * Локальный хук `useToast` из `components/Toast.tsx` остаётся для обратной
- * совместимости (используется на /profile), но новые страницы используют
- * `useToastCtx` через этот провайдер, смонтированный в `(auth)/layout.tsx`.
- * Это убирает дублирование `<ToastContainer/>` на каждой странице и позволяет
- * любому экрану показать уведомление (замена `alert()`).
+ * Обёртка над Sonner, сохраняющая старый API (`useToastCtx().show/success/error/info`)
+ * — это позволяет 17 файлам работать без изменений. Один `<Toaster/>` смонтирован
+ * в `app/(auth)/layout.tsx`, здесь он НЕ рендерится (не дублируется).
+ *
+ * AUTO_DISMISS_MS = 4000 (3-5 сек, чтобы успеть прочитать) — настраивается в
+ * `components/ui/sonner.tsx`.
  */
+
+export type ToastType = "success" | "error" | "info";
 
 export interface ToastContextValue {
   show: (message: string, type?: ToastType) => void;
@@ -30,42 +25,22 @@ export interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-const AUTO_DISMISS_MS = 4000;
-
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const seq = useRef(0);
+  const show = (message: string, type: ToastType = "info") => {
+    const opts: ExternalToast = {};
+    if (type === "success") sonnerToast.success(message, opts);
+    else if (type === "error") sonnerToast.error(message, opts);
+    else sonnerToast.info(message, opts);
+  };
 
-  const dismiss = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  const value: ToastContextValue = {
+    show,
+    success: (m: string) => show(m, "success"),
+    error: (m: string) => show(m, "error"),
+    info: (m: string) => show(m, "info"),
+  };
 
-  const show = useCallback(
-    (message: string, type: ToastType = "info") => {
-      seq.current += 1;
-      const id = seq.current;
-      setToasts((prev) => [...prev, { id, message, type }]);
-      window.setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
-    },
-    [dismiss]
-  );
-
-  const value = useMemo<ToastContextValue>(
-    () => ({
-      show,
-      success: (m: string) => show(m, "success"),
-      error: (m: string) => show(m, "error"),
-      info: (m: string) => show(m, "info"),
-    }),
-    [show]
-  );
-
-  return (
-    <ToastContext.Provider value={value}>
-      {children}
-      <ToastContainer toasts={toasts} onDismiss={dismiss} />
-    </ToastContext.Provider>
-  );
+  return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
 }
 
 export function useToastCtx(): ToastContextValue {
