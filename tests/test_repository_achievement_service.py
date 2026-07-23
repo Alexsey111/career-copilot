@@ -52,7 +52,12 @@ def test_repository_achievement_service_builds_cautious_contribution_evidence() 
 
     assert drafts == [
         {
-            "title": "Repository evidence: backend-related implementation signals",
+            "title": (
+                "GitHub: career-copilot — "
+                "Implemented FastAPI backend architecture, "
+                "Implemented AI workflow orchestration, "
+                "Designed PostgreSQL persistence layer"
+            ),
             "skills": [
                 "AI Workflow",
                 "Async API",
@@ -65,18 +70,20 @@ def test_repository_achievement_service_builds_cautious_contribution_evidence() 
                 "Workflow Orchestration",
             ],
             "summary": (
-                "Repository evidence indicates backend-related implementation signals. "
-                "Signals found: AI Workflow, Async API, Backend Architecture, "
-                "FastAPI, OpenAI, Persistence Layer. "
+                "Repository evidence from «career-copilot». "
+                "Signals: Implemented FastAPI backend architecture; "
+                "Implemented AI workflow orchestration; "
+                "Designed PostgreSQL persistence layer. "
                 "Candidate ownership is unknown and confidence is low. "
                 "Requires candidate confirmation before use in resume."
             ),
             "situation": None,
             "task": "Review candidate ownership before using repository signals in documents.",
             "action": (
-                "Repository evidence indicates backend-related implementation signals. "
-                "Signals found: AI Workflow, Async API, Backend Architecture, "
-                "FastAPI, OpenAI, Persistence Layer. "
+                "Repository evidence from «career-copilot». "
+                "Signals: Implemented FastAPI backend architecture; "
+                "Implemented AI workflow orchestration; "
+                "Designed PostgreSQL persistence layer. "
                 "Candidate ownership is unknown and confidence is low. "
                 "Requires candidate confirmation before use in resume."
             ),
@@ -125,7 +132,7 @@ def test_repository_achievement_payload_requires_candidate_confirmation() -> Non
         "Review candidate ownership before using repository signals in documents."
     )
     assert payload["action"].startswith(
-        "Repository evidence indicates backend-related implementation signals."
+        "Repository evidence from «career-copilot»."
     )
     assert payload["result"] is None
     assert "candidate ownership is unknown" in payload["evidence_note"].lower()
@@ -189,6 +196,67 @@ def test_repository_achievement_service_ignores_non_architecture_evidence() -> N
     )
 
     assert drafts == []
+
+
+def test_repository_achievement_uses_repo_name_from_star_summary() -> None:
+    """Bug#4: разные репо должны давать различимые title/summary, чтобы
+    пользователь видел, какое достижение подтверждать."""
+    service = RepositoryAchievementService()
+
+    drafts_a = service.synthesize_project_drafts(
+        [
+            {
+                "id": "ev-1",
+                "title": "Repository signal: FastAPI/API implementation",
+                "skills": ["FastAPI"],
+                "star_summary": {"project": "alpha", "category": "architecture_evidence"},
+            }
+        ]
+    )
+    drafts_b = service.synthesize_project_drafts(
+        [
+            {
+                "id": "ev-2",
+                "title": "Repository signal: database persistence",
+                "skills": ["PostgreSQL", "SQLAlchemy"],
+                "star_summary": {"project": "beta", "category": "architecture_evidence"},
+            }
+        ]
+    )
+
+    assert drafts_a[0]["title"].startswith("GitHub: alpha —")
+    assert drafts_b[0]["title"].startswith("GitHub: beta —")
+    assert drafts_a[0]["title"] != drafts_b[0]["title"]
+    assert "alpha" in drafts_a[0]["summary"]
+    assert "beta" in drafts_b[0]["summary"]
+    # Конкретные сигналы из title (без префикса "Repository signal: ")
+    assert "FastAPI/API implementation" in drafts_a[0]["summary"]
+    assert "database persistence" in drafts_b[0]["summary"]
+
+
+def test_repository_achievement_falls_back_to_snippet_repo_name() -> None:
+    """Если ``star_summary.project`` не заполнен — имя репо берём из
+    ``snippet_text`` («Repository evidence indicates X in <repo_name>»)."""
+    service = RepositoryAchievementService()
+
+    drafts = service.synthesize_project_drafts(
+        [
+            {
+                "id": "ev-1",
+                "title": "Repository signal: containerized infrastructure",
+                "skills": ["Docker"],
+                "snippet_text": (
+                    "Repository evidence indicates containerized "
+                    "infrastructure signals in my-cool-repo. "
+                    "Signals: Dockerfile, docker-compose.yml."
+                ),
+                "star_summary": {"category": "architecture_evidence"},
+            }
+        ]
+    )
+
+    assert drafts[0]["title"].startswith("GitHub: my-cool-repo —")
+    assert "my-cool-repo" in drafts[0]["summary"]
 
 
 class _NoResumeExtractionRepository:

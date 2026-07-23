@@ -201,7 +201,7 @@ class RepositoryAchievementService:
         items: list[dict[str, Any]],
     ) -> RepositoryAchievementDraft:
         skills = self._aggregate_skills(items)
-        title = self._draft_title(skills=skills)
+        title = self._draft_title(project_key=project_key, items=items, skills=skills)
         summary = self._summary(project_key=project_key, items=items, skills=skills)
         evidence_ids = [
             str(item.get("id") or item.get("evidence_id") or "").strip()
@@ -225,6 +225,45 @@ class RepositoryAchievementService:
             source_evidence_ids=self._dedupe(evidence_ids),
         )
 
+    def _evidence_titles(self, items: Sequence[Mapping[str, Any]]) -> list[str]:
+        """Конкретные человекочитаемые подписи сигналов (например,
+        «FastAPI/API implementation»). Берём из ``item['title']`` —
+        его кладёт ``github_repository_evidence_service``. Если нет —
+        фолбэк на ``star_summary['type']``."""
+        out: list[str] = []
+        for item in items:
+            title = str(item.get("title") or "").strip()
+            if title:
+                # убираем общий префикс «Repository signal: » — он
+                # дублируется в project_title, и в UI выглядит шумно.
+                if title.lower().startswith("repository signal:"):
+                    title = title.split(":", 1)[1].strip()
+                if title and title.lower() not in {t.lower() for t in out}:
+                    out.append(title)
+                continue
+            star_summary = dict(item.get("star_summary") or {})
+            fallback = str(star_summary.get("type") or star_summary.get("category") or "").strip()
+            if fallback and fallback.lower() not in {t.lower() for t in out}:
+                out.append(fallback)
+        return out
+
+    def _repo_name(self, items: Sequence[Mapping[str, Any]]) -> str | None:
+        """Имя репо (если есть в star_summary) или None."""
+        for item in items:
+            star_summary = dict(item.get("star_summary") or {})
+            project = str(star_summary.get("project") or "").strip()
+            if project:
+                return project
+        # фолбэк: вытащим «in <repo_name>» из snippet_text
+        for item in items:
+            text = str(item.get("snippet_text") or "")
+            match = re.search(r"\bin\s+([A-Za-z0-9_.\-]+)", text)
+            if match:
+                name = match.group(1).strip().rstrip(".")
+                if name and name.lower() != "repository":
+                    return name
+        return None
+
     def _aggregate_skills(self, items: Sequence[Mapping[str, Any]]) -> list[str]:
         skills: list[str] = []
         for item in items:
@@ -243,10 +282,33 @@ class RepositoryAchievementService:
     def _draft_title(
         self,
         *,
+        project_key: str,
+        items: Sequence[Mapping[str, Any]],
         skills: list[str],
     ) -> str:
-        scope = self._implementation_scope(skills)
-        return f"Repository evidence: {scope} implementation signals"
+        """Человекочитаемый title: «GitHub: <repo> — <scope> сигналы».
+
+        Раньше для всех репо был одинаковый «Repository evidence:
+        <scope> implementation signals» — пользователь не мог отличить
+        проекты и подтвердить нужный. Теперь берём ``repo_name`` из
+        evidence и конкретные ``evidence_titles`` (например, «FastAPI/API
+        implementation», «database persistence»). Если repo_name нет —
+        фолбэк на project_key (раньше было просто «repository_project»).
+        """
+        repo_name = self._repo_name(items)
+        evidence_titles = self._evidence_titles(items)
+
+        if evidence_titles:
+            signals_label = ", ".join(evidence_titles[:3])
+        elif skills:
+            scope = self._implementation_scope(skills)
+            signals_label = f"{scope} implementation"
+        else:
+            signals_label = "architecture signals"
+
+        if repo_name:
+            return f"GitHub: {repo_name} — {signals_label}"
+        return f"GitHub: {project_key} — {signals_label}"
 
     def _summary(
         self,
@@ -256,15 +318,27 @@ class RepositoryAchievementService:
         skills: list[str],
     ) -> str:
         skill_text = ", ".join(skills[:6])
-        scope = self._implementation_scope(skills)
+        repo_name = self._repo_name(items)
+        evidence_titles = self._evidence_titles(items)
+        # Конкретные сигналы (например, «FastAPI/API implementation»)
+        # делают summary различимым между проектами — без них все
+        # репо выглядели одинаково, и подтверждать их было невозможно.
+        signals_text = (
+            "; ".join(evidence_titles[:4]) if evidence_titles else ""
+        )
 
-        parts = [
-            f"Repository evidence indicates {scope} implementation signals.",
-            f"Signals found: {skill_text}." if skill_text else "",
-            "Candidate ownership is unknown and confidence is low.",
-            "Requires candidate confirmation before use in resume.",
-        ]
-        return " ".join(part for part in parts if part).strip()
+        parts: list[str] = []
+        if repo_name:
+            parts.append(f"Repository evidence from «{repo_name}».")
+        else:
+            parts.append("Repository evidence detected.")
+        if signals_text:
+            parts.append(f"Signals: {signals_text}.")
+        elif skill_text:
+            parts.append(f"Signals: {skill_text}.")
+        parts.append("Candidate ownership is unknown and confidence is low.")
+        parts.append("Requires candidate confirmation before use in resume.")
+        return " ".join(parts).strip()
 
     def _implementation_scope(self, skills: Sequence[str]) -> str:
         normalized = {skill.strip().lower() for skill in skills}
