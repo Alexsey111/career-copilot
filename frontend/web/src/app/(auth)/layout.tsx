@@ -6,7 +6,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ToastProvider } from "@/contexts/ToastContext";
 import { SessionDocumentsProvider } from "@/contexts/SessionDocumentsContext";
 import { Toaster } from "@/components/ui/sonner";
-import Sidebar from "@/components/Sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
+import AppSidebar from "@/components/Sidebar";
 
 export default function AuthLayout({
   children,
@@ -35,10 +37,20 @@ export default function AuthLayout({
   return (
     <ToastProvider>
       <SessionDocumentsProvider>
-        <div className="flex h-screen">
-          <Sidebar />
-          <main className="flex-1 overflow-auto p-6">{children}</main>
-        </div>
+        <TooltipProvider>
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset>
+              <header className="flex h-14 items-center gap-2 border-b px-4">
+                <SidebarTrigger />
+                <span className="text-sm text-muted-foreground">
+                  AI Career Copilot
+                </span>
+              </header>
+              <main className="flex-1 p-6">{children}</main>
+            </SidebarInset>
+          </SidebarProvider>
+        </TooltipProvider>
         {/* Один глобальный Toaster для всех toast'ов в (auth)-зоне */}
         <Toaster />
       </SessionDocumentsProvider>
