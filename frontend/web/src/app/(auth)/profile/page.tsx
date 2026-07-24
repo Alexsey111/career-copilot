@@ -38,6 +38,25 @@ export default function ProfilePage() {
   // Bug#34: история текстовых импортов (localStorage), чтобы можно было
   // повторно применить ранее загруженное резюме без файла.
   const [resumeHistory, setResumeHistory] = useState<{ text: string; savedAt: number }[]>([]);
+  // Backend resume history: список ранее загруженных SourceFile (PDF/DOCX/TXT)
+  // + reuse-эндпоинт для повторной активации / reparse.
+  const [serverResumes, setServerResumes] = useState<Array<{
+    id: string;
+    original_name: string;
+    mime_type: string | null;
+    size_bytes: number | null;
+    lifecycle_status: "active" | "superseded";
+    created_at: string;
+    updated_at: string;
+    latest_extraction_id: string | null;
+    text_preview: string | null;
+    detected_format: string | null;
+    is_active: boolean;
+    is_reusable: boolean;
+  }>>([]);
+  const [activeServerResumeId, setActiveServerResumeId] = useState<string | null>(null);
+  const [loadingResumes, setLoadingResumes] = useState(false);
+  const [reusingId, setReusingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -56,11 +75,49 @@ export default function ProfilePage() {
     api.getProfile(token).then(setProfile).catch(() => {});
   };
 
+  const reloadServerResumes = async () => {
+    if (!token) return;
+    setLoadingResumes(true);
+    try {
+      const data = await api.listResumes(token);
+      setServerResumes(data.items);
+      setActiveServerResumeId(data.active_source_file_id);
+    } catch (err: any) {
+      console.error("listResumes failed", err?.message || err);
+    } finally {
+      setLoadingResumes(false);
+    }
+  };
+
+  const handleReuseResume = async (sourceFileId: string, reparse: boolean) => {
+    if (!token) return;
+    setReusingId(sourceFileId);
+    try {
+      const result = await api.reuseResume(token, sourceFileId, { reparse });
+      if (result.status === "needs_import") {
+        toast.error("Файл ещё не был распарсен — загрузите его заново");
+        return;
+      }
+      toast.success(
+        reparse
+          ? "Резюме перепарсено"
+          : "Активировано ранее загруженное резюме",
+      );
+      reloadProfile();
+      reloadServerResumes();
+    } catch (err: any) {
+      toast.error("Ошибка: " + (err?.message || "неизвестная"));
+    } finally {
+      setReusingId(null);
+    }
+  };
+
   useEffect(() => {
     if (token) {
       api.getProfile(token).then(setProfile).catch((err) => {
         console.error("getProfile failed", err.message);
       });
+      reloadServerResumes();
     }
   }, [token]);
 
@@ -86,6 +143,7 @@ export default function ProfilePage() {
         // localStorage недоступен (приватный режим) — не критично.
       }
       reloadProfile();
+      reloadServerResumes();
       setResumeText("");
       toast.success("Резюме загружено");
     } catch (err: any) {
@@ -282,6 +340,90 @@ export default function ProfilePage() {
             >
               Очистить историю
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Server-side resume history: PDF/DOCX/TXT, ранее загруженные на бэк.
+          В отличие от localStorage выше — этот список общий между устройствами
+          и не пропадает при очистке браузера. Можно переключаться между
+          версиями («Использовать») или перепарсить («Перепарсить»). */}
+      {serverResumes.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Ранее загруженные файлы</CardTitle>
+            <CardDescription>
+              PDF/DOCX/TXT на сервере ({serverResumes.length} шт.).
+              «Использовать» — сделать активным, без перепарсинга.
+              «Перепарсить» — заново извлечь текст (если файл правили или
+              менялся парсер).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {serverResumes.map((item) => {
+                const isLoading = reusingId === item.id;
+                return (
+                  <li
+                    key={item.id}
+                    className="flex items-center justify-between gap-2 p-2 border border-border rounded text-sm"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium" title={item.original_name}>
+                          {item.original_name}
+                        </span>
+                        {item.is_active ? (
+                          <Badge variant="default" className="shrink-0">активно</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="shrink-0">в архиве</Badge>
+                        )}
+                        {item.detected_format ? (
+                          <Badge variant="outline" className="shrink-0 uppercase">
+                            {item.detected_format}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {item.text_preview ? (
+                        <p
+                          className="text-xs text-muted-foreground truncate mt-0.5"
+                          title={item.text_preview}
+                        >
+                          {item.text_preview.slice(0, 80).replace(/\s+/g, " ")}…
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic mt-0.5">
+                          ещё не распарсен
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={item.is_active ? "ghost" : "outline"}
+                        disabled={item.is_active || isLoading}
+                        onClick={() => handleReuseResume(item.id, false)}
+                      >
+                        {isLoading ? "…" : "Использовать"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isLoading}
+                        onClick={() => handleReuseResume(item.id, true)}
+                      >
+                        Перепарсить
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {loadingResumes ? (
+              <p className="text-xs text-muted-foreground mt-2">Загрузка…</p>
+            ) : null}
           </CardContent>
         </Card>
       )}

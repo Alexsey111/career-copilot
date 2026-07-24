@@ -169,6 +169,52 @@ class SourceFileService:
             file_kind="resume",
         )
 
+    async def activate_resume(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        source_file_id: UUID,
+    ) -> SourceFile:
+        """Сделать ранее загруженный SourceFile активным.
+
+        Симметрично ветке дубля в ``upload_source_file`` (lines 95-104):
+        supersede всех активных resume того же пользователя + activate
+        указанного. 404 если не resume / чужой / не существует. Это «лёгкий»
+        reuse — без reparse; FileExtraction остаётся прежний.
+        """
+        source_file = await self.source_file_repository.get_by_id(
+            session,
+            source_file_id,
+            user_id=user_id,
+        )
+        if source_file is None:
+            raise AppError(
+                status_code=404,
+                code="source_file_not_found",
+                message="Source file not found",
+            )
+        if source_file.file_kind != "resume":
+            raise AppError(
+                status_code=400,
+                code="invalid_file_kind",
+                message="Only resume source files can be reactivated",
+                details={"file_kind": source_file.file_kind},
+            )
+        if source_file.lifecycle_status == "active":
+            return source_file
+        await self.source_file_repository.supersede_active_by_kind(
+            session,
+            user_id=user_id,
+            file_kind="resume",
+            superseded_by_id=source_file.id,
+            exclude_id=source_file.id,
+        )
+        return await self.source_file_repository.activate(
+            session,
+            source_file=source_file,
+        )
+
     def _sanitize_filename(self, filename: str) -> str:
         base_name = Path(filename).name.strip()
         cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", base_name)

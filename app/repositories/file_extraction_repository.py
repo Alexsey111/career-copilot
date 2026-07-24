@@ -106,3 +106,61 @@ class FileExtractionRepository:
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_latest_for_source_files(
+        self,
+        session: AsyncSession,
+        *,
+        source_file_ids: list[UUID],
+    ) -> dict[UUID, FileExtraction]:
+        """Batch: для списка SourceFile возвращает dict source_file_id → latest FileExtraction.
+
+        Использует window-function подход (ROW_NUMBER) — портабельно между
+        PostgreSQL/SQLite, не зависит от ``DISTINCT ON``. Пустой вход → ``{}``.
+        Для SourceFile без extractions — отсутствует в dict.
+        """
+        if not source_file_ids:
+            return {}
+        from sqlalchemy import func
+
+        rn = (
+            func.row_number()
+            .over(
+                partition_by=FileExtraction.source_file_id,
+                order_by=FileExtraction.created_at.desc(),
+            )
+            .label("rn")
+        )
+        subq = (
+            select(
+                FileExtraction.id,
+                FileExtraction.source_file_id,
+                FileExtraction.status,
+                FileExtraction.parser_name,
+                FileExtraction.parser_version,
+                FileExtraction.extracted_text,
+                FileExtraction.extracted_metadata_json,
+                FileExtraction.created_at,
+                FileExtraction.updated_at,
+                rn,
+            )
+            .where(FileExtraction.source_file_id.in_(source_file_ids))
+            .subquery()
+        )
+        stmt = select(subq).where(subq.c.rn == 1)
+        result = await session.execute(stmt)
+        out: dict[UUID, FileExtraction] = {}
+        for row in result.all():
+            extraction = FileExtraction(
+                id=row.id,
+                source_file_id=row.source_file_id,
+                status=row.status,
+                parser_name=row.parser_name,
+                parser_version=row.parser_version,
+                extracted_text=row.extracted_text,
+                extracted_metadata_json=row.extracted_metadata_json,
+            )
+            extraction.created_at = row.created_at
+            extraction.updated_at = row.updated_at
+            out[row.source_file_id] = extraction
+        return out

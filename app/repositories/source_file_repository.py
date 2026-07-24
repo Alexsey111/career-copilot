@@ -59,6 +59,33 @@ class SourceFileRepository:
             return None
         return source_file
 
+    async def list_by_user_and_kind(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        file_kind: str,
+        include_superseded: bool = True,
+    ) -> list[SourceFile]:
+        """Список SourceFile пользователя по file_kind, свежие сверху.
+
+        Сортировка updated_at desc → created_at desc (детерминированный
+        tie-breaker для двух событий в один timestamp). Используется для
+        ``GET /profile/resumes``, чтобы UI мог показать «историю загрузок».
+        """
+        stmt = (
+            select(SourceFile)
+            .where(
+                SourceFile.user_id == user_id,
+                SourceFile.file_kind == file_kind,
+            )
+            .order_by(SourceFile.updated_at.desc(), SourceFile.created_at.desc())
+        )
+        if not include_superseded:
+            stmt = stmt.where(SourceFile.lifecycle_status == "active")
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_duplicate_by_hash(
         self,
         session: AsyncSession,

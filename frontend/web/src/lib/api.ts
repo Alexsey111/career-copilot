@@ -149,6 +149,63 @@ class ApiClient {
     });
   }
 
+  // Resume history (Bug#34 expansion): список + reuse ранее загруженных PDF/DOCX/TXT.
+  async listResumes(
+    token: string,
+    params: { includeSuperseded?: boolean } = {},
+  ) {
+    const search = new URLSearchParams();
+    if (params.includeSuperseded === false) {
+      search.set("include_superseded", "false");
+    }
+    const qs = search.toString();
+    return this.request<{
+      items: Array<{
+        id: string;
+        original_name: string;
+        mime_type: string | null;
+        size_bytes: number | null;
+        lifecycle_status: "active" | "superseded";
+        lineage_group_id: string | null;
+        superseded_by_id: string | null;
+        created_at: string;
+        updated_at: string;
+        latest_extraction_id: string | null;
+        latest_extraction_status: string | null;
+        text_preview: string | null;
+        detected_format: string | null;
+        extracted_at: string | null;
+        is_active: boolean;
+        is_reusable: boolean;
+      }>;
+      total: number;
+      active_source_file_id: string | null;
+    }>(`/profile/resumes${qs ? `?${qs}` : ""}`, { token });
+  }
+
+  async reuseResume(
+    token: string,
+    sourceFileId: string,
+    options: { reparse?: boolean } = {},
+  ) {
+    const qs = options.reparse ? "?reparse=true" : "";
+    return this.request<{
+      profile_id: string | null;
+      source_file_id: string;
+      extraction_id: string | null;
+      status: string;
+      detected_format: string | null;
+      text_length: number | null;
+      text_preview: string | null;
+      reparse_performed: boolean;
+      reused: boolean;
+      created_at: string;
+    }>(`/profile/resumes/${sourceFileId}/reuse${qs}`, {
+      method: "POST",
+      token,
+    });
+  }
+
   // Vacancies
   async searchVacancies(token: string, params: Record<string, string | number>) {
     const query = new URLSearchParams(params as Record<string, string>).toString();

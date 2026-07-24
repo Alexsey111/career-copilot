@@ -19,6 +19,7 @@ from app.api.routes.pipeline_async import router as pipeline_async_router
 from app.api.routes.pipeline_execution_routes import router as pipeline_execution_router
 from app.api.routes.privacy import router as privacy_router
 from app.api.routes.profile import router as profile_router
+from app.api.routes.resumes import router as resumes_router
 from app.api.routes.review_workspace_routes import router as review_workspace_router
 from app.api.routes.review_summary import router as review_summary_router
 from app.api.routes.tasks import router as tasks_router
@@ -34,6 +35,7 @@ def build_api_router() -> APIRouter:
     api_router.include_router(health_router)
     api_router.include_router(files_router)
     api_router.include_router(profile_router)
+    api_router.include_router(resumes_router)
     api_router.include_router(vacancies_router)
     api_router.include_router(documents_router)
     api_router.include_router(executions_router)
