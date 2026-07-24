@@ -129,3 +129,24 @@ async def test_get_subscription_reflects_persisted_ai_provider(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["ai_provider"] == "openai"
+
+
+@pytest.mark.asyncio
+async def test_create_subscription_accepts_ai_provider(
+    db_session, test_user
+):
+    """Регрессия: ``SubscriptionRepository.create()`` должен принимать
+    ``ai_provider``. До фикса — PATCH для free-пользователя без Subscription
+    падал с TypeError на ``create()``."""
+    from app.repositories.subscription_repository import SubscriptionRepository
+
+    sub = await SubscriptionRepository().create(
+        db_session,
+        user_id=test_user.id,
+        plan="free",
+        status="active",
+        ai_provider="deepseek",
+    )
+    await db_session.flush()
+
+    assert sub.ai_provider == "deepseek"

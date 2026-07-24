@@ -46,6 +46,7 @@ class SubscriptionRepository:
         current_period_end: datetime | None = None,
         canceled_at: datetime | None = None,
         metadata_json: dict | None = None,
+        ai_provider: str | None = None,
     ) -> Subscription:
         subscription = Subscription(
             user_id=user_id,
@@ -56,6 +57,7 @@ class SubscriptionRepository:
             current_period_end=current_period_end,
             canceled_at=canceled_at,
             metadata_json=metadata_json or {},
+            ai_provider=ai_provider,
         )
         session.add(subscription)
         await session.flush()

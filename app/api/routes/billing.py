@@ -117,6 +117,11 @@ async def update_my_subscription(
         user_id=current_user.id,
         ai_provider=payload.ai_provider,
     )
+    # ``get_db_session`` НЕ делает commit() — фиксируем явно. Без этого
+    # следующий GET видит stale-данные (autoflush=False, autocommit=False,
+    # закрытие сессии просто rollback). Тот же паттерн в ``profile.py:207``
+    # и других route-файлах.
+    await session.commit()
     # Возвращаем полный view (с usage), чтобы UI не делал второй GET.
     subscription = await service.get_my_subscription(
         session, user_id=current_user.id
