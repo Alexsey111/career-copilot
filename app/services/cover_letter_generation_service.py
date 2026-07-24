@@ -586,6 +586,16 @@ class CoverLetterGenerationService:
             if not title or fact_status != "confirmed":
                 continue
 
+            # Bug#75: даже при fact_status="confirmed" title может быть
+            # section heading'ом / sub-bullet'ом / названием курса
+            # (ZEBRA-репорт: «* Data Science и нейросети (2022)»,
+            # «**Роль:** …», «* Практический опыт создания AI-ориентированных
+            # MVP и SaaS-решений»). Такие «достижения» в cover letter — мусор.
+            # Не трогаем achievement extraction (там юзер review'ит), но в
+            # cover letter (и resume, если подключит) не пускаем.
+            if self._is_garbage_achievement_title(title):
+                continue
+
             items.append(
                 {
                     "id": str(getattr(achievement, "id", "")),
@@ -610,6 +620,95 @@ class CoverLetterGenerationService:
             deduped.append(item)
 
         return deduped
+
+    # Bug#75: чёрный список паттернов, которые НИКОГДА не должны попадать
+    # в cover letter как достижения. Это section headings («Роль:»,
+    # «Функционал:», «Технологии:», «Дополнительно»), под-буллеты из
+    # «ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ» (курсы, даты в скобках) и общие
+    # «дополнительные сведения» (Практический опыт, …).
+    _GARBAGE_ACHIEVEMENT_PREFIX_RE = re.compile(
+        r"^\s*(?:\*+\s*)?(?:"
+        r"роль|функционал|технологии|дополнительно(?:е\s+обучение)?|"
+        r"обязанности|задачи|стек|инструменты|"
+        r"практический\s+опыт|важное\s+позиционирование|позиционирование"
+        r")\s*[:：\-]?\s*",
+        re.IGNORECASE,
+    )
+
+    _GARBAGE_ACHIEVEMENT_TITLES = frozenset({
+        "РОЛЬ",
+        "ФУНКЦИОНАЛ",
+        "ТЕХНОЛОГИИ",
+        "ДОПОЛНИТЕЛЬНО",
+        "ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ",
+        "ОБЯЗАННОСТИ",
+        "ЗАДАЧИ",
+        "СТЕК",
+        "ИНСТРУМЕНТЫ",
+        "ПРАКТИЧЕСКИЙ ОПЫТ",
+        "ВАЖНОЕ ПОЗИЦИОНИРОВАНИЕ",
+        "ПОЗИЦИОНИРОВАНИЕ",
+    })
+
+    @classmethod
+    def _is_garbage_achievement_title(cls, title: str) -> bool:
+        cleaned = re.sub(r"\s+", " ", str(title or "")).strip(" .;-–—•*")
+        if not cleaned:
+            return True
+
+        # Чистый heading без хвоста — мусор.
+        if cleaned.upper() in cls._GARBAGE_ACHIEVEMENT_TITLES:
+            return True
+
+        # 1) «**Роль:** Проектирование архитектуры…»,
+        # 2) «* Практический опыт создания AI-…»,
+        # 3) «Роль: …»,
+        # 4) «Дополнительное обучение: …».
+        if cls._GARBAGE_ACHIEVEMENT_PREFIX_RE.match(cleaned):
+            return True
+
+        # 5) Курс из «ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ»: «Data Science и нейросети (2022)»,
+        # «Python разработка с ChatGPT (2023)», «Аналитика данных (2024)» и т.п.
+        # Маркеры: «(2022)»/«(2023)»/«(2024)»/«(2025)»/«(2026)» — год в скобках.
+        if re.search(r"\b(19|20)\d{2}\)\s*$", cleaned) and " " in cleaned:
+            return True
+
+        # 6) Маркер «PRO» в курсах («AI/Neural Networks PRO (2026)»).
+        if re.search(r"\bPRO\b", cleaned) and re.search(r"\(\d{4}\)", cleaned):
+            return True
+
+        # 7) Под-булеты из секции «ДОПОЛНИТЕЛЬНО» (sub-section «🔎 ДОПОЛНИТЕЛЬНО»):
+        # «* Упор на прикладную разработку и быстрые итерации продуктов»,
+        # «* Фокус на LLM, автоматизации и создании AI-агентов»,
+        # «* Ориентация на продуктовую разработку, а не только код».
+        # У них нет action verb результата (Снизил/Разработал/Создал/Внедрил/...)
+        # и они начинаются с `* `. Помечаем как мусор, если первое слово
+        # не входит в список action verbs результата.
+        if title.lstrip().startswith("*"):
+            stripped_after_star = title.lstrip().lstrip("*").strip()
+            first_word = re.match(r"^[\s\"'(\[]*([\w\-]+)", stripped_after_star)
+            if first_word:
+                token = first_word.group(1).lower()
+                if token not in cls._ACHIEVEMENT_ACTION_VERBS:
+                    return True
+
+        return False
+
+    # Bug#75: глаголы результата, которые сигнализируют о реальном
+    # достижении (а не под-булете из раздела «ДОПОЛНИТЕЛЬНО»). Полный
+    # список в achievement_extraction_service.CONTRIBUTION_ACTION_VERBS,
+    # тут только самые частые — этого достаточно, чтобы отсеять «* Упор
+    # на прикладную разработку…» / «* Фокус на LLM…».
+    _ACHIEVEMENT_ACTION_VERBS = frozenset({
+        "создал", "создала", "сократил", "сократила", "снизил", "снизила",
+        "ускорил", "ускорила", "улучшил", "улучшила", "внедрил", "внедрила",
+        "разработал", "разработала", "провел", "провела", "перевел", "перевела",
+        "настроил", "настроила", "спроектировал", "спроектировала",
+        "реализовал", "реализовала", "оптимизировал", "оптимизировала",
+        "автоматизировал", "автоматизировала", "построил", "построила",
+        "запустил", "запустила", "увеличил", "увеличила", "вырастил", "вырастила",
+        "привлек", "привлекла", "выполнил", "выполнила", "освоил", "освоила",
+    })
 
     def _get_confirmed_achievement_titles(self, achievements) -> list[str]:
         """

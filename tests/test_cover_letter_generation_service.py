@@ -1454,3 +1454,107 @@ def test_cover_letter_relevance_paragraph_uses_supply_management_experience() ->
     assert "аккуратное выполнение задач" not in lowered
     assert "ответственност" not in lowered
     assert "быстро включ" not in lowered
+
+
+# --- Bug#75: фильтр мусорных title'ов в cover letter ------------------------
+# Юзер (ZEBRA-репорт) видел в сопроводительном письме sub-bullets из
+# секций «Роль:», «Дополнительное обучение», «Дополнительно» и т.п.
+# В БД они лежат с fact_status="confirmed", потому что extraction
+# (после a8d0ced) теперь ловит markdown `*` буллеты. cover letter НЕ
+# должен их использовать — это section headings / названия курсов, а не
+# реальные ачивки. Закрываем на уровне _get_confirmed_achievements.
+
+
+def test_is_garbage_achievement_title_filters_zebra_mushroom_titles() -> None:
+    """Регрессия Bug#75: 6 мусорных title'ов из ZEBRA-репорта отсеиваются."""
+    service = CoverLetterGenerationService()
+
+    garbage = [
+        # «Роль:» / «**Роль:**» section headings (под-булет из ПРОЕКТЫ).
+        "**Роль:** Проектирование архитектуры, реализация MVP, интеграция LLM, продуктовая логика",
+        "Роль: построение архитектуры",
+        # Курсы из секции «ДОПОЛНИТЕЛЬНОЕ ОБУЧЕНИЕ» (год в скобках).
+        "* Data Science и нейросети (2022)",
+        "* Python разработка с ChatGPT (2023)",
+        "* Аналитика данных (2024)",
+        "Prompt Engineering (2025)",
+        "AI/Neural Networks PRO (2026)",
+        # Под-булеты из «ДОПОЛНИТЕЛЬНО» (нет action verb).
+        "* Упор на прикладную разработку и быстрые итерации продуктов",
+        "* Фокус на LLM, автоматизации и создании AI-агентов",
+        "* Ориентация на продуктовую разработку, а не только код",
+        # Section heading без хвоста.
+        "Дополнительно",
+        "Практический опыт",
+    ]
+    for title in garbage:
+        assert service._is_garbage_achievement_title(title) is True, title
+
+
+def test_is_garbage_achievement_title_keeps_real_achievements() -> None:
+    """Регрессия Bug#75: реальные достижения НЕ отсеиваются фильтром."""
+    service = CoverLetterGenerationService()
+
+    real = [
+        "Разработал FastAPI сервис для обработки 10K RPS",
+        "Снизил latency на 30%",
+        "Создал AI-платформу для упрощения онбординга",
+        "Внедрил CI/CD, ускорив деплой с 30 до 5 минут",
+        # Под-булет с глаголом результата — должен пройти.
+        "* Создал RAG-систему для команды из 5 человек",
+        "* Внедрил автоматизацию, сократив ручную работу на 80%",
+        "AI-платформа для анализа вакансий и подготовки кандидатов.",
+    ]
+    for title in real:
+        assert service._is_garbage_achievement_title(title) is False, title
+
+
+def test_get_confirmed_achievements_excludes_zebra_mushroom_titles() -> None:
+    """Регрессия Bug#75: cover letter НЕ получает мусорные title'ы
+    даже если в БД у них fact_status=confirmed."""
+    service = CoverLetterGenerationService()
+
+    profile_achievements = [
+        SimpleNamespace(
+            id="real-1",
+            title="Снизил latency на 30%",
+            fact_status="confirmed",
+            situation=None, task=None, action=None, result=None, metric_text=None,
+        ),
+        SimpleNamespace(
+            id="garbage-1",
+            title="**Роль:** Проектирование архитектуры, реализация MVP",
+            fact_status="confirmed",
+            situation=None, task=None, action=None, result=None, metric_text=None,
+        ),
+        SimpleNamespace(
+            id="garbage-2",
+            title="* Упор на прикладную разработку и быстрые итерации продуктов",
+            fact_status="confirmed",
+            situation=None, task=None, action=None, result=None, metric_text=None,
+        ),
+        SimpleNamespace(
+            id="garbage-3",
+            title="* Data Science и нейросети (2022)",
+            fact_status="confirmed",
+            situation=None, task=None, action=None, result=None, metric_text=None,
+        ),
+        SimpleNamespace(
+            id="real-2",
+            title="* Создал RAG-систему для команды из 5 человек",
+            fact_status="confirmed",
+            situation=None, task=None, action=None, result=None, metric_text=None,
+        ),
+        # НЕ confirmed — не должны попасть независимо от мусорности.
+        SimpleNamespace(
+            id="pending-1",
+            title="**Роль:** Должен быть отфильтрован по fact_status",
+            fact_status="needs_confirmation",
+            situation=None, task=None, action=None, result=None, metric_text=None,
+        ),
+    ]
+
+    confirmed = service._get_confirmed_achievements(profile_achievements)
+
+    ids = [item["id"] for item in confirmed]
+    assert ids == ["real-1", "real-2"], f"unexpected order/filter: {ids}"
