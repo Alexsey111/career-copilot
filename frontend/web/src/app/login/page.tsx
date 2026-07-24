@@ -46,25 +46,25 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-background">
-      {/* Hero — скрыт на мобильных, виден на lg+. Mesh-gradient (холодный SaaS-2026). */}
-      <aside className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-950 dark:via-background dark:to-blue-950/30">
-        {/* Mesh-gradient blobs (3 холодных color-blob). */}
+      {/* Hero — изумрудно-серая палитра (slate + emerald). */}
+      <aside className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/60 dark:from-slate-950 dark:via-background dark:to-emerald-950/20">
+        {/* Mesh-gradient blobs (slate + emerald + teal). */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-indigo-300/40 dark:bg-indigo-600/20 blur-3xl animate-[pulse_8s_ease-in-out_infinite]"
+          className="pointer-events-none absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-slate-300/40 dark:bg-slate-600/20 blur-3xl animate-[pulse_8s_ease-in-out_infinite]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute top-1/3 -right-32 w-[500px] h-[500px] rounded-full bg-blue-300/40 dark:bg-blue-600/20 blur-3xl animate-[pulse_10s_ease-in-out_infinite_2s]"
+          className="pointer-events-none absolute top-1/3 -right-32 w-[500px] h-[500px] rounded-full bg-emerald-300/40 dark:bg-emerald-600/20 blur-3xl animate-[pulse_10s_ease-in-out_infinite_2s]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -bottom-32 left-1/4 w-[550px] h-[550px] rounded-full bg-cyan-300/30 dark:bg-cyan-600/15 blur-3xl animate-[pulse_12s_ease-in-out_infinite_4s]"
+          className="pointer-events-none absolute -bottom-32 left-1/4 w-[550px] h-[550px] rounded-full bg-teal-300/30 dark:bg-teal-600/15 blur-3xl animate-[pulse_12s_ease-in-out_infinite_4s]"
         />
         {/* Subtle grid pattern (точки) для текстуры. */}
         <div
           aria-hidden
-          className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.06)_1px,transparent_0)] dark:bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.05)_1px,transparent_0)] [background-size:24px_24px]"
+          className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(15,23,42,0.06)_1px,transparent_0)] dark:bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.05)_1px,transparent_0)] [background-size:24px_24px]"
         />
 
         {/* Header */}
@@ -75,17 +75,17 @@ export default function LoginPage() {
         {/* Main content */}
         <div className="relative z-10 space-y-8 max-w-lg">
           {/* Trust badge — честный, без чисел. */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 backdrop-blur-sm px-3 py-1 text-xs font-medium shadow-sm">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 backdrop-blur-sm px-3 py-1 text-xs font-medium shadow-sm">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            <span className="text-foreground/80">Используется кандидатами для подготовки к собеседованиям</span>
+            <span className="text-slate-700">Используется кандидатами для подготовки к собеседованиям</span>
           </div>
 
           <div className="space-y-4">
-            <h1 className="text-5xl font-bold tracking-tight leading-[1.05]">
-              <span className="bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 bg-clip-text text-transparent">
+            <h1 className="text-5xl font-bold tracking-tight leading-[1.05] text-slate-900">
+              <span className="bg-gradient-to-br from-slate-900 via-emerald-700 to-teal-600 bg-clip-text text-transparent">
                 Резюме и письма,
               </span>
               <br />
@@ -93,42 +93,42 @@ export default function LoginPage() {
               <br />
               до интервью
             </h1>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
+            <p className="text-lg text-slate-600 leading-relaxed max-w-md">
               AI собирает профиль из GitHub и резюме, адаптирует под вакансию
               и проверяет каждый факт — без выдуманных достижений.
             </p>
           </div>
 
           <ul className="space-y-4">
-            <li className="flex items-start gap-3 group">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-blue-500 text-white shadow-sm shrink-0">
+            <li className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm shrink-0">
                 <FileSearch className="size-4" />
               </div>
               <div>
-                <p className="text-sm font-medium">Импорт профиля из GitHub</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm font-medium text-slate-900">Импорт профиля из GitHub</p>
+                <p className="text-xs text-slate-600">
                   Репозитории, README, технологии — автоматически в профиль
                 </p>
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 text-white shadow-sm shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm shrink-0">
                 <BarChart3 className="size-4" />
               </div>
               <div>
-                <p className="text-sm font-medium">Адаптация под вакансию</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm font-medium text-slate-900">Адаптация под вакансию</p>
+                <p className="text-xs text-slate-600">
                   Сопроводительное письмо с подсветкой совпадений
                 </p>
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-teal-500 text-white shadow-sm shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-slate-800 to-emerald-700 text-white shadow-sm shrink-0">
                 <ShieldCheck className="size-4" />
               </div>
               <div>
-                <p className="text-sm font-medium">Факт-чекинг достижений</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm font-medium text-slate-900">Факт-чекинг достижений</p>
+                <p className="text-xs text-slate-600">
                   Каждое утверждение можно подтвердить или удалить
                 </p>
               </div>
@@ -137,7 +137,7 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="relative z-10 text-xs text-muted-foreground">
+        <p className="relative z-10 text-xs text-slate-500">
           152-ФЗ · данные хранятся в РФ · резервные копии ежедневно
         </p>
       </aside>
@@ -151,8 +151,8 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-2">
-            <h2 className="text-3xl font-bold tracking-tight">С возвращением</h2>
-            <p className="text-sm text-muted-foreground">
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900">С возвращением</h2>
+            <p className="text-sm text-slate-600">
               Войдите, чтобы продолжить работу с профилем
             </p>
           </div>
@@ -195,18 +195,18 @@ export default function LoginPage() {
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
+              <div className="w-full border-t border-slate-200" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="px-2 bg-background text-muted-foreground">или email</span>
+              <span className="px-2 bg-background text-slate-500">или email</span>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-slate-700">Email</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 pointer-events-none" />
                 <Input
                   id="email"
                   type="email"
@@ -214,23 +214,23 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   placeholder="you@example.com"
-                  className="pl-9 h-10"
+                  className="pl-9 h-10 border-slate-200 focus-visible:ring-emerald-500"
                 />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Пароль</Label>
+                <Label htmlFor="password" className="text-slate-700">Пароль</Label>
                 <Link
                   href="/forgot-password"
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-xs text-slate-500 hover:text-emerald-700 transition-colors"
                 >
                   Забыли пароль?
                 </Link>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 pointer-events-none" />
                 <Input
                   id="password"
                   type="password"
@@ -238,7 +238,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   placeholder="••••••••"
-                  className="pl-9 h-10"
+                  className="pl-9 h-10 border-slate-200 focus-visible:ring-emerald-500"
                 />
               </div>
             </div>
@@ -246,7 +246,7 @@ export default function LoginPage() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full h-10 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 hover:from-indigo-700 hover:via-blue-700 hover:to-cyan-600 text-white shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 transition-all"
+              className="w-full h-10 bg-gradient-to-r from-slate-900 via-emerald-700 to-teal-600 hover:from-slate-950 hover:via-emerald-800 hover:to-teal-700 text-white shadow-md shadow-emerald-900/20 hover:shadow-lg hover:shadow-emerald-900/30 transition-all"
             >
               <Sparkles className="size-4" />
               {loading ? "Входим..." : "Войти"}
@@ -254,11 +254,11 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-sm text-slate-600">
             Нет аккаунта?{" "}
             <Link
               href="/register"
-              className="font-medium text-foreground bg-gradient-to-r from-indigo-600 to-cyan-500 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
+              className="font-medium text-emerald-700 hover:text-emerald-800 transition-colors"
             >
               Зарегистрироваться
             </Link>
