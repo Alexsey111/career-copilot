@@ -38,3 +38,15 @@ infra/docker/import_resume.json
 # не часть кодовой базы.
 111/
 memory/
+
+# Диагностические артефакты Claude-сессий (.diag_*.txt/.py, .tok.txt и т.п.)
+# — это разовые дампы для отладки, не для репозитория.
+.diag_*.txt
+.diag_*.py
+.tok.txt
+.claude/
+
+# Скриншоты прошлых сессий (redo-*, resume-history-*) — локальная история визуальных
+# ревью, новые скришоты для коммитов добавляются явно через `git add`.
+tools/shots/redo-*
+tools/shots/resume-history-*
