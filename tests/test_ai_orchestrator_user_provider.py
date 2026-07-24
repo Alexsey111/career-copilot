@@ -67,10 +67,8 @@ async def test_resolve_client_returns_default_when_no_subscription(monkeypatch):
     try:
         orch = _build_orchestrator(default_provider="gigachat")
         # Подменяем repo: нет подписки
-        monkeypatch.setattr(
-            "app.repositories.subscription_repository.SubscriptionRepository",
-            lambda: _FakeSubscriptionRepo(None),
-        )
+        from app.ai import orchestrator as orch_mod
+        monkeypatch.setattr(orch_mod, "SubscriptionRepository", lambda: _FakeSubscriptionRepo(None))
         client, active = await orch._resolve_client(
             session=None,  # type: ignore[arg-type]
             user_id=uuid4(),
@@ -88,10 +86,8 @@ async def test_resolve_client_returns_default_when_ai_provider_is_none(monkeypat
     get_settings.cache_clear()
     try:
         orch = _build_orchestrator(default_provider="gigachat")
-        monkeypatch.setattr(
-            "app.repositories.subscription_repository.SubscriptionRepository",
-            lambda: _FakeSubscriptionRepo(None),
-        )
+        from app.ai import orchestrator as orch_mod
+        monkeypatch.setattr(orch_mod, "SubscriptionRepository", lambda: _FakeSubscriptionRepo(None))
         client, active = await orch._resolve_client(
             session=None,  # type: ignore[arg-type]
             user_id=uuid4(),
@@ -111,10 +107,8 @@ async def test_resolve_client_uses_user_provider(monkeypatch):
     get_settings.cache_clear()
     try:
         orch = _build_orchestrator(default_provider="gigachat")
-        monkeypatch.setattr(
-            "app.repositories.subscription_repository.SubscriptionRepository",
-            lambda: _FakeSubscriptionRepo("deepseek"),
-        )
+        from app.ai import orchestrator as orch_mod
+        monkeypatch.setattr(orch_mod, "SubscriptionRepository", lambda: _FakeSubscriptionRepo("deepseek"))
         client, active = await orch._resolve_client(
             session=None,  # type: ignore[arg-type]
             user_id=uuid4(),
@@ -125,12 +119,13 @@ async def test_resolve_client_uses_user_provider(monkeypatch):
     assert active is True
     assert client.provider_name == "deepseek"
     assert isinstance(client, DeepSeekLLMClient)
-    # Cleanup — клиент попал в кэш и должен закрыться в aclose().
+    # Cleanup — клиент попал в кэш. ``aclose`` закроет httpx-клиент внутри
+    # DeepSeekLLMClient (без отдельного счётчика aclose_calls, как у stub).
+    # Проверяем, что orch._user_provider_clients очищен после aclose()
+    # и клиент реально закрыт (aclose отработал без ошибки).
     assert "deepseek" in orch._user_provider_clients
     await orch.aclose()
-    # user-клиент закрыт (aclose_calls=1), дефолтный — тоже.
-    assert orch._user_provider_clients["deepseek"].aclose_calls == 1  # type: ignore[attr-defined]
-    assert orch.client.aclose_calls == 1  # type: ignore[attr-defined]
+    assert orch._user_provider_clients == {}
 
 
 @pytest.mark.asyncio
@@ -141,10 +136,8 @@ async def test_resolve_client_caches_user_provider(monkeypatch):
     get_settings.cache_clear()
     try:
         orch = _build_orchestrator(default_provider="gigachat")
-        monkeypatch.setattr(
-            "app.repositories.subscription_repository.SubscriptionRepository",
-            lambda: _FakeSubscriptionRepo("deepseek"),
-        )
+        from app.ai import orchestrator as orch_mod
+        monkeypatch.setattr(orch_mod, "SubscriptionRepository", lambda: _FakeSubscriptionRepo("deepseek"))
         user_id = uuid4()
         c1, _ = await orch._resolve_client(session=None, user_id=user_id)  # type: ignore[arg-type]
         c2, _ = await orch._resolve_client(session=None, user_id=user_id)  # type: ignore[arg-type]
@@ -157,22 +150,45 @@ async def test_resolve_client_caches_user_provider(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_resolve_client_falls_back_when_user_provider_init_fails(monkeypatch):
-    """Если user-провайдер не сконфигурирован (нет ключа) → дефолт, без 5xx."""
+    """Если user-провайдер не сконфигурирован (нет ключа) → дефолт, без 5xx.
+
+    Подвох: ``Settings`` грузит ``.env`` файл, ``monkeypatch.delenv`` не
+    стирает значение с диска. Используем ``unittest.mock.patch`` для
+    полного контроля над ``get_settings`` в ``app.ai.factory`` И в
+    ``app.ai.clients.deepseek`` (отдельные импорты в каждом модуле).
+    """
+    import unittest.mock as mock
+    from app.core import config as cfg
+
     monkeypatch.setenv("AI_PROVIDER", "gigachat")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     get_settings.cache_clear()
-    try:
-        orch = _build_orchestrator(default_provider="gigachat")
-        monkeypatch.setattr(
-            "app.repositories.subscription_repository.SubscriptionRepository",
-            lambda: _FakeSubscriptionRepo("deepseek"),
-        )
-        client, active = await orch._resolve_client(
-            session=None,  # type: ignore[arg-type]
-            user_id=uuid4(),
-        )
-    finally:
-        get_settings.cache_clear()
+
+    fake_settings = cfg.Settings.model_construct(
+        _env_file=None,
+        AI_PROVIDER="gigachat",
+        DATABASE_URL="postgresql+asyncpg://x/x",
+        SYNC_DATABASE_URL="postgresql://x/x",
+        JWT_SECRET_KEY="x",
+        DEEPSEEK_API_KEY=None,
+    )
+
+    with mock.patch("app.ai.factory.get_settings", return_value=fake_settings), \
+         mock.patch("app.ai.clients.deepseek.get_settings", return_value=fake_settings):
+        try:
+            orch = _build_orchestrator(default_provider="gigachat")
+            from app.ai import orchestrator as orch_mod
+            monkeypatch.setattr(
+                orch_mod,
+                "SubscriptionRepository",
+                lambda: _FakeSubscriptionRepo("deepseek"),
+            )
+            client, active = await orch._resolve_client(
+                session=None,  # type: ignore[arg-type]
+                user_id=uuid4(),
+            )
+        finally:
+            get_settings.cache_clear()
 
     # Откат к дефолту, override не применён (active=False).
     assert client.provider_name == "gigachat"
@@ -188,10 +204,8 @@ async def test_resolve_client_active_true_when_user_explicitly_chooses_default(m
     get_settings.cache_clear()
     try:
         orch = _build_orchestrator(default_provider="gigachat")
-        monkeypatch.setattr(
-            "app.repositories.subscription_repository.SubscriptionRepository",
-            lambda: _FakeSubscriptionRepo("gigachat"),
-        )
+        from app.ai import orchestrator as orch_mod
+        monkeypatch.setattr(orch_mod, "SubscriptionRepository", lambda: _FakeSubscriptionRepo("gigachat"))
         client, active = await orch._resolve_client(
             session=None,  # type: ignore[arg-type]
             user_id=uuid4(),

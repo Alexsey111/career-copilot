@@ -72,7 +72,10 @@ async def test_generate_posts_to_chat_completions_with_bearer():
     finally:
         await client.aclose()
 
-    assert captured["path"] == "/chat/completions"
+    # base_url = https://api.deepseek.com/v1 + client.post("/chat/completions")
+    # → реальный HTTP path = /v1/chat/completions. httpx.MockTransport
+    # отдаёт path относительно base_url.
+    assert captured["path"] == "/v1/chat/completions"
     assert captured["auth"] == "Bearer test-key"
     assert captured["body"]["model"] == "deepseek-chat"
     assert captured["body"]["messages"] == [
