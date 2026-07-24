@@ -8,7 +8,6 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Logo } from "@/components/Logo";
 import { Mail, Lock, Sparkles, AlertCircle, FileSearch, BarChart3, ShieldCheck, ArrowRight } from "lucide-react";
@@ -47,20 +46,20 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-background">
-      {/* Hero — скрыт на мобильных, виден на lg+. Mesh-gradient + soft grid. */}
-      <aside className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50 dark:from-indigo-950/20 dark:via-background dark:to-fuchsia-950/20">
-        {/* Animated mesh-gradient blobs (3 цветовых пятна с blur). */}
+      {/* Hero — скрыт на мобильных, виден на lg+. Mesh-gradient (холодный SaaS-2026). */}
+      <aside className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-950 dark:via-background dark:to-blue-950/30">
+        {/* Mesh-gradient blobs (3 холодных color-blob). */}
         <div
           aria-hidden
           className="pointer-events-none absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-indigo-300/40 dark:bg-indigo-600/20 blur-3xl animate-[pulse_8s_ease-in-out_infinite]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute top-1/3 -right-32 w-[500px] h-[500px] rounded-full bg-fuchsia-300/40 dark:bg-fuchsia-600/20 blur-3xl animate-[pulse_10s_ease-in-out_infinite_2s]"
+          className="pointer-events-none absolute top-1/3 -right-32 w-[500px] h-[500px] rounded-full bg-blue-300/40 dark:bg-blue-600/20 blur-3xl animate-[pulse_10s_ease-in-out_infinite_2s]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -bottom-32 left-1/4 w-[550px] h-[550px] rounded-full bg-violet-300/30 dark:bg-violet-600/15 blur-3xl animate-[pulse_12s_ease-in-out_infinite_4s]"
+          className="pointer-events-none absolute -bottom-32 left-1/4 w-[550px] h-[550px] rounded-full bg-cyan-300/30 dark:bg-cyan-600/15 blur-3xl animate-[pulse_12s_ease-in-out_infinite_4s]"
         />
         {/* Subtle grid pattern (точки) для текстуры. */}
         <div
@@ -75,18 +74,18 @@ export default function LoginPage() {
 
         {/* Main content */}
         <div className="relative z-10 space-y-8 max-w-lg">
-          {/* Social proof badge */}
+          {/* Trust badge — честный, без чисел. */}
           <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 backdrop-blur-sm px-3 py-1 text-xs font-medium shadow-sm">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
             </span>
-            <span className="text-foreground/80">1 200+ кандидатов уже нашли работу через Copilot</span>
+            <span className="text-foreground/80">Используется кандидатами для подготовки к собеседованиям</span>
           </div>
 
           <div className="space-y-4">
             <h1 className="text-5xl font-bold tracking-tight leading-[1.05]">
-              <span className="bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 bg-clip-text text-transparent">
                 Резюме и письма,
               </span>
               <br />
@@ -102,7 +101,7 @@ export default function LoginPage() {
 
           <ul className="space-y-4">
             <li className="flex items-start gap-3 group">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-blue-500 text-white shadow-sm shrink-0">
                 <FileSearch className="size-4" />
               </div>
               <div>
@@ -113,7 +112,7 @@ export default function LoginPage() {
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-sm shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 text-white shadow-sm shrink-0">
                 <BarChart3 className="size-4" />
               </div>
               <div>
@@ -124,7 +123,7 @@ export default function LoginPage() {
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-pink-500 text-white shadow-sm shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-teal-500 text-white shadow-sm shrink-0">
                 <ShieldCheck className="size-4" />
               </div>
               <div>
@@ -247,7 +246,7 @@ export default function LoginPage() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full h-10 bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 hover:from-indigo-700 hover:via-violet-700 hover:to-fuchsia-700 text-white shadow-md shadow-violet-500/20 hover:shadow-lg hover:shadow-violet-500/30 transition-all"
+              className="w-full h-10 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 hover:from-indigo-700 hover:via-blue-700 hover:to-cyan-600 text-white shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 transition-all"
             >
               <Sparkles className="size-4" />
               {loading ? "Входим..." : "Войти"}
@@ -259,7 +258,7 @@ export default function LoginPage() {
             Нет аккаунта?{" "}
             <Link
               href="/register"
-              className="font-medium text-foreground bg-gradient-to-r from-indigo-600 to-fuchsia-600 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
+              className="font-medium text-foreground bg-gradient-to-r from-indigo-600 to-cyan-500 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
             >
               Зарегистрироваться
             </Link>
