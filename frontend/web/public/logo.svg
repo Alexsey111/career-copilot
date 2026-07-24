@@ -1,4 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none">
-  <circle cx="16" cy="16" r="15" fill="#0a0a0a" />
-  <text x="16" y="22" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#fafafa" letter-spacing="-0.5">CC</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <!-- Mesh-gradient background: indigo → violet → fuchsia, фирменная палитра SaaS-2026. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366f1" />
+      <stop offset="0.5" stop-color="#8b5cf6" />
+      <stop offset="1" stop-color="#d946ef" />
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a5b4fc" stop-opacity="0.6" />
+      <stop offset="1" stop-color="#f0abfc" stop-opacity="0.0" />
+    </linearGradient>
+  </defs>
+  <!-- Soft outer ring для глубины. -->
+  <circle cx="32" cy="32" r="30" fill="url(#ring)" />
+  <!-- Градиентный диск. -->
+  <circle cx="32" cy="32" r="26" fill="url(#bg)" />
+  <!-- Моноглиф «AC» (AI Career) — белый, medium-weight, отрицательный трекинг. -->
+  <text
+    x="32"
+    y="40"
+    font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-size="22"
+    font-weight="600"
+    text-anchor="middle"
+    fill="#ffffff"
+    letter-spacing="-1.5"
+  >AC</text>
 </svg>

@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Sparkles, FileSearch, ShieldCheck, BarChart3 } from "lucide-react";
+import { Logo } from "@/components/Logo";
+import { Mail, Lock, Sparkles, AlertCircle, FileSearch, BarChart3, ShieldCheck, ArrowRight } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -45,28 +46,64 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2">
-      {/* Hero — скрыт на мобильных, виден на lg+ */}
-      <aside className="hidden lg:flex flex-col justify-between p-10 bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 border-r">
-        <div className="flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="AI Career Copilot" className="h-8 w-8" />
-          <span className="font-semibold text-lg">AI Career Copilot</span>
+    <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-background">
+      {/* Hero — скрыт на мобильных, виден на lg+. Mesh-gradient + soft grid. */}
+      <aside className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50 dark:from-indigo-950/20 dark:via-background dark:to-fuchsia-950/20">
+        {/* Animated mesh-gradient blobs (3 цветовых пятна с blur). */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-indigo-300/40 dark:bg-indigo-600/20 blur-3xl animate-[pulse_8s_ease-in-out_infinite]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-1/3 -right-32 w-[500px] h-[500px] rounded-full bg-fuchsia-300/40 dark:bg-fuchsia-600/20 blur-3xl animate-[pulse_10s_ease-in-out_infinite_2s]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-32 left-1/4 w-[550px] h-[550px] rounded-full bg-violet-300/30 dark:bg-violet-600/15 blur-3xl animate-[pulse_12s_ease-in-out_infinite_4s]"
+        />
+        {/* Subtle grid pattern (точки) для текстуры. */}
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.06)_1px,transparent_0)] dark:bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.05)_1px,transparent_0)] [background-size:24px_24px]"
+        />
+
+        {/* Header */}
+        <div className="relative z-10 flex items-center gap-2">
+          <Logo size={32} withWordmark />
         </div>
 
-        <div className="space-y-6 max-w-md">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Резюме и письма,<br />которые доходят до интервью
-          </h1>
-          <p className="text-muted-foreground">
-            AI собирает профиль из GitHub и резюме, адаптирует под вакансию
-            и проверяет каждый факт — без выдуманных достижений.
-          </p>
+        {/* Main content */}
+        <div className="relative z-10 space-y-8 max-w-lg">
+          {/* Social proof badge */}
+          <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 backdrop-blur-sm px-3 py-1 text-xs font-medium shadow-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            <span className="text-foreground/80">1 200+ кандидатов уже нашли работу через Copilot</span>
+          </div>
 
-          <ul className="space-y-3">
-            <li className="flex items-start gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-background ring-1 ring-foreground/10 shrink-0">
-                <FileSearch className="size-4 text-primary" />
+          <div className="space-y-4">
+            <h1 className="text-5xl font-bold tracking-tight leading-[1.05]">
+              <span className="bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 bg-clip-text text-transparent">
+                Резюме и письма,
+              </span>
+              <br />
+              которые доходят
+              <br />
+              до интервью
+            </h1>
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
+              AI собирает профиль из GitHub и резюме, адаптирует под вакансию
+              и проверяет каждый факт — без выдуманных достижений.
+            </p>
+          </div>
+
+          <ul className="space-y-4">
+            <li className="flex items-start gap-3 group">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm shrink-0">
+                <FileSearch className="size-4" />
               </div>
               <div>
                 <p className="text-sm font-medium">Импорт профиля из GitHub</p>
@@ -76,8 +113,8 @@ export default function LoginPage() {
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-background ring-1 ring-foreground/10 shrink-0">
-                <BarChart3 className="size-4 text-primary" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-sm shrink-0">
+                <BarChart3 className="size-4" />
               </div>
               <div>
                 <p className="text-sm font-medium">Адаптация под вакансию</p>
@@ -87,8 +124,8 @@ export default function LoginPage() {
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-background ring-1 ring-foreground/10 shrink-0">
-                <ShieldCheck className="size-4 text-primary" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-pink-500 text-white shadow-sm shrink-0">
+                <ShieldCheck className="size-4" />
               </div>
               <div>
                 <p className="text-sm font-medium">Факт-чекинг достижений</p>
@@ -100,109 +137,134 @@ export default function LoginPage() {
           </ul>
         </div>
 
-        <p className="text-xs text-muted-foreground">
+        {/* Footer */}
+        <p className="relative z-10 text-xs text-muted-foreground">
           152-ФЗ · данные хранятся в РФ · резервные копии ежедневно
         </p>
       </aside>
 
       {/* Form */}
-      <main className="flex items-center justify-center p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <div className="flex items-center gap-2 lg:hidden mb-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.svg" alt="AI Career Copilot" className="h-6 w-6" />
-              <span className="font-semibold">AI Career Copilot</span>
+      <main className="flex items-center justify-center p-6 lg:p-12 bg-background">
+        <div className="w-full max-w-md space-y-6">
+          {/* Mobile logo */}
+          <div className="flex items-center gap-2 lg:hidden">
+            <Logo size={28} withWordmark />
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-3xl font-bold tracking-tight">С возвращением</h2>
+            <p className="text-sm text-muted-foreground">
+              Войдите, чтобы продолжить работу с профилем
+            </p>
+          </div>
+
+          {error && (
+            <Alert variant="destructive" className="animate-in fade-in slide-in-from-top-1">
+              <AlertCircle />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* OAuth */}
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleOAuth("google")}
+              className="w-full"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden>
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </svg>
+              Google
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleOAuth("github")}
+              className="w-full"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+              </svg>
+              GitHub
+            </Button>
+          </div>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
             </div>
-            <CardTitle className="text-2xl">Вход</CardTitle>
-            <CardDescription>Войдите, чтобы продолжить</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {error && (
-              <Alert variant="destructive" className="mb-4">
-                <AlertCircle />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-3 mb-6">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOAuth("google")}
-                className="w-full"
-              >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden>
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                </svg>
-                Войти через Google
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOAuth("github")}
-                className="w-full"
-              >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                </svg>
-                Войти через GitHub
-              </Button>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="px-2 bg-background text-muted-foreground">или email</span>
             </div>
+          </div>
 
-            <div className="relative mb-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="px-2 bg-card text-muted-foreground">или</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  placeholder="you@example.com"
+                  className="pl-9 h-10"
                 />
               </div>
+            </div>
 
-              <div className="space-y-2">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
                 <Label htmlFor="password">Пароль</Label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Забыли пароль?
+                </Link>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  placeholder="••••••••"
+                  className="pl-9 h-10"
                 />
               </div>
+            </div>
 
-              <Button type="submit" disabled={loading} className="w-full">
-                <Sparkles />
-                {loading ? "Вход..." : "Войти"}
-              </Button>
-            </form>
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full h-10 bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 hover:from-indigo-700 hover:via-violet-700 hover:to-fuchsia-700 text-white shadow-md shadow-violet-500/20 hover:shadow-lg hover:shadow-violet-500/30 transition-all"
+            >
+              <Sparkles className="size-4" />
+              {loading ? "Входим..." : "Войти"}
+              {!loading && <ArrowRight className="size-4 ml-auto" />}
+            </Button>
+          </form>
 
-            <p className="mt-4 text-center text-sm text-muted-foreground">
-              Нет аккаунта?{" "}
-              <Link
-                href="/register"
-                className="text-foreground underline underline-offset-4 hover:text-primary"
-              >
-                Зарегистрироваться
-              </Link>
-            </p>
-          </CardContent>
-        </Card>
+          <p className="text-center text-sm text-muted-foreground">
+            Нет аккаунта?{" "}
+            <Link
+              href="/register"
+              className="font-medium text-foreground bg-gradient-to-r from-indigo-600 to-fuchsia-600 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
+            >
+              Зарегистрироваться
+            </Link>
+          </p>
+        </div>
       </main>
     </div>
   );
