@@ -65,8 +65,11 @@ export default function AuthLayout({
 
   if (isLoading || !consentChecked) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-muted-foreground">Загрузка...</div>
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: "var(--brand-cream)" }}
+      >
+        <div className="text-[color:var(--brand-teal-60)]">Загрузка...</div>
       </div>
     );
   }
@@ -89,6 +92,10 @@ export default function AuthLayout({
               <div
                 aria-label="Шапка приложения"
                 className="flex h-14 items-center gap-2 border-b px-4"
+                style={{
+                  backgroundColor: "var(--brand-cream)",
+                  borderColor: "var(--brand-teal-20)",
+                }}
               >
                 <SidebarTrigger />
                 {/* Bug#36: добавили логотип в шапку. Раньше здесь был только
@@ -96,11 +103,19 @@ export default function AuthLayout({
                     «логотипа в шапке нет». Теперь header консистентен с
                     Sidebar и login-страницей. */}
                 <img src="/logo.svg" alt="" className="size-6" aria-hidden="true" />
-                <span className="text-sm font-semibold text-foreground">
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--brand-teal)" }}
+                >
                   AI Career Copilot
                 </span>
               </div>
-              <div className="flex-1 p-6">{children}</div>
+              <div
+                className="flex-1 p-6"
+                style={{ backgroundColor: "var(--brand-cream)" }}
+              >
+                {children}
+              </div>
             </SidebarInset>
           </SidebarProvider>
         </TooltipProvider>

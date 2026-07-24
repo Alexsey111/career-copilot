@@ -149,12 +149,12 @@ export default function VacanciesPage() {
         <CardContent className="pt-6">
           <div className="flex justify-between items-start gap-3">
             <div className="min-w-0">
-              <h3 className="font-semibold text-primary">{v.title}</h3>
-              <p className="text-sm text-muted-foreground">
+              <h3 className="font-semibold text-[color:var(--brand-teal)]">{v.title}</h3>
+              <p className="text-sm text-[color:var(--brand-teal-60)]">
                 {v.company || "Не указана"} {v.location ? `• ${v.location}` : ""}
               </p>
               {(v.salary_from || v.salary_to) && (
-                <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+                <p className="text-sm text-[color:var(--brand-teal)] mt-1">
                   {v.salary_from && v.salary_to
                     ? `${v.salary_from.toLocaleString()} - ${v.salary_to.toLocaleString()}`
                     : v.salary_from
@@ -185,13 +185,13 @@ export default function VacanciesPage() {
         <CardContent className="space-y-4">
           <Label
             htmlFor="vacancy-file"
-            className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+            className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-[color:var(--brand-teal-20)] rounded-lg cursor-pointer hover:bg-[color:var(--brand-teal-5)] transition-colors"
           >
             <div className="flex flex-col items-center justify-center">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-[color:var(--brand-teal-60)]">
                 <span className="font-semibold">Перетащите файл</span> с описанием вакансии или нажмите для выбора
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[color:var(--brand-teal-60)]">
                 TXT, DOCX, PDF {fileInput ? `— выбран: ${fileInput.name}` : ""}
               </p>
             </div>
@@ -205,7 +205,7 @@ export default function VacanciesPage() {
           </Label>
 
           {fileInput && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3 bg-muted/50 rounded-lg">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3 bg-[color:var(--brand-teal-5)] rounded-lg">
               <Input
                 type="text"
                 value={fileTitle}
@@ -244,7 +244,7 @@ export default function VacanciesPage() {
           <Separator />
 
           <div>
-            <p className="text-xs text-muted-foreground mb-2">или вставьте текст:</p>
+            <p className="text-xs text-[color:var(--brand-teal-60)] mb-2">или вставьте текст:</p>
             <Textarea
               value={vacancyText}
               onChange={(e) => setVacancyText(e.target.value)}
@@ -264,7 +264,7 @@ export default function VacanciesPage() {
           <Separator />
 
           <div>
-            <p className="text-xs text-muted-foreground mb-2">или по ссылке:</p>
+            <p className="text-xs text-[color:var(--brand-teal-60)] mb-2">или по ссылке:</p>
             <div className="flex gap-2">
               <Input
                 type="url"
@@ -291,7 +291,7 @@ export default function VacanciesPage() {
           <CardTitle>Поиск вакансий</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="inline-flex bg-muted rounded-lg p-1">
+          <div className="inline-flex bg-[color:var(--brand-teal-5)] rounded-lg p-1">
             <Button
               variant={searchMode === "semantic" ? "default" : "ghost"}
               size="sm"
@@ -336,7 +336,7 @@ export default function VacanciesPage() {
         <div className="space-y-3">
           <div>
             <h2 className="text-lg font-semibold">Рекомендовано вам</h2>
-            <p className="text-sm text-muted-foreground">На основе вашего профиля и навыков</p>
+            <p className="text-sm text-[color:var(--brand-teal-60)]">На основе вашего профиля и навыков</p>
           </div>
           <div className="space-y-3">
             {recommendations.slice(0, 5).map(renderVacancyCard)}
@@ -355,7 +355,7 @@ export default function VacanciesPage() {
 
       {searchResults.length === 0 && recommendations.length === 0 && !loading && (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
+          <CardContent className="py-8 text-center text-[color:var(--brand-teal-60)]">
             <Briefcase className="mx-auto mb-2 size-8 opacity-50" />
             Вставьте ссылку на вакансию или воспользуйтесь поиском
           </CardContent>

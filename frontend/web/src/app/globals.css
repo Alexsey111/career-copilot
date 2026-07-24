@@ -12,46 +12,67 @@
  * --foreground светлым (#ededed) → бледно-серый нечитаемый текст на белых
  * карточках/инпутах. Форсируем светлую тему, чтобы цвет текста всегда был
  * тёмным (#171717) независимо от системной темы ОС.
+ *
+ * #81-палитра (14a6437): переопределяем shadcn-токены на брендовые hex,
+ * чтобы Button/Badge/Sidebar/Card автоматически получили teal/lime.
+ * Cream-фон (--background) — единый для body и auth-страниц.
  */
 :root {
   color-scheme: light;
-  /* Geist Sans подключён в app/layout.tsx через next/font/google; пробрасываем
-   * переменную в shadcn-токены, чтобы @apply font-sans использовал наш шрифт,
-   * а не системный (иначе в headless Playwright это выглядит как Times New Roman). */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Брендовая палитра (явные hex, чтобы избежать рекурсии var()). */
+  --brand-lime: #cfff71;
+  --brand-lime-soft: #e5ffb0;
+  --brand-teal: #004d43;
+  --brand-teal-60: rgba(0, 77, 67, 0.6);
+  --brand-teal-40: rgba(0, 77, 67, 0.4);
+  --brand-teal-20: rgba(0, 77, 67, 0.2);
+  --brand-teal-10: rgba(0, 77, 67, 0.1);
+  --brand-teal-5: rgba(0, 77, 67, 0.05);
+  --brand-ink: #1a3134;
+  --brand-ink-60: rgba(26, 49, 52, 0.6);
+  --brand-ink-10: rgba(26, 49, 52, 0.1);
+  --brand-cream: #f4ffdf;
+  --brand-cream-soft: #faffea;
+  /* shadcn токены — #81: cream/teal/lime вместо нейтральных oklch.
+   * Затронуто: Button (default variant), Badge (default), Sidebar (active/header),
+   * Alert, Card, Input focus-ring, SelectItem, Tooltip. */
+  --background: var(--brand-cream);
+  --foreground: var(--brand-teal);
+  --card: #ffffff;
+  --card-foreground: var(--brand-teal);
+  --popover: #ffffff;
+  --popover-foreground: var(--brand-teal);
+  /* primary = teal (основной CTA-цвет), primary-foreground = cream (контрастный текст) */
+  --primary: var(--brand-teal);
+  --primary-foreground: var(--brand-cream);
+  /* secondary = cream-soft (мягкая подложка для outline/secondary) */
+  --secondary: var(--brand-cream-soft);
+  --secondary-foreground: var(--brand-teal);
+  --muted: var(--brand-teal-5);
+  --muted-foreground: var(--brand-teal-60);
+  --accent: var(--brand-lime-soft);
+  --accent-foreground: var(--brand-teal);
+  --destructive: #b91c1c;
+  --border: var(--brand-teal-20);
+  --input: var(--brand-teal-20);
+  --ring: var(--brand-teal);
+  --chart-1: var(--brand-lime);
+  --chart-2: var(--brand-teal);
+  --chart-3: var(--brand-ink);
+  --chart-4: var(--brand-lime-soft);
+  --chart-5: var(--brand-teal-60);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Sidebar: фон — кремовый, active — лайм, текст — teal. */
+  --sidebar: var(--brand-cream);
+  --sidebar-foreground: var(--brand-teal);
+  --sidebar-primary: var(--brand-teal);
+  --sidebar-primary-foreground: var(--brand-cream);
+  --sidebar-accent: var(--brand-lime-soft);
+  --sidebar-accent-foreground: var(--brand-teal);
+  --sidebar-border: var(--brand-teal-20);
+  --sidebar-ring: var(--brand-teal);
 }
 
 @theme inline {
@@ -159,4 +180,24 @@ select {
   html {
     @apply font-sans;
   }
+}
+
+/*
+ * #81-палитра — базовые цвета бренда, заданные выше в первом :root.
+ * Здесь дублируем, чтобы CSS-references ниже работали независимо от порядка.
+ */
+:root {
+  --brand-lime: #cfff71;
+  --brand-lime-soft: #e5ffb0;
+  --brand-teal: #004d43;
+  --brand-teal-60: rgba(0, 77, 67, 0.6);
+  --brand-teal-40: rgba(0, 77, 67, 0.4);
+  --brand-teal-20: rgba(0, 77, 67, 0.2);
+  --brand-teal-10: rgba(0, 77, 67, 0.1);
+  --brand-teal-5: rgba(0, 77, 67, 0.05);
+  --brand-ink: #1a3134;
+  --brand-ink-60: rgba(26, 49, 52, 0.6);
+  --brand-ink-10: rgba(26, 49, 52, 0.1);
+  --brand-cream: #f4ffdf;
+  --brand-cream-soft: #faffea;
 }

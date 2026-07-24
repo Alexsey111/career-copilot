@@ -169,12 +169,12 @@ export default function DocumentsPage() {
               <Link
                 key={d.id}
                 href={`/documents/${d.id}`}
-                className="block rounded-lg hover:bg-muted/50 transition-colors"
+                className="block rounded-lg hover:bg-[color:var(--brand-teal-5)] transition-colors"
               >
                 <Card>
                   <CardContent className="flex items-center gap-2 py-3">
-                    <span className="text-sm text-foreground">{d.label}</span>
-                    <span className="text-xs text-muted-foreground ml-2">{d.id.slice(0, 8)}…</span>
+                    <span className="text-sm text-[color:var(--brand-teal)]">{d.label}</span>
+                    <span className="text-xs text-[color:var(--brand-teal-60)] ml-2">{d.id.slice(0, 8)}…</span>
                   </CardContent>
                 </Card>
               </Link>

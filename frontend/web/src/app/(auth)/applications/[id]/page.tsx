@@ -97,13 +97,13 @@ export default function ApplicationDetailPage() {
     }
   };
 
-  if (loading) return <div className="text-gray-500">Загрузка…</div>;
+  if (loading) return <div className="text-[color:var(--brand-teal-60)]">Загрузка…</div>;
 
   if (!app) {
     return (
       <div className="max-w-4xl">
-        <p className="text-gray-500">Отклик не найден.</p>
-        <button onClick={() => router.push("/applications")} className="mt-3 text-blue-600 hover:underline">
+        <p className="text-[color:var(--brand-teal-60)]">Отклик не найден.</p>
+        <button onClick={() => router.push("/applications")} className="mt-3 text-[color:var(--brand-teal)] hover:underline">
           ← К списку откликов
         </button>
       </div>
@@ -115,25 +115,25 @@ export default function ApplicationDetailPage() {
 
   return (
     <div className="max-w-4xl">
-      <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700 mb-4">
+      <button onClick={() => router.back()} className="text-[color:var(--brand-teal-60)] hover:text-[color:var(--brand-teal)] mb-4">
         &larr; Назад
       </button>
 
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">{app.vacancy?.title ?? "Отклик"}</h1>
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-[color:var(--brand-teal-60)]">
           Статус: {STATUS_LABELS[app.status] ?? app.status}
         </span>
       </div>
 
-      <p className="text-sm text-gray-500 mb-6">
+      <p className="text-sm text-[color:var(--brand-teal-60)] mb-6">
         {app.vacancy?.company ?? ""} {app.applied_at ? `• отправлен ${new Date(app.applied_at).toLocaleDateString("ru")}` : ""}
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           {/* Workflow-переходы */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
             <h2 className="font-semibold mb-3">Действия по статусу</h2>
             {allowed.length > 0 ? (
               <div className="flex flex-wrap gap-2">
@@ -141,26 +141,26 @@ export default function ApplicationDetailPage() {
                   <button
                     key={st}
                     onClick={() => handleTransition(st)}
-                    className="px-3 py-1 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100"
+                    className="px-3 py-1 text-sm bg-[color:var(--brand-teal-5)] text-[color:var(--brand-teal)] rounded-lg hover:bg-[color:var(--brand-teal-5)]"
                   >
                     → {STATUS_LABELS[st] ?? st}
                   </button>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500">Доступных переходов нет (финальный статус).</p>
+              <p className="text-sm text-[color:var(--brand-teal-60)]">Доступных переходов нет (финальный статус).</p>
             )}
 
             {canSubmit && (
-              <div className="mt-4 border-t border-gray-100 pt-4">
+              <div className="mt-4 border-t border-[color:var(--brand-teal-10)] pt-4">
                 <h3 className="text-sm font-medium mb-2">Отправка отклика</h3>
-                <p className="text-xs text-gray-500 mb-2">
+                <p className="text-xs text-[color:var(--brand-teal-60)] mb-2">
                   Система не отправляет отклик автоматически. Отметьте, что отправили вручную.
                 </p>
                 <select
                   value={submitSource}
                   onChange={(e) => setSubmitSource(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2"
+                  className="w-full px-3 py-2 border border-[color:var(--brand-teal-20)] rounded-lg text-sm mb-2"
                 >
                   <option value="manual">Вручную</option>
                   <option value="hh">Через HH</option>
@@ -170,12 +170,12 @@ export default function ApplicationDetailPage() {
                   value={externalLink}
                   onChange={(e) => setExternalLink(e.target.value)}
                   placeholder="Ссылка на внешний отклик (необязательно)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2"
+                  className="w-full px-3 py-2 border border-[color:var(--brand-teal-20)] rounded-lg text-sm mb-2"
                 />
                 <button
                   onClick={handleSubmit}
                   disabled={submitting}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
+                  className="px-4 py-2 bg-[color:var(--brand-lime)] text-[color:var(--brand-teal)] font-semibold rounded-lg hover:bg-[#b8e85c] disabled:opacity-50 text-sm"
                 >
                   {submitting ? "Сохранение…" : "Я отправил отклик"}
                 </button>
@@ -189,35 +189,35 @@ export default function ApplicationDetailPage() {
           )}
 
           {/* Timeline */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
             <h2 className="font-semibold mb-3">История статусов</h2>
             {timeline.length > 0 ? (
               <ul className="space-y-2">
                 {timeline.map((t, i) => (
                   <li key={i} className="text-sm flex justify-between">
                     <span className="font-medium">{STATUS_LABELS[t.status] ?? t.status}</span>
-                    <span className="text-gray-400">
+                    <span className="text-[color:var(--brand-teal-40)]">
                       {t.changed_at ? new Date(t.changed_at).toLocaleString("ru") : ""}
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-500">Истории нет.</p>
+              <p className="text-sm text-[color:var(--brand-teal-60)]">Истории нет.</p>
             )}
           </div>
         </div>
 
         {/* Activity log */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
           <h2 className="font-semibold mb-3">Журнал действий</h2>
           {activityLog.length > 0 ? (
             <ul className="space-y-2">
               {activityLog.map((e, i) => (
                 <li key={i} className="text-sm">
-                  <p className="text-gray-700">{e.event_label ?? e.event_type}</p>
+                  <p className="text-[color:var(--brand-teal)]">{e.event_label ?? e.event_type}</p>
                   {e.created_at && (
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-[color:var(--brand-teal-40)]">
                       {new Date(e.created_at).toLocaleString("ru")}
                     </p>
                   )}
@@ -225,7 +225,7 @@ export default function ApplicationDetailPage() {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-gray-500">Событий нет.</p>
+            <p className="text-sm text-[color:var(--brand-teal-60)]">Событий нет.</p>
           )}
         </div>
       </div>

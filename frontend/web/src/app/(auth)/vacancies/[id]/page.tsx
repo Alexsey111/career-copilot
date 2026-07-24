@@ -91,13 +91,13 @@ export default function VacancyDetailPage() {
   };
 
   if (!vacancy) {
-    return <div className="text-gray-500">Загрузка...</div>;
+    return <div className="text-[color:var(--brand-teal-60)]">Загрузка...</div>;
   }
 
   return (
     <div className="max-w-4xl">
       <div className="flex items-center gap-4 mb-6">
-        <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700">
+        <button onClick={() => router.back()} className="text-[color:var(--brand-teal-60)] hover:text-[color:var(--brand-teal)]">
           &larr; Назад
         </button>
         <h1 className="text-2xl font-bold">{vacancy.title}</h1>
@@ -107,18 +107,18 @@ export default function VacancyDetailPage() {
         {/* Main content */}
         <div className="lg:col-span-2 space-y-4">
           {/* Vacancy description */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
             <h2 className="font-semibold mb-3">Описание</h2>
-            <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-y-auto">
+            <div className="text-sm text-[color:var(--brand-teal)] whitespace-pre-wrap max-h-64 overflow-y-auto">
               {vacancy.description_raw}
             </div>
           </div>
 
           {/* Analysis */}
           {analysis && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
               <h2 className="font-semibold mb-3">Анализ</h2>
-              <div className="text-3xl font-bold text-blue-600 mb-3">
+              <div className="text-3xl font-bold text-[color:var(--brand-teal)] mb-3">
                 {analysis.match_score ?? "-"}%
               </div>
 
@@ -126,9 +126,9 @@ export default function VacancyDetailPage() {
                   короче 200 символов. Без этого баннера юзер видел "Анализ готов",
                   match_score=0 и не понимал, что вакансия слишком короткая. */}
               {analysis.match_logic?.warning === "short_description" && (
-                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
+                <div className="mb-4 p-3 bg-[color:var(--brand-lime-soft)] border border-amber-200 rounded-lg text-sm text-[color:var(--brand-teal)]">
                   <div className="font-medium mb-1">⚠ {analysis.match_logic.message}</div>
-                  <div className="text-xs text-amber-800">
+                  <div className="text-xs text-[color:var(--brand-teal)]">
                     Перейдите на страницу «Вакансии» и вставьте полный текст вручную —
                     анализ станет содержательным.
                   </div>
@@ -137,10 +137,10 @@ export default function VacancyDetailPage() {
 
               {analysis.must_have?.length > 0 && (
                 <div className="mb-3">
-                  <h3 className="text-sm font-medium text-gray-700 mb-1">Требования</h3>
+                  <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Требования</h3>
                   <ul className="text-sm space-y-1">
                     {analysis.must_have.slice(0, 5).map((r: any, i: number) => (
-                      <li key={i} className="text-gray-600">• {r.text || r}</li>
+                      <li key={i} className="text-[color:var(--brand-teal-60)]">• {r.text || r}</li>
                     ))}
                   </ul>
                 </div>
@@ -148,10 +148,10 @@ export default function VacancyDetailPage() {
 
               {analysis.gaps?.length > 0 && (
                 <div className="mb-3">
-                  <h3 className="text-sm font-medium text-orange-700 mb-1">Пробелы</h3>
+                  <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Пробелы</h3>
                   <ul className="text-sm space-y-1">
                     {analysis.gaps.slice(0, 3).map((g: any, i: number) => (
-                      <li key={i} className="text-orange-600">⚠ {g.keyword || g}</li>
+                      <li key={i} className="text-[color:var(--brand-teal)]">⚠ {g.keyword || g}</li>
                     ))}
                   </ul>
                 </div>
@@ -159,10 +159,10 @@ export default function VacancyDetailPage() {
 
               {analysis.strengths?.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-medium text-green-700 mb-1">Сильные стороны</h3>
+                  <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Сильные стороны</h3>
                   <ul className="text-sm space-y-1">
                     {analysis.strengths.slice(0, 5).map((s: any, i: number) => (
-                      <li key={i} className="text-green-600">✓ {s.keyword || s}</li>
+                      <li key={i} className="text-[color:var(--brand-teal)]">✓ {s.keyword || s}</li>
                     ))}
                   </ul>
                 </div>
@@ -177,9 +177,9 @@ export default function VacancyDetailPage() {
 
           {/* Generated Resume */}
           {resume && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
               <h2 className="font-semibold mb-3">Резюме</h2>
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-4 rounded max-h-96 overflow-y-auto">
+              <pre className="text-sm text-[color:var(--brand-teal)] whitespace-pre-wrap bg-[color:var(--brand-cream-soft)] p-4 rounded max-h-96 overflow-y-auto">
                 {resume.rendered_text || JSON.stringify(resume.content_json, null, 2)}
               </pre>
             </div>
@@ -187,9 +187,9 @@ export default function VacancyDetailPage() {
 
           {/* Generated Cover Letter */}
           {coverLetter && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
               <h2 className="font-semibold mb-3">Сопроводительное письмо</h2>
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-4 rounded max-h-96 overflow-y-auto">
+              <pre className="text-sm text-[color:var(--brand-teal)] whitespace-pre-wrap bg-[color:var(--brand-cream-soft)] p-4 rounded max-h-96 overflow-y-auto">
                 {coverLetter.rendered_text || "Письмо сгенерировано"}
               </pre>
             </div>
@@ -198,19 +198,19 @@ export default function VacancyDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-4">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
             <h2 className="font-semibold mb-3">Детали</h2>
             <dl className="space-y-2 text-sm">
               <div>
-                <dt className="text-gray-500">Компания</dt>
+                <dt className="text-[color:var(--brand-teal-60)]">Компания</dt>
                 <dd className="font-medium">{vacancy.company || "-"}</dd>
               </div>
               <div>
-                <dt className="text-gray-500">Локация</dt>
+                <dt className="text-[color:var(--brand-teal-60)]">Локация</dt>
                 <dd className="font-medium">{vacancy.location || "-"}</dd>
               </div>
               <div>
-                <dt className="text-gray-500">Зарплата</dt>
+                <dt className="text-[color:var(--brand-teal-60)]">Зарплата</dt>
                 <dd className="font-medium">
                   {vacancy.salary_from || vacancy.salary_to
                     ? `${vacancy.salary_from || "?"} - ${vacancy.salary_to || "?"}${vacancy.salary_currency ? " " + vacancy.salary_currency : ""}`
@@ -218,11 +218,11 @@ export default function VacancyDetailPage() {
                 </dd>
               </div>
               <div>
-                <dt className="text-gray-500">Занятость</dt>
+                <dt className="text-[color:var(--brand-teal-60)]">Занятость</dt>
                 <dd className="font-medium">{vacancy.employment_type || "-"}</dd>
               </div>
               <div>
-                <dt className="text-gray-500">Опыт</dt>
+                <dt className="text-[color:var(--brand-teal-60)]">Опыт</dt>
                 <dd className="font-medium">{vacancy.experience_level || "-"}</dd>
               </div>
             </dl>
@@ -234,7 +234,7 @@ export default function VacancyDetailPage() {
               <button
                 onClick={handleAnalyze}
                 disabled={analyzing}
-                className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+                className="w-full py-3 bg-[color:var(--brand-teal-5)] text-white rounded-lg hover:bg-[color:var(--brand-teal-5)] disabled:opacity-50 font-medium"
               >
                 {analyzing ? "Анализ..." : "1. Анализировать вакансию"}
               </button>
@@ -244,7 +244,7 @@ export default function VacancyDetailPage() {
                   <button
                     onClick={handleGenerateResume}
                     disabled={generating}
-                    className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
+                    className="w-full py-3 bg-[color:var(--brand-lime)] text-[color:var(--brand-teal)] font-semibold rounded-lg hover:bg-[#b8e85c] disabled:opacity-50 font-medium"
                   >
                     {generating ? "Генерация..." : "2. Сгенерировать резюме"}
                   </button>
@@ -255,7 +255,7 @@ export default function VacancyDetailPage() {
                         <select
                           value={letterVariant}
                           onChange={(e) => setLetterVariant(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          className="w-full px-3 py-2 border border-[color:var(--brand-teal-20)] rounded-lg text-sm"
                         >
                           <option value="standard">Стандартное письмо</option>
                           <option value="short">Короткое письмо</option>
@@ -264,7 +264,7 @@ export default function VacancyDetailPage() {
                         <button
                           onClick={handleGenerateLetter}
                           disabled={generating}
-                          className="w-full py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium"
+                          className="w-full py-3 bg-[color:var(--brand-teal-5)] text-white rounded-lg hover:bg-[color:var(--brand-teal-5)] disabled:opacity-50 font-medium"
                         >
                           {generating ? "Генерация..." : "3. Сгенерировать письмо"}
                         </button>
@@ -272,7 +272,7 @@ export default function VacancyDetailPage() {
                     ) : (
                       <button
                         onClick={handleCreateApplication}
-                        className="w-full py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium"
+                        className="w-full py-3 bg-[color:var(--brand-lime-soft)] text-white rounded-lg hover:bg-[color:var(--brand-lime-soft)] font-medium"
                       >
                         4. Создать отклик
                       </button>
@@ -282,7 +282,7 @@ export default function VacancyDetailPage() {
                 <button
                   onClick={handleAnalyze}
                   disabled={analyzing}
-                  className="w-full py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+                  className="w-full py-2 border border-[color:var(--brand-teal-20)] rounded-lg text-sm hover:bg-[color:var(--brand-cream-soft)]"
                 >
                   Обновить анализ
                 </button>

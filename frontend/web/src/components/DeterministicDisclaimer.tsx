@@ -9,6 +9,6 @@ export default function DeterministicDisclaimer({
   text?: string;
 }) {
   return (
-    <p className="text-xs text-gray-500 italic mb-3">{text}</p>
+    <p className="text-xs text-[color:var(--brand-teal-60)] italic mb-3">{text}</p>
   );
 }

@@ -11,7 +11,7 @@ export default function ClaimsNeedingConfirmation({
 }) {
   if (!claims || claims.length === 0) {
     return (
-      <p className="text-sm text-green-600">Нет утверждений, требующих подтверждения.</p>
+      <p className="text-sm text-[color:var(--brand-teal)]">Нет утверждений, требующих подтверждения.</p>
     );
   }
   return (
@@ -21,8 +21,8 @@ export default function ClaimsNeedingConfirmation({
         const reason = (c.reason || c.evidence_note || "") as string;
         return (
           <li key={i} className="text-sm border-l-4 border-yellow-400 pl-3 py-1">
-            <p className="font-medium text-gray-800">{title || `Утверждение #${i + 1}`}</p>
-            {reason && <p className="text-gray-500 text-xs mt-0.5">{reason}</p>}
+            <p className="font-medium text-[color:var(--brand-teal)]">{title || `Утверждение #${i + 1}`}</p>
+            {reason && <p className="text-[color:var(--brand-teal-60)] text-xs mt-0.5">{reason}</p>}
           </li>
         );
       })}

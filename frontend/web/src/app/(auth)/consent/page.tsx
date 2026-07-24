@@ -102,7 +102,7 @@ export default function ConsentPage() {
   return (
     <div className="max-w-2xl">
       <h1 className="text-2xl font-bold mb-2">Согласия</h1>
-      <p className="text-muted-foreground mb-6">
+      <p className="text-[color:var(--brand-teal-60)] mb-6">
         Управляйте своими согласиями на обработку данных и использование AI.
       </p>
 
@@ -132,7 +132,7 @@ export default function ConsentPage() {
                         <span className="text-destructive ml-1">*</span>
                       )}
                     </h3>
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-[color:var(--brand-teal-60)] mt-1">
                       Версия: {consent.version}
                       {consent.granted_at && (
                         <span>
@@ -182,9 +182,9 @@ export default function ConsentPage() {
         ))}
       </div>
 
-      <Card className="mt-6 bg-muted/50">
+      <Card className="mt-6 bg-[color:var(--brand-teal-5)]">
         <CardContent className="pt-4">
-          <p className="text-xs text-muted-foreground flex items-start gap-2">
+          <p className="text-xs text-[color:var(--brand-teal-60)] flex items-start gap-2">
             <Info className="size-4 shrink-0 mt-0.5" />
             <span>
               * Обязательные согласия необходимы для базовой работы сервиса. Вы не

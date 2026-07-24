@@ -87,13 +87,13 @@ export default function DocumentWorkspacePage() {
     }
   };
 
-  if (loading) return <div className="text-gray-500">Загрузка…</div>;
+  if (loading) return <div className="text-[color:var(--brand-teal-60)]">Загрузка…</div>;
 
   if (!doc) {
     return (
       <div className="max-w-4xl">
-        <p className="text-gray-500">Документ не найден или нет доступа.</p>
-        <button onClick={() => router.push("/documents")} className="mt-3 text-blue-600 hover:underline">
+        <p className="text-[color:var(--brand-teal-60)]">Документ не найден или нет доступа.</p>
+        <button onClick={() => router.push("/documents")} className="mt-3 text-[color:var(--brand-teal)] hover:underline">
           ← К списку документов
         </button>
       </div>
@@ -104,7 +104,7 @@ export default function DocumentWorkspacePage() {
 
   return (
     <div className="max-w-4xl">
-      <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700 mb-4">
+      <button onClick={() => router.back()} className="text-[color:var(--brand-teal-60)] hover:text-[color:var(--brand-teal)] mb-4">
         &larr; Назад
       </button>
 
@@ -112,11 +112,11 @@ export default function DocumentWorkspacePage() {
         <h1 className="text-2xl font-bold">
           {kind === "cover_letter" ? "Сопроводительное письмо" : "Резюме"}
         </h1>
-        <span className="text-xs text-gray-400">{doc.id.slice(0, 8)}… · {doc.version_label ?? "v1"}</span>
+        <span className="text-xs text-[color:var(--brand-teal-40)]">{doc.id.slice(0, 8)}… · {doc.version_label ?? "v1"}</span>
       </div>
 
       {/* Действия */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6 space-y-3">
+      <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-4 mb-6 space-y-3">
         {token && (
           <DocumentActions
             token={token}
@@ -130,14 +130,14 @@ export default function DocumentWorkspacePage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleActivate}
-            className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-3 py-1 text-sm border border-[color:var(--brand-teal-20)] rounded-lg hover:bg-[color:var(--brand-cream-soft)]"
           >
             Сделать активным
           </button>
           <button
             onClick={handleEnhance}
             disabled={enhancing}
-            className="px-3 py-1 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+            className="px-3 py-1 text-sm bg-[color:var(--brand-teal-5)] text-white rounded-lg hover:bg-[color:var(--brand-teal-5)] disabled:opacity-50"
           >
             {enhancing ? "Улучшение…" : "Создать улучшенную версию (AI)"}
           </button>
@@ -146,9 +146,9 @@ export default function DocumentWorkspacePage() {
 
       {/* Текст документа */}
       {doc.rendered_text && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6 mb-6">
           <h2 className="font-semibold mb-3">Текст документа</h2>
-          <pre className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-4 rounded max-h-96 overflow-y-auto">
+          <pre className="text-sm text-[color:var(--brand-teal)] whitespace-pre-wrap bg-[color:var(--brand-cream-soft)] p-4 rounded max-h-96 overflow-y-auto">
             {doc.rendered_text}
           </pre>
         </div>
@@ -156,14 +156,14 @@ export default function DocumentWorkspacePage() {
 
       {/* Сводка проверки */}
       {summary && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6 mb-6">
           <h2 className="font-semibold mb-3">Сводка проверки</h2>
           <DocumentReviewSummaryView summary={summary} />
         </div>
       )}
 
       {/* Сравнение версий */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
         <h2 className="font-semibold mb-3">Сравнение версий (diff)</h2>
         <div className="flex gap-2 mb-3">
           <input
@@ -171,12 +171,12 @@ export default function DocumentWorkspacePage() {
             value={diffTarget}
             onChange={(e) => setDiffTarget(e.target.value)}
             placeholder="ID другой версии для сравнения"
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            className="flex-1 px-3 py-2 border border-[color:var(--brand-teal-20)] rounded-lg text-sm"
           />
           <button
             onClick={handleDiff}
             disabled={!diffTarget.trim()}
-            className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 text-sm"
+            className="px-4 py-2 bg-[color:var(--brand-ink)] text-white rounded-lg hover:bg-[#142527] disabled:opacity-50 text-sm"
           >
             Сравнить
           </button>

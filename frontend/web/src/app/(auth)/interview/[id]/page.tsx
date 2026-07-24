@@ -13,9 +13,9 @@ import type {
 } from "@/lib/types";
 
 const SEVERITY_DOT: Record<string, string> = {
-  high: "bg-red-500",
+  high: "bg-[color:var(--brand-ink)]",
   medium: "bg-yellow-500",
-  low: "bg-gray-400",
+  low: "bg-[color:var(--brand-teal-40)]",
 };
 
 export default function InterviewSessionPage() {
@@ -54,12 +54,12 @@ export default function InterviewSessionPage() {
     });
   };
 
-  if (loading) return <div className="text-gray-500">Загрузка…</div>;
+  if (loading) return <div className="text-[color:var(--brand-teal-60)]">Загрузка…</div>;
   if (!session) {
     return (
       <div className="max-w-4xl">
-        <p className="text-gray-500">Сессия не найдена.</p>
-        <button onClick={() => router.push("/interview")} className="mt-3 text-blue-600 hover:underline">
+        <p className="text-[color:var(--brand-teal-60)]">Сессия не найдена.</p>
+        <button onClick={() => router.push("/interview")} className="mt-3 text-[color:var(--brand-teal)] hover:underline">
           ← К списку сессий
         </button>
       </div>
@@ -71,7 +71,7 @@ export default function InterviewSessionPage() {
 
   return (
     <div className="max-w-4xl">
-      <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700 mb-4">
+      <button onClick={() => router.back()} className="text-[color:var(--brand-teal-60)] hover:text-[color:var(--brand-teal)] mb-4">
         &larr; Назад
       </button>
 
@@ -79,23 +79,23 @@ export default function InterviewSessionPage() {
       <DeterministicDisclaimer text="Детерминированный слой подготовки к интервью." />
 
       {/* Готовность */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+      <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6 mb-6">
         <div className="flex items-center gap-4 mb-4">
-          <div className="text-4xl font-bold text-blue-600">
+          <div className="text-4xl font-bold text-[color:var(--brand-teal)]">
             {session.readiness_score ?? readiness?.readiness_score ?? "—"}
           </div>
           <div>
             <div className="font-semibold">Готовность к интервью</div>
-            <div className="text-sm text-gray-500">{session.prep_status ?? readiness?.prep_status ?? "—"}</div>
+            <div className="text-sm text-[color:var(--brand-teal-60)]">{session.prep_status ?? readiness?.prep_status ?? "—"}</div>
           </div>
         </div>
 
         {blockers.length > 0 && (
           <div className="mb-4">
-            <h3 className="text-sm font-medium text-red-700 mb-2">Блокеры</h3>
+            <h3 className="text-sm font-medium text-[color:var(--brand-ink)] mb-2">Блокеры</h3>
             <ul className="space-y-1">
               {blockers.map((b, i) => (
-                <li key={i} className="text-sm text-red-600">
+                <li key={i} className="text-sm text-[color:var(--brand-ink)]">
                   • {String(b.message ?? b.title ?? b)}
                 </li>
               ))}
@@ -119,39 +119,39 @@ export default function InterviewSessionPage() {
 
       {/* Вопросы */}
       {session.questions && session.questions.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6 mb-6">
           <h2 className="font-semibold mb-3">Ожидаемые вопросы ({session.questions.length})</h2>
           <div className="space-y-3">
             {session.questions.map((q, i) => (
-              <div key={q.id ?? i} className="p-3 bg-gray-50 rounded-lg">
+              <div key={q.id ?? i} className="p-3 bg-[color:var(--brand-cream-soft)] rounded-lg">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   {q.category && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[color:var(--brand-teal-5)] text-[color:var(--brand-teal)]">
                       {q.category}
                     </span>
                   )}
                   {q.competency_name && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[color:var(--brand-teal-5)] text-[color:var(--brand-teal-60)]">
                       {q.competency_name}
                     </span>
                   )}
                   {q.requires_careful_answer && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[color:var(--brand-lime-soft)] text-[color:var(--brand-teal)]">
                       требует осторожности
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-gray-800">{q.prompt}</p>
+                <p className="text-sm text-[color:var(--brand-teal)]">{q.prompt}</p>
 
                 {q.suggested_answer && (
                   <div className="mt-2">
-                    <p className="text-xs font-medium text-gray-500">Предлагаемый ответ:</p>
+                    <p className="text-xs font-medium text-[color:var(--brand-teal-60)]">Предлагаемый ответ:</p>
                     {typeof q.suggested_answer === "string" ? (
-                      <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-white p-2 rounded mt-1">
+                      <pre className="text-xs text-[color:var(--brand-teal)] whitespace-pre-wrap bg-white p-2 rounded mt-1">
                         {q.suggested_answer}
                       </pre>
                     ) : (
-                      <div className="text-xs text-gray-700 space-y-1 mt-1">
+                      <div className="text-xs text-[color:var(--brand-teal)] space-y-1 mt-1">
                         {q.suggested_answer.draft_text && (
                           <pre className="whitespace-pre-wrap bg-white p-2 rounded">
                             {q.suggested_answer.draft_text}
@@ -190,7 +190,7 @@ export default function InterviewSessionPage() {
 
                 {q.recommended_evidence_ids && q.recommended_evidence_ids.length > 0 && (
                   <div className="mt-2 space-y-2">
-                    <p className="text-xs font-medium text-gray-500">Подкрепляющие доказательства:</p>
+                    <p className="text-xs font-medium text-[color:var(--brand-teal-60)]">Подкрепляющие доказательства:</p>
                     {q.recommended_evidence_ids.map((eid) =>
                       evidenceMap[eid] ? (
                         <EvidenceCard
@@ -211,13 +211,13 @@ export default function InterviewSessionPage() {
 
       {/* Слабые места */}
       {session.weak_areas && session.weak_areas.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-[color:var(--brand-teal-20)] p-6">
           <h2 className="font-semibold mb-3">Слабые места</h2>
           <div className="space-y-2">
             {session.weak_areas.map((w, i) => (
               <div key={i} className="flex items-start gap-2 text-sm">
                 <span
-                  className={`inline-block w-2 h-2 rounded-full mt-1.5 ${SEVERITY_DOT[w.severity ?? "low"] ?? "bg-gray-400"}`}
+                  className={`inline-block w-2 h-2 rounded-full mt-1.5 ${SEVERITY_DOT[w.severity ?? "low"] ?? "bg-[color:var(--brand-teal-40)]"}`}
                 />
                 <div>
                   <span className="font-medium">{w.code}</span>

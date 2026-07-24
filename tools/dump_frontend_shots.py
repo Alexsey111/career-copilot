@@ -112,6 +112,11 @@ def install_mocks(context):
             return route.fulfill(json=MOCK_SUBSCRIPTION, status=200)
         if "/api/v1/vacancies/search" in url:
             return route.fulfill(json=MOCK_VACANCIES, status=200)
+        # Onboarding: список согласий — data_processing уже granted, чтобы пропустить /onboarding/consent
+        if url.endswith("/api/v1/consent/") or url.endswith("/api/v1/consents"):
+            return route.fulfill(json=[
+                {"consent_type": "data_processing", "granted": True, "revoked_at": None}
+            ], status=200)
         # Default: pass through (will 404, but page will render with empty state)
         return route.continue_()
     context.route("**/api/v1/**", handler)

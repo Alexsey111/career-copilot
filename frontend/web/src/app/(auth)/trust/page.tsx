@@ -87,7 +87,7 @@ export default function TrustPage() {
           <CardContent>
             <div className="flex flex-wrap items-center gap-4 text-sm">
               <Badge variant="secondary">Backend: {health.status ?? "ok"}</Badge>
-              <span className="text-muted-foreground">
+              <span className="text-[color:var(--brand-teal-60)]">
                 Вакансий: {health.counts?.vacancies ?? 0} · Откликов: {health.counts?.applications ?? 0} · Документов: {health.counts?.documents ?? 0}
               </span>
             </div>
@@ -155,7 +155,7 @@ export default function TrustPage() {
                 </Badge>
               )}
               {summary.risk_level && (
-                <span className="text-muted-foreground">Риск: {summary.risk_level}</span>
+                <span className="text-[color:var(--brand-teal-60)]">Риск: {summary.risk_level}</span>
               )}
               {summary.requires_human_review && (
                 <Badge variant="destructive">Требует ручной проверки</Badge>
@@ -177,10 +177,10 @@ export default function TrustPage() {
 
             {summary.warnings && summary.warnings.length > 0 && (
               <div>
-                <h3 className="text-sm font-medium text-foreground mb-1">Предупреждения</h3>
+                <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Предупреждения</h3>
                 <ul className="space-y-1">
                   {summary.warnings.map((w, i) => (
-                    <li key={i} className="text-sm text-muted-foreground">
+                    <li key={i} className="text-sm text-[color:var(--brand-teal-60)]">
                       • {String((w as Record<string, unknown>).message ?? w)}
                     </li>
                   ))}
@@ -190,12 +190,12 @@ export default function TrustPage() {
 
             {summary.claims_requiring_confirmation && summary.claims_requiring_confirmation.length > 0 && (
               <div>
-                <h3 className="text-sm font-medium text-foreground mb-1">
+                <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">
                   Утверждения, требующие подтверждения
                 </h3>
                 <ul className="space-y-1">
                   {summary.claims_requiring_confirmation.map((c, i) => (
-                    <li key={i} className="text-sm text-muted-foreground">
+                    <li key={i} className="text-sm text-[color:var(--brand-teal-60)]">
                       • {String((c as Record<string, unknown>).title ?? c)}
                     </li>
                   ))}
@@ -205,10 +205,10 @@ export default function TrustPage() {
 
             {summary.recommended_actions && summary.recommended_actions.length > 0 && (
               <div>
-                <h3 className="text-sm font-medium text-foreground mb-1">Рекомендуемые действия</h3>
+                <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Рекомендуемые действия</h3>
                 <ul className="space-y-1">
                   {summary.recommended_actions.map((a, i) => (
-                    <li key={i} className="text-sm text-primary">
+                    <li key={i} className="text-sm text-[color:var(--brand-teal)]">
                       → {String((a as Record<string, unknown>).title ?? (a as Record<string, unknown>).action ?? a)}
                     </li>
                   ))}

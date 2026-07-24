@@ -104,42 +104,42 @@ export default function ApplicationsPage() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">
+                <div className="text-2xl font-bold text-[color:var(--brand-teal)]">
                   {analytics.total_applications || 0}
                 </div>
-                <div className="text-xs text-muted-foreground">Всего</div>
+                <div className="text-xs text-[color:var(--brand-teal-60)]">Всего</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">
+                <div className="text-2xl font-bold text-[color:var(--brand-teal)]">
                   {analytics.count_by_status?.interview || 0}
                 </div>
-                <div className="text-xs text-muted-foreground">Интервью</div>
+                <div className="text-xs text-[color:var(--brand-teal-60)]">Интервью</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
+                <div className="text-2xl font-bold text-[color:var(--brand-teal)]">
                   {analytics.offers_count || 0}
                 </div>
-                <div className="text-xs text-muted-foreground">Офферов</div>
+                <div className="text-xs text-[color:var(--brand-teal-60)]">Офферов</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">
+                <div className="text-2xl font-bold text-[color:var(--brand-ink)]">
                   {analytics.rejections_count || 0}
                 </div>
-                <div className="text-xs text-muted-foreground">Отказов</div>
+                <div className="text-xs text-[color:var(--brand-teal-60)]">Отказов</div>
               </div>
             </div>
 
             {analytics.conversion_by_resume_version &&
               Object.keys(analytics.conversion_by_resume_version).length > 0 && (
                 <div className="mt-4">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">
+                  <h3 className="text-sm font-medium text-[color:var(--brand-teal-60)] mb-2">
                     Конверсия по версиям резюме
                   </h3>
                   <div className="space-y-1">
                     {Object.entries(analytics.conversion_by_resume_version).map(
                       ([ver, stats]: [string, any]) => (
                         <div key={ver} className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">{ver}</span>
+                          <span className="text-[color:var(--brand-teal-60)]">{ver}</span>
                           <span>
                             {stats.total} откликов •{" "}
                             {Math.round((stats.interview_rate || 0) * 100)}% интервью •{" "}
@@ -161,10 +161,10 @@ export default function ApplicationsPage() {
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <Link href={`/applications/${app.id}`} className="block">
-                  <h3 className="font-semibold text-blue-700 hover:underline">
+                  <h3 className="font-semibold text-[color:var(--brand-teal)] hover:underline">
                     {app.vacancy?.title || "Вакансия"}
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-[color:var(--brand-teal-60)]">
                     {app.vacancy?.company || ""} •{" "}
                     {new Date(app.created_at).toLocaleDateString("ru")}
                   </p>

@@ -121,7 +121,7 @@ export default function BillingPage() {
                 <CardDescription>Статус: {sub.status ?? "—"}</CardDescription>
               </div>
               {sub.current_period_end && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-[color:var(--brand-teal-60)]">
                   до {new Date(sub.current_period_end).toLocaleDateString("ru")}
                 </p>
               )}
@@ -146,7 +146,7 @@ export default function BillingPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-[color:var(--brand-teal-60)]">
                   Квоты не настроены для этого плана.
                 </p>
               )}
@@ -154,7 +154,7 @@ export default function BillingPage() {
 
             <div>
               <h3 className="font-medium mb-3">AI-провайдер</h3>
-              <p className="text-sm text-muted-foreground mb-2">
+              <p className="text-sm text-[color:var(--brand-teal-60)] mb-2">
                 Выберите, через какую языковую модель адаптировать тексты к
                 вакансии. Модель фиксирована для каждого провайдера — выбор
                 только между поставщиками.
@@ -190,7 +190,7 @@ export default function BillingPage() {
         </Card>
       )}
 
-      {!sub && <p className="text-muted-foreground">Подписка не найдена.</p>}
+      {!sub && <p className="text-[color:var(--brand-teal-60)]">Подписка не найдена.</p>}
     </div>
   );
 }

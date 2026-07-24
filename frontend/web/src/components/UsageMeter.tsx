@@ -25,7 +25,7 @@ export default function UsageMeter({ usage }: { usage: PlanUsageItem }) {
     ? "bg-destructive"
     : ratio >= 0.8
       ? "bg-yellow-500"
-      : "bg-green-500";
+      : "bg-[color:var(--brand-lime)]";
 
   // Окно: секунды (demo vacancy_import) или дни.
   const windowLabel = usage.window_seconds
@@ -39,9 +39,9 @@ export default function UsageMeter({ usage }: { usage: PlanUsageItem }) {
   return (
     <div>
       <div className="flex items-center justify-between text-sm mb-1">
-        <span className="text-foreground">{usage.action}</span>
+        <span className="text-[color:var(--brand-teal)]">{usage.action}</span>
         <span
-          className={overflow ? "text-destructive font-medium" : "text-muted-foreground"}
+          className={overflow ? "text-destructive font-medium" : "text-[color:var(--brand-teal-60)]"}
         >
           {usage.used}
           {isUnlimited ? " / ∞" : ` / ${limit}`}
@@ -50,19 +50,19 @@ export default function UsageMeter({ usage }: { usage: PlanUsageItem }) {
         </span>
       </div>
       {isUnlimited ? (
-        <div className="text-xs text-green-600">Безлимитно (платный план)</div>
+        <div className="text-xs text-[color:var(--brand-teal)]">Безлимитно (платный план)</div>
       ) : (
         <>
-          <div className="w-full bg-muted rounded-full h-2">
+          <div className="w-full bg-[color:var(--brand-teal-5)] rounded-full h-2">
             <div
               className={`${color} h-2 rounded-full transition-all`}
               style={{ width: `${ratio * 100}%` }}
             />
           </div>
           {resetLabel ? (
-            <div className="mt-1 text-xs text-muted-foreground">
+            <div className="mt-1 text-xs text-[color:var(--brand-teal-60)]">
               {overflow ? "Следующий сброс " : "Сброс "}
-              <span className="font-medium text-foreground">{resetLabel}</span>
+              <span className="font-medium text-[color:var(--brand-teal)]">{resetLabel}</span>
             </div>
           ) : null}
         </>

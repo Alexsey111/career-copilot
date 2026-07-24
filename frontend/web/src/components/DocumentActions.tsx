@@ -99,7 +99,7 @@ export default function DocumentActions({
   };
 
   const btn =
-    "px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50";
+    "px-3 py-1 text-sm border border-[color:var(--brand-teal-20)] rounded-lg hover:bg-[color:var(--brand-cream-soft)] disabled:opacity-50";
 
   return (
     <div className={`flex flex-wrap gap-2 ${compact ? "" : "items-center"}`}>
@@ -119,13 +119,13 @@ export default function DocumentActions({
         <button
           onClick={handleApprove}
           disabled={approving}
-          className="px-3 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+          className="px-3 py-1 text-sm bg-[color:var(--brand-lime)] text-[color:var(--brand-teal)] font-semibold rounded-lg hover:bg-[#b8e85c] disabled:opacity-50"
         >
           {approving ? "Утверждение..." : "Утвердить"}
         </button>
       )}
       {!canExport && (
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-[color:var(--brand-teal-40)]">
           Экспорт доступен после утверждения (approved + active)
         </span>
       )}

@@ -121,7 +121,7 @@ export default function OnboardingConsentPage() {
   if (loading) {
     return (
       <Card className="w-full max-w-2xl">
-        <CardContent className="py-8 text-center text-muted-foreground">
+        <CardContent className="py-8 text-center text-[color:var(--brand-teal-60)]">
           Загрузка…
         </CardContent>
       </Card>
@@ -133,8 +133,8 @@ export default function OnboardingConsentPage() {
     return (
       <Card className="w-full max-w-2xl">
         <CardHeader className="text-center">
-          <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-3">
-            <XCircle className="w-8 h-8 text-red-600" />
+          <div className="mx-auto w-16 h-16 rounded-full bg-[color:var(--brand-ink-10)] flex items-center justify-center mb-3">
+            <XCircle className="w-8 h-8 text-[color:var(--brand-ink)]" />
           </div>
           <CardTitle className="text-2xl">Сервис недоступен без согласия</CardTitle>
           <CardDescription>
@@ -143,16 +143,16 @@ export default function OnboardingConsentPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertTriangle className="text-amber-600" />
-            <AlertTitle className="text-amber-900">Что это значит</AlertTitle>
-            <AlertDescription className="text-amber-800">
+          <Alert className="border-amber-200 bg-[color:var(--brand-lime-soft)]">
+            <AlertTriangle className="text-[color:var(--brand-teal)]" />
+            <AlertTitle className="text-[color:var(--brand-teal)]">Что это значит</AlertTitle>
+            <AlertDescription className="text-[color:var(--brand-teal)]">
               Без обязательных согласий мы не сможем сохранять ваше резюме,
               вакансии и сгенерированные документы. Это требование закона, а
               не наше решение.
             </AlertDescription>
           </Alert>
-          <p className="text-sm text-muted-foreground text-center">
+          <p className="text-sm text-[color:var(--brand-teal-60)] text-center">
             Извините, что не можем быть полезными. Если передумаете — зарегистрируйтесь снова
             и примите согласия на первом экране.
           </p>
@@ -177,8 +177,8 @@ export default function OnboardingConsentPage() {
     <Card className="w-full max-w-2xl">
       <CardHeader>
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-            <ShieldCheck className="w-6 h-6 text-primary" />
+          <div className="w-12 h-12 rounded-full bg-[color:var(--brand-teal)]10 flex items-center justify-center">
+            <ShieldCheck className="w-6 h-6 text-[color:var(--brand-teal)]" />
           </div>
           <div>
             <CardTitle className="text-2xl">Прежде чем начать</CardTitle>
@@ -187,7 +187,7 @@ export default function OnboardingConsentPage() {
             </CardDescription>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground mt-2">
+        <p className="text-sm text-[color:var(--brand-teal-60)] mt-2">
           AI Career Copilot обрабатывает ваши персональные данные в соответствии
           с ФЗ-152 «О персональных данных». Пожалуйста, ознакомьтесь с условиями
           и подтвердите согласие.
@@ -200,8 +200,8 @@ export default function OnboardingConsentPage() {
               key={c.consent_type}
               className={`flex items-start gap-3 p-3 border rounded-lg ${
                 c.required
-                  ? "border-primary/30 bg-primary/5"
-                  : "border-border"
+                  ? "border-[color:var(--brand-teal)]/30 bg-[color:var(--brand-teal)]5"
+                  : "border-[color:var(--brand-teal-20)]"
               }`}
             >
               <Checkbox
@@ -232,7 +232,7 @@ export default function OnboardingConsentPage() {
                     )}
                   </span>
                 </Label>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-[color:var(--brand-teal-60)] mt-1">
                   Версия: {c.version}
                   {c.required && (
                     <span className="ml-2 text-destructive">
@@ -245,9 +245,9 @@ export default function OnboardingConsentPage() {
           ))}
         </div>
 
-        <Alert className="border-blue-200 bg-blue-50">
-          <ShieldCheck className="text-blue-600" />
-          <AlertDescription className="text-blue-900 text-sm">
+        <Alert className="border-[color:var(--brand-teal)] bg-[color:var(--brand-teal-5)]">
+          <ShieldCheck className="text-[color:var(--brand-teal)]" />
+          <AlertDescription className="text-[color:var(--brand-teal)] text-sm">
             <strong>Обязательные согласия</strong> отмечены звёздочкой и активны
             по умолчанию. Снимая галочку, вы отказываетесь от сервиса — мы
             не сможем хранить и обрабатывать ваши данные.
@@ -277,11 +277,11 @@ export default function OnboardingConsentPage() {
           </Button>
         </div>
 
-        <p className="text-xs text-muted-foreground text-center pt-2">
+        <p className="text-xs text-[color:var(--brand-teal-60)] text-center pt-2">
           Вы сможете изменить согласия в любое время в разделе{" "}
           <button
             onClick={() => router.push("/consent")}
-            className="underline hover:text-foreground"
+            className="underline hover:text-[color:var(--brand-teal)]"
           >
             «Согласия»
           </button>{" "}

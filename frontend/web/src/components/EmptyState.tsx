@@ -35,12 +35,12 @@ export default function EmptyState({
   return (
     <Card>
       <CardContent className="flex flex-col items-center justify-center text-center py-12 px-6">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground mb-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[color:var(--brand-teal-5)] text-[color:var(--brand-teal-60)] mb-4">
           <Icon className="size-6" />
         </div>
         <h3 className="text-base font-semibold mb-1">{title}</h3>
         {description && (
-          <p className="text-sm text-muted-foreground max-w-sm mb-4">{description}</p>
+          <p className="text-sm text-[color:var(--brand-teal-60)] max-w-sm mb-4">{description}</p>
         )}
         {action && (
           <Button onClick={handleAction} variant="default" size="sm">

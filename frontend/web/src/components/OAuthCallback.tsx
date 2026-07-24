@@ -39,10 +39,10 @@ function OAuthCallbackInner({ provider }: { provider: "google" | "github" }) {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[color:var(--brand-cream-soft)]">
         <div className="w-full max-w-md bg-white rounded-xl shadow-md p-8 text-center">
-          <div className="text-red-600 mb-4">{error}</div>
-          <a href="/login" className="text-blue-600 hover:underline">
+          <div className="text-[color:var(--brand-ink)] mb-4">{error}</div>
+          <a href="/login" className="text-[color:var(--brand-teal)] hover:underline">
             Вернуться к входу
           </a>
         </div>
@@ -51,8 +51,8 @@ function OAuthCallbackInner({ provider }: { provider: "google" | "github" }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-gray-500">Завершение входа...</div>
+    <div className="min-h-screen flex items-center justify-center bg-[color:var(--brand-cream-soft)]">
+      <div className="text-[color:var(--brand-teal-60)]">Завершение входа...</div>
     </div>
   );
 }
@@ -61,8 +61,8 @@ export default function OAuthCallback({ provider }: { provider: "google" | "gith
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-gray-500">Загрузка...</div>
+        <div className="min-h-screen flex items-center justify-center bg-[color:var(--brand-cream-soft)]">
+          <div className="text-[color:var(--brand-teal-60)]">Загрузка...</div>
         </div>
       }
     >

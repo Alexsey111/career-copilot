@@ -56,7 +56,7 @@ export default function InterviewPage() {
           <CardTitle>Новая сессия</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-muted-foreground mb-2">
+          <p className="text-xs text-[color:var(--brand-teal-60)] mb-2">
             Выберите отклик со статусом «Отправлено»/«Скрининг»/«Интервью» — для него станет доступна подготовка.
           </p>
           <div className="flex gap-2">
@@ -95,18 +95,18 @@ export default function InterviewPage() {
                 <Link
                   key={s.id}
                   href={`/interview/${s.id}`}
-                  className="flex items-center justify-between bg-muted rounded-lg p-3 hover:shadow-sm"
+                  className="flex items-center justify-between bg-[color:var(--brand-teal-5)] rounded-lg p-3 hover:shadow-sm"
                 >
                   <div>
                     <p className="text-sm font-medium">
                       Сессия {s.id.slice(0, 8)}… · отклик {s.application_id?.slice(0, 8) ?? "—"}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-[color:var(--brand-teal-60)]">
                       {s.prep_status ?? "—"} · {s.created_at ? new Date(s.created_at).toLocaleDateString("ru") : ""}
                     </p>
                   </div>
                   {s.readiness_score != null && (
-                    <span className="text-sm font-bold text-blue-600">{s.readiness_score}</span>
+                    <span className="text-sm font-bold text-[color:var(--brand-teal)]">{s.readiness_score}</span>
                   )}
                 </Link>
               ))}

@@ -109,7 +109,7 @@ export default function AppSidebar() {
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">AI Career Copilot</span>
-                <span className="truncate text-xs text-muted-foreground">для HeadHunter</span>
+                <span className="truncate text-xs text-[color:var(--brand-teal-60)]">для HeadHunter</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -162,7 +162,7 @@ export default function AppSidebar() {
                 <UserAvatar initials={initials} />
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">{email}</span>
-                  <span className="truncate text-xs text-muted-foreground">
+                  <span className="truncate text-xs text-[color:var(--brand-teal-60)]">
                     {user ? "Зарегистрирован" : "Гость"}
                   </span>
                 </div>
@@ -180,7 +180,7 @@ export default function AppSidebar() {
                       <UserAvatar initials={initials} />
                       <div className="grid flex-1 text-left text-sm leading-tight">
                         <span className="truncate font-semibold">{email}</span>
-                        <span className="truncate text-xs text-muted-foreground">Аккаунт</span>
+                        <span className="truncate text-xs text-[color:var(--brand-teal-60)]">Аккаунт</span>
                       </div>
                     </div>
                   </DropdownMenuLabel>

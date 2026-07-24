@@ -44,7 +44,7 @@ export default function CareerPage() {
     );
   }
   if (!insights) {
-    return <div className="text-muted-foreground">Нет данных для аналитики.</div>;
+    return <div className="text-[color:var(--brand-teal-60)]">Нет данных для аналитики.</div>;
   }
 
   const repeatedGaps = (insights.repeated_gaps ?? []) as Record<string, unknown>[];
@@ -61,13 +61,13 @@ export default function CareerPage() {
 
       {/* Метрики паттернов */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Metric value={patterns.applications_sent ?? 0} label="Отправлено" color="text-blue-600" />
-        <Metric value={patterns.interviews_reached ?? 0} label="Интервью" color="text-purple-600" />
-        <Metric value={patterns.offers_count ?? 0} label="Офферов" color="text-green-600" />
+        <Metric value={patterns.applications_sent ?? 0} label="Отправлено" color="text-[color:var(--brand-teal)]" />
+        <Metric value={patterns.interviews_reached ?? 0} label="Интервью" color="text-[color:var(--brand-teal)]" />
+        <Metric value={patterns.offers_count ?? 0} label="Офферов" color="text-[color:var(--brand-teal)]" />
         <Metric
           value={patterns.most_common_rejection_stage ? String(patterns.most_common_rejection_stage) : "—"}
           label="Частый отказ на"
-          color="text-red-600"
+          color="text-[color:var(--brand-ink)]"
           text
         />
       </div>
@@ -83,11 +83,11 @@ export default function CareerPage() {
               {repeatedGaps.map((g, i) => (
                 <li key={i} className="text-sm border-l-4 border-l-red-400 pl-3">
                   <span className="font-medium">{String(g.keyword ?? g.name ?? "Пробел")}</span>
-                  <span className="text-muted-foreground ml-2">
+                  <span className="text-[color:var(--brand-teal-60)] ml-2">
                     ×{Number(g.count ?? g.occurrences ?? 0)}
                   </span>
                   {g.severity ? (
-                    <span className="text-xs text-muted-foreground ml-2">[{String(g.severity)}]</span>
+                    <span className="text-xs text-[color:var(--brand-teal-60)] ml-2">[{String(g.severity)}]</span>
                   ) : null}
                 </li>
               ))}
@@ -106,7 +106,7 @@ export default function CareerPage() {
             <ul className="space-y-1 text-sm">
               {Object.entries(coverageTrends).map(([k, v]) => (
                 <li key={k} className="flex justify-between">
-                  <span className="text-muted-foreground">{k}</span>
+                  <span className="text-[color:var(--brand-teal-60)]">{k}</span>
                   <span className="font-medium">{String(v)}</span>
                 </li>
               ))}
@@ -126,7 +126,7 @@ export default function CareerPage() {
             >
               <CardContent className="pt-4">
                 <p className="font-medium">{String(r.title ?? r.code ?? `Рекомендация ${i + 1}`)}</p>
-                {r.message ? <p className="text-sm text-muted-foreground mt-1">{String(r.message)}</p> : null}
+                {r.message ? <p className="text-sm text-[color:var(--brand-teal-60)] mt-1">{String(r.message)}</p> : null}
               </CardContent>
             </Card>
           ))}
@@ -150,7 +150,7 @@ function Metric({ value, label, color, text = false }: { value: unknown; label: 
     <Card>
       <CardContent className="text-center py-4">
         <div className={`${text ? "text-base" : "text-2xl"} font-bold ${color}`}>{String(value)}</div>
-        <div className="text-xs text-muted-foreground mt-1">{label}</div>
+        <div className="text-xs text-[color:var(--brand-teal-60)] mt-1">{label}</div>
       </CardContent>
     </Card>
   );

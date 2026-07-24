@@ -254,25 +254,37 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-4xl space-y-6">
-      <h1 className="text-2xl font-bold">Профиль кандидата</h1>
+      <h1 className="text-3xl font-bold tracking-tight" style={{ color: "var(--brand-teal)" }}>
+        Профиль кандидата
+      </h1>
 
       {/* Upload Resume */}
       <Card>
         <CardHeader>
-          <CardTitle>Загрузить резюме</CardTitle>
+          <CardTitle style={{ color: "var(--brand-teal)" }}>Загрузить резюме</CardTitle>
         </CardHeader>
         <CardContent>
-          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors mb-4">
+          <label
+            className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer transition-colors mb-4"
+            style={{ borderColor: "var(--brand-teal-20)" }}
+          >
             <div className="flex flex-col items-center justify-center pt-5 pb-6">
-              <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Нажмите для выбора</span> или перетащите файл
+              <Upload className="w-8 h-8 mb-2" style={{ color: "var(--brand-teal-60)" }} />
+              <p className="text-sm" style={{ color: "var(--brand-teal-60)" }}>
+                <span className="font-semibold" style={{ color: "var(--brand-teal)" }}>
+                  Нажмите для выбора
+                </span>{" "}
+                или перетащите файл
               </p>
-              <p className="text-xs text-muted-foreground/70">PDF, DOCX, TXT</p>
+              <p className="text-xs" style={{ color: "var(--brand-teal-60)" }}>
+                PDF, DOCX, TXT
+              </p>
             </div>
             <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileUpload} className="hidden" />
           </label>
-          <p className="text-xs text-muted-foreground mb-2">или вставьте текст:</p>
+          <p className="text-xs mb-2" style={{ color: "var(--brand-teal-60)" }}>
+            или вставьте текст:
+          </p>
           <Textarea
             value={resumeText}
             onChange={(e) => setResumeText(e.target.value)}
@@ -293,8 +305,10 @@ export default function ProfilePage() {
       {resumeHistory.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Ранее загруженные текстовые резюме</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-base" style={{ color: "var(--brand-teal)" }}>
+              Ранее загруженные текстовые резюме
+            </CardTitle>
+            <CardDescription style={{ color: "var(--brand-teal-60)" }}>
               Хранятся локально в вашем браузере (последние {resumeHistory.length}). Нажмите, чтобы подставить текст в поле выше.
             </CardDescription>
           </CardHeader>
@@ -303,13 +317,21 @@ export default function ProfilePage() {
               {resumeHistory.map((item, i) => (
                 <li
                   key={i}
-                  className="flex items-center justify-between gap-2 p-2 border border-border rounded text-sm"
+                  className="flex items-center justify-between gap-2 p-2 border rounded text-sm"
+                  style={{ borderColor: "var(--brand-teal-20)" }}
                 >
-                  <span className="truncate text-muted-foreground flex-1" title={item.text.slice(0, 200)}>
+                  <span
+                    className="truncate flex-1"
+                    style={{ color: "var(--brand-teal-60)" }}
+                    title={item.text.slice(0, 200)}
+                  >
                     {item.text.slice(0, 100).replace(/\s+/g, " ")}
                     {item.text.length > 100 ? "…" : ""}
                   </span>
-                  <span className="text-xs text-muted-foreground shrink-0">
+                  <span
+                    className="text-xs shrink-0"
+                    style={{ color: "var(--brand-teal-60)" }}
+                  >
                     {new Date(item.savedAt).toLocaleString("ru")}
                   </span>
                   <Button
@@ -351,8 +373,10 @@ export default function ProfilePage() {
       {serverResumes.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Ранее загруженные файлы</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-base" style={{ color: "var(--brand-teal)" }}>
+              Ранее загруженные файлы
+            </CardTitle>
+            <CardDescription style={{ color: "var(--brand-teal-60)" }}>
               PDF/DOCX/TXT на сервере ({serverResumes.length} шт.).
               «Использовать» — сделать активным, без перепарсинга.
               «Перепарсить» — заново извлечь текст (если файл правили или
@@ -366,17 +390,32 @@ export default function ProfilePage() {
                 return (
                   <li
                     key={item.id}
-                    className="flex items-center justify-between gap-2 p-2 border border-border rounded text-sm"
+                    className="flex items-center justify-between gap-2 p-2 border rounded text-sm"
+                    style={{ borderColor: "var(--brand-teal-20)" }}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="truncate font-medium" title={item.original_name}>
+                        <span
+                          className="truncate font-medium"
+                          style={{ color: "var(--brand-teal)" }}
+                          title={item.original_name}
+                        >
                           {item.original_name}
                         </span>
                         {item.is_active ? (
-                          <Badge variant="default" className="shrink-0">активно</Badge>
+                          <Badge
+                            className="shrink-0"
+                            style={{
+                              backgroundColor: "var(--brand-lime)",
+                              color: "var(--brand-teal)",
+                            }}
+                          >
+                            активно
+                          </Badge>
                         ) : (
-                          <Badge variant="secondary" className="shrink-0">в архиве</Badge>
+                          <Badge variant="secondary" className="shrink-0">
+                            в архиве
+                          </Badge>
                         )}
                         {item.detected_format ? (
                           <Badge variant="outline" className="shrink-0 uppercase">
@@ -386,13 +425,17 @@ export default function ProfilePage() {
                       </div>
                       {item.text_preview ? (
                         <p
-                          className="text-xs text-muted-foreground truncate mt-0.5"
+                          className="text-xs truncate mt-0.5"
+                          style={{ color: "var(--brand-teal-60)" }}
                           title={item.text_preview}
                         >
                           {item.text_preview.slice(0, 80).replace(/\s+/g, " ")}…
                         </p>
                       ) : (
-                        <p className="text-xs text-muted-foreground italic mt-0.5">
+                        <p
+                          className="text-xs italic mt-0.5"
+                          style={{ color: "var(--brand-teal-60)" }}
+                        >
                           ещё не распарсен
                         </p>
                       )}
@@ -422,7 +465,12 @@ export default function ProfilePage() {
               })}
             </ul>
             {loadingResumes ? (
-              <p className="text-xs text-muted-foreground mt-2">Загрузка…</p>
+              <p
+                className="text-xs mt-2"
+                style={{ color: "var(--brand-teal-60)" }}
+              >
+                Загрузка…
+              </p>
             ) : null}
           </CardContent>
         </Card>
@@ -431,15 +479,20 @@ export default function ProfilePage() {
       {/* Альтернативные источники профиля */}
       <Card>
         <CardHeader>
-          <CardTitle>Альтернативные источники</CardTitle>
-          <CardDescription>
+          <CardTitle style={{ color: "var(--brand-teal)" }}>Альтернативные источники</CardTitle>
+          <CardDescription style={{ color: "var(--brand-teal-60)" }}>
             Можно создать профиль без файла резюме — вручную или импортом публичного GitHub-профиля.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2 border border-border rounded-lg p-3">
-              <h3 className="text-sm font-medium">Ручное создание</h3>
+            <div
+              className="space-y-2 border rounded-lg p-3"
+              style={{ borderColor: "var(--brand-teal-20)" }}
+            >
+              <h3 className="text-sm font-medium" style={{ color: "var(--brand-teal)" }}>
+                Ручное создание
+              </h3>
               <Input
                 value={manualHeadline}
                 onChange={(e) => setManualHeadline(e.target.value)}
@@ -465,8 +518,13 @@ export default function ProfilePage() {
               </Button>
             </div>
 
-            <div className="space-y-2 border border-border rounded-lg p-3">
-              <h3 className="text-sm font-medium">Импорт GitHub (public)</h3>
+            <div
+              className="space-y-2 border rounded-lg p-3"
+              style={{ borderColor: "var(--brand-teal-20)" }}
+            >
+              <h3 className="text-sm font-medium" style={{ color: "var(--brand-teal)" }}>
+                Импорт GitHub (public)
+              </h3>
               <Input
                 value={githubUrl}
                 onChange={(e) => setGithubUrl(e.target.value)}
@@ -477,7 +535,10 @@ export default function ProfilePage() {
                 onChange={(e) => setGithubRole(e.target.value)}
                 placeholder="Целевая роль (необязательно)"
               />
-              <Label className="text-xs text-muted-foreground flex items-center gap-2">
+              <Label
+                className="text-xs flex items-center gap-2"
+                style={{ color: "var(--brand-teal-60)" }}
+              >
                 Репозиториев: {repoCount}
                 <input
                   type="range"
@@ -506,8 +567,8 @@ export default function ProfilePage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-muted-foreground" />
-                <CardTitle>Текущий профиль</CardTitle>
+                <User className="h-5 w-5" style={{ color: "var(--brand-teal-60)" }} />
+                <CardTitle style={{ color: "var(--brand-teal)" }}>Текущий профиль</CardTitle>
               </div>
               <Button
                 onClick={handleExtractAchievements}
@@ -528,14 +589,26 @@ export default function ProfilePage() {
               ];
               const filled = fields.filter((v) => v && (Array.isArray(v) ? v.length > 0 : true)).length;
               const pct = Math.round((filled / fields.length) * 100);
+              const barColor =
+                pct >= 80
+                  ? "var(--brand-lime)"
+                  : pct >= 50
+                    ? "var(--brand-lime-soft)"
+                    : "var(--brand-ink)";
               return (
-                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <div
+                  className="mt-2 flex items-center gap-2 text-xs"
+                  style={{ color: "var(--brand-teal-60)" }}
+                >
                   <BarChart3 className="h-3.5 w-3.5" />
                   <span>Заполнено {filled} из {fields.length} полей</span>
-                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-32">
+                  <div
+                    className="flex-1 h-1.5 rounded-full overflow-hidden max-w-32"
+                    style={{ backgroundColor: "var(--brand-teal-10)" }}
+                  >
                     <div
-                      className={`h-full transition-all ${pct >= 80 ? "bg-green-500" : pct >= 50 ? "bg-amber-500" : "bg-red-400"}`}
-                      style={{ width: `${pct}%` }}
+                      className="h-full transition-all"
+                      style={{ width: `${pct}%`, backgroundColor: barColor }}
                     />
                   </div>
                   <span className="tabular-nums">{pct}%</span>
@@ -546,53 +619,80 @@ export default function ProfilePage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <span className="text-muted-foreground">Имя:</span>{" "}
-                <span className="font-medium">{profile.structured_profile?.full_name || "—"}</span>
+                <span style={{ color: "var(--brand-teal-60)" }}>Имя:</span>{" "}
+                <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                  {profile.structured_profile?.full_name || "—"}
+                </span>
               </div>
               <div>
-                <span className="text-muted-foreground">Должность:</span>{" "}
-                <span className="font-medium">{profile.structured_profile?.headline || "—"}</span>
+                <span style={{ color: "var(--brand-teal-60)" }}>Должность:</span>{" "}
+                <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                  {profile.structured_profile?.headline || "—"}
+                </span>
               </div>
               <div>
-                <span className="text-muted-foreground">Статус:</span>{" "}
-                <span className="font-medium">{profile.resume_import?.status || "—"}</span>
+                <span style={{ color: "var(--brand-teal-60)" }}>Статус:</span>{" "}
+                <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                  {profile.resume_import?.status || "—"}
+                </span>
               </div>
               <div>
-                <span className="text-muted-foreground">Локация:</span>{" "}
-                <span className="font-medium">{profile.structured_profile?.location || "—"}</span>
+                <span style={{ color: "var(--brand-teal-60)" }}>Локация:</span>{" "}
+                <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                  {profile.structured_profile?.location || "—"}
+                </span>
               </div>
             </div>
 
             {profile.structured_profile?.technologies?.length > 0 && (
               <div className="text-sm">
-                <span className="text-muted-foreground">Навыки:</span>{" "}
-                <span className="font-medium">{profile.structured_profile.technologies.join(", ")}</span>
+                <span style={{ color: "var(--brand-teal-60)" }}>Навыки:</span>{" "}
+                <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                  {profile.structured_profile.technologies.join(", ")}
+                </span>
               </div>
             )}
 
             {profile.structured_profile?.ai_tools?.length > 0 && (
               <div className="text-sm">
-                <span className="text-muted-foreground">AI инструменты:</span>{" "}
-                <span className="font-medium">{profile.structured_profile.ai_tools.join(", ")}</span>
+                <span style={{ color: "var(--brand-teal-60)" }}>AI инструменты:</span>{" "}
+                <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                  {profile.structured_profile.ai_tools.join(", ")}
+                </span>
               </div>
             )}
 
             {profile.structured_profile?.automation_tools?.length > 0 && (
               <div className="text-sm">
-                <span className="text-muted-foreground">Automation:</span>{" "}
-                <span className="font-medium">{profile.structured_profile.automation_tools.join(", ")}</span>
+                <span style={{ color: "var(--brand-teal-60)" }}>Automation:</span>{" "}
+                <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                  {profile.structured_profile.automation_tools.join(", ")}
+                </span>
               </div>
             )}
 
             {profile.structured_profile?.structured_evidence?.length > 0 && (
               <div>
-                <h3 className="text-sm font-medium text-foreground mb-2">Факты из резюме</h3>
+                <h3
+                  className="text-sm font-medium mb-2"
+                  style={{ color: "var(--brand-teal)" }}
+                >
+                  Факты из резюме
+                </h3>
                 <div className="space-y-2">
                   {profile.structured_profile.structured_evidence.map((e: any, i: number) => (
-                    <div key={i} className="p-2 bg-muted/50 rounded text-sm">
-                      <span className="font-medium">{e.title}</span>
+                    <div
+                      key={i}
+                      className="p-2 rounded text-sm"
+                      style={{ backgroundColor: "var(--brand-teal-5)" }}
+                    >
+                      <span className="font-medium" style={{ color: "var(--brand-teal)" }}>
+                        {e.title}
+                      </span>
                       {e.skills?.length > 0 && (
-                        <span className="text-muted-foreground ml-2">({e.skills.join(", ")})</span>
+                        <span style={{ color: "var(--brand-teal-60)" }} className="ml-2">
+                          ({e.skills.join(", ")})
+                        </span>
                       )}
                     </div>
                   ))}
@@ -609,14 +709,27 @@ export default function ProfilePage() {
                 <div>
                   <Separator className="my-4" />
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-foreground">
+                    <h3
+                      className="text-sm font-medium"
+                      style={{ color: "var(--brand-teal)" }}
+                    >
                       Достижения ({total})
                     </h3>
-                    <Badge variant={allConfirmed ? "default" : "secondary"}>
+                    <Badge
+                      variant={allConfirmed ? "default" : "secondary"}
+                      style={
+                        allConfirmed
+                          ? { backgroundColor: "var(--brand-lime)", color: "var(--brand-teal)" }
+                          : undefined
+                      }
+                    >
                       Подтверждено {confirmed} / {total}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mb-3">
+                  <p
+                    className="text-xs mb-3"
+                    style={{ color: "var(--brand-teal-60)" }}
+                  >
                     Подтвердите достижения (статус «Подтверждено»), чтобы они попали в адаптированное резюме.
                   </p>
                   <div className="space-y-3">
@@ -629,10 +742,26 @@ export default function ProfilePage() {
                       />
                     ))}
                   </div>
-                  <Alert className={`mt-4 ${allConfirmed ? "border-green-200 bg-green-50" : ""}`}>
-                    {allConfirmed ? <CheckCircle2 className="text-green-600" /> : <AlertTriangle />}
+                  <Alert
+                    className="mt-4"
+                    style={
+                      allConfirmed
+                        ? {
+                            borderColor: "var(--brand-lime)",
+                            backgroundColor: "var(--brand-lime-soft)",
+                          }
+                        : undefined
+                    }
+                  >
+                    {allConfirmed ? (
+                      <CheckCircle2 style={{ color: "var(--brand-teal)" }} />
+                    ) : (
+                      <AlertTriangle />
+                    )}
                     <AlertTitle>
-                      {allConfirmed ? "Все достижения подтверждены" : `Осталось подтвердить ${total - confirmed} из ${total}`}
+                      {allConfirmed
+                        ? "Все достижения подтверждены"
+                        : `Осталось подтвердить ${total - confirmed} из ${total}`}
                     </AlertTitle>
                     <AlertDescription>
                       {allConfirmed
@@ -651,12 +780,27 @@ export default function ProfilePage() {
                 </div>
               );
             })() : (
-              <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
-                <Target className="mx-auto h-8 w-8 text-muted-foreground/60" />
-                <p className="mt-2 text-sm font-medium text-foreground">
+              <div
+                className="mt-4 rounded-lg border border-dashed p-6 text-center"
+                style={{
+                  borderColor: "var(--brand-teal-20)",
+                  backgroundColor: "var(--brand-teal-5)",
+                }}
+              >
+                <Target
+                  className="mx-auto h-8 w-8"
+                  style={{ color: "var(--brand-teal-60)" }}
+                />
+                <p
+                  className="mt-2 text-sm font-medium"
+                  style={{ color: "var(--brand-teal)" }}
+                >
                   Достижений пока нет
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p
+                  className="mt-1 text-xs"
+                  style={{ color: "var(--brand-teal-60)" }}
+                >
                   Нажмите «Извлечь достижения» — парсер найдёт результаты с метриками в вашем резюме.
                 </p>
                 <Button
@@ -691,7 +835,10 @@ export default function ProfilePage() {
 
       {!profile && (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
+          <CardContent
+            className="py-8 text-center"
+            style={{ color: "var(--brand-teal-60)" }}
+          >
             Загрузите резюме или создайте профиль вручную, чтобы начать.
           </CardContent>
         </Card>

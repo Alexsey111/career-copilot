@@ -1,10 +1,10 @@
 import type { DocumentDiffResponse } from "@/lib/types";
 
 const CHANGE_COLORS: Record<string, string> = {
-  added: "text-green-700",
-  removed: "text-red-700",
+  added: "text-[color:var(--brand-teal)]",
+  removed: "text-[color:var(--brand-ink)]",
   changed: "text-yellow-700",
-  unchanged: "text-gray-500",
+  unchanged: "text-[color:var(--brand-teal-60)]",
 };
 
 /**
@@ -13,31 +13,31 @@ const CHANGE_COLORS: Record<string, string> = {
  */
 export default function DocumentDiffView({ diff }: { diff: DocumentDiffResponse | null }) {
   if (!diff || !diff.sections || diff.sections.length === 0) {
-    return <p className="text-sm text-gray-500">Нет различий для отображения.</p>;
+    return <p className="text-sm text-[color:var(--brand-teal-60)]">Нет различий для отображения.</p>;
   }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-[color:var(--brand-teal-60)]">
         Сравнение {diff.base_document_id.slice(0, 8)}… → {diff.target_document_id.slice(0, 8)}…
         ({diff.document_kind})
       </p>
       {diff.sections.map((s, i) => (
-        <div key={i} className="border border-gray-200 rounded-lg p-3">
+        <div key={i} className="border border-[color:var(--brand-teal-20)] rounded-lg p-3">
           <div className="flex items-center justify-between mb-1">
-            <h4 className="text-sm font-medium text-gray-800">{s.section}</h4>
+            <h4 className="text-sm font-medium text-[color:var(--brand-teal)]">{s.section}</h4>
             {s.change && (
-              <span className={`text-xs capitalize ${CHANGE_COLORS[s.change] ?? "text-gray-500"}`}>
+              <span className={`text-xs capitalize ${CHANGE_COLORS[s.change] ?? "text-[color:var(--brand-teal-60)]"}`}>
                 {s.change}
               </span>
             )}
           </div>
           {s.base && (
-            <pre className="text-xs text-red-600 whitespace-pre-wrap bg-red-50 p-2 rounded mb-1">
+            <pre className="text-xs text-[color:var(--brand-ink)] whitespace-pre-wrap bg-[color:var(--brand-ink-10)] p-2 rounded mb-1">
               {s.base}
             </pre>
           )}
           {s.target && (
-            <pre className="text-xs text-green-600 whitespace-pre-wrap bg-green-50 p-2 rounded">
+            <pre className="text-xs text-[color:var(--brand-teal)] whitespace-pre-wrap bg-[color:var(--brand-lime-soft)] p-2 rounded">
               {s.target}
             </pre>
           )}

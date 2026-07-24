@@ -5,8 +5,8 @@ function Metric({ label, value }: { label: string; value: unknown }) {
   if (value == null) return null;
   return (
     <div className="text-sm">
-      <span className="text-gray-500">{label}: </span>
-      <span className="font-medium text-gray-800">{String(value)}</span>
+      <span className="text-[color:var(--brand-teal-60)]">{label}: </span>
+      <span className="font-medium text-[color:var(--brand-teal)]">{String(value)}</span>
     </div>
   );
 }
@@ -33,8 +33,8 @@ export default function DocumentReviewSummaryView({
       </div>
 
       {readiness && (
-        <div className="bg-gray-50 rounded-lg p-3">
-          <h3 className="text-sm font-medium text-gray-700 mb-1">Готовность</h3>
+        <div className="bg-[color:var(--brand-cream-soft)] rounded-lg p-3">
+          <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Готовность</h3>
           <div className="flex flex-wrap gap-4">
             <Metric label="Score" value={readiness.score ?? readiness.readiness_score} />
             <Metric label="Статус" value={readiness.status ?? readiness.prep_status} />
@@ -43,8 +43,8 @@ export default function DocumentReviewSummaryView({
       )}
 
       {quality && (
-        <div className="bg-gray-50 rounded-lg p-3">
-          <h3 className="text-sm font-medium text-gray-700 mb-1">Качество</h3>
+        <div className="bg-[color:var(--brand-cream-soft)] rounded-lg p-3">
+          <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Качество</h3>
           <div className="flex flex-wrap gap-4">
             <Metric label="Оценка" value={quality.score ?? quality.grade} />
             <Metric label="Статус" value={quality.status} />
@@ -63,10 +63,10 @@ export default function DocumentReviewSummaryView({
 
       {summary.selected_achievements && summary.selected_achievements.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-1">Выбранные достижения</h3>
+          <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Выбранные достижения</h3>
           <ul className="space-y-1">
             {summary.selected_achievements.map((a, i) => (
-              <li key={i} className="text-sm text-gray-700">
+              <li key={i} className="text-sm text-[color:var(--brand-teal)]">
                 • {(a.title as string) || JSON.stringify(a).slice(0, 80)}
               </li>
             ))}
@@ -76,10 +76,10 @@ export default function DocumentReviewSummaryView({
 
       {summary.matched_keywords && summary.matched_keywords.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-green-700 mb-1">Совпавшие ключевые слова</h3>
+          <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Совпавшие ключевые слова</h3>
           <div className="flex flex-wrap gap-1">
             {summary.matched_keywords.map((k, i) => (
-              <span key={i} className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
+              <span key={i} className="text-xs bg-[color:var(--brand-lime-soft)] text-[color:var(--brand-teal)] px-2 py-0.5 rounded">
                 {k}
               </span>
             ))}
@@ -89,10 +89,10 @@ export default function DocumentReviewSummaryView({
 
       {summary.missing_keywords && summary.missing_keywords.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-red-700 mb-1">Пропущенные ключевые слова</h3>
+          <h3 className="text-sm font-medium text-[color:var(--brand-ink)] mb-1">Пропущенные ключевые слова</h3>
           <div className="flex flex-wrap gap-1">
             {summary.missing_keywords.map((k, i) => (
-              <span key={i} className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">
+              <span key={i} className="text-xs bg-[color:var(--brand-ink-10)] text-[color:var(--brand-ink)] px-2 py-0.5 rounded">
                 {k}
               </span>
             ))}
@@ -102,8 +102,8 @@ export default function DocumentReviewSummaryView({
 
       {summary.rendered_text_preview && (
         <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-1">Предпросмотр</h3>
-          <pre className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-3 rounded max-h-72 overflow-y-auto">
+          <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Предпросмотр</h3>
+          <pre className="text-sm text-[color:var(--brand-teal)] whitespace-pre-wrap bg-[color:var(--brand-cream-soft)] p-3 rounded max-h-72 overflow-y-auto">
             {summary.rendered_text_preview}
           </pre>
         </div>

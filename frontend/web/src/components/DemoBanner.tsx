@@ -50,10 +50,17 @@ export default function DemoBanner({
     : 1;
 
   return (
-    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+    <div
+      className="mb-6 p-4 rounded-xl"
+      style={{
+        backgroundColor: "var(--brand-lime-soft)",
+        borderColor: "var(--brand-lime)",
+        borderWidth: "1px",
+      }}
+    >
       <div className="flex items-start gap-3">
         <span className="text-xl">🧪</span>
-        <div className="text-sm text-amber-900">
+        <div className="text-sm text-[color:var(--brand-teal)]">
           <p className="font-semibold mb-1">Демо-режим</p>
           <p>
             Сервис работает в демонстрационном режиме. Импорт вакансий ограничен:

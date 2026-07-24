@@ -14,11 +14,11 @@ const STATUSES = [
 ];
 
 const STATUS_COLORS: Record<string, string> = {
-  confirmed: "bg-green-100 text-green-800",
+  confirmed: "bg-[color:var(--brand-lime-soft)] text-[color:var(--brand-teal)]",
   needs_confirmation: "bg-yellow-100 text-yellow-800",
-  unverifiable: "bg-gray-100 text-gray-700",
-  rejected: "bg-red-100 text-red-800",
-  user_provided: "bg-blue-100 text-blue-800",
+  unverifiable: "bg-[color:var(--brand-teal-5)] text-[color:var(--brand-teal)]",
+  rejected: "bg-[color:var(--brand-ink-10)] text-[color:var(--brand-ink)]",
+  user_provided: "bg-[color:var(--brand-teal-5)] text-[color:var(--brand-teal)]",
 };
 
 /**
@@ -73,15 +73,15 @@ export default function AchievementReviewCard({
     }
   };
 
-  const input = "w-full px-2 py-1 border border-gray-300 rounded text-sm";
+  const input = "w-full px-2 py-1 border border-[color:var(--brand-teal-20)] rounded text-sm";
 
   return (
-    <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+    <div className="border border-[color:var(--brand-teal-20)] rounded-lg p-3 space-y-2">
       <div className="flex items-center justify-between">
-        <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[factStatus] ?? "bg-gray-100"}`}>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[factStatus] ?? "bg-[color:var(--brand-teal-5)]"}`}>
           {STATUSES.find((s) => s.value === factStatus)?.label ?? factStatus}
         </span>
-        <span className="text-xs text-gray-400">{achievement.source ?? ""}</span>
+        <span className="text-xs text-[color:var(--brand-teal-40)]">{achievement.source ?? ""}</span>
       </div>
       <input
         value={title}
@@ -143,7 +143,7 @@ export default function AchievementReviewCard({
       <button
         onClick={handleSave}
         disabled={saving}
-        className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+        className="px-3 py-1 text-sm bg-[color:var(--brand-lime)] text-[color:var(--brand-teal)] font-semibold rounded hover:bg-[#b8e85c] disabled:opacity-50"
       >
         {saving ? "Сохранение…" : "Сохранить"
         }
