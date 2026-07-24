@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
  * Логотип AI Career Copilot — gradient monogram + soft glow.
  *
  * Используется в шапке (Sidebar) и hero (login/register). Цветовая
- * палитра: slate-900 → emerald-600 → teal-500 (изумрудно-серая,
- * в духе Stripe / Linear Pro / Notion dark).
+ * палитра: stone-700 → sage-500 → dusty teal («припыленная» — warm gray
+ * с sage-акцентом, как Linear / Anthropic). Saturation снижена ~30%.
  * SVG, не зависит от next/image.
  */
 export function Logo({
@@ -31,9 +31,9 @@ export function Logo({
       >
         <defs>
           <linearGradient id="logoBg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#0f172a" />
-            <stop offset="0.5" stopColor="#059669" />
-            <stop offset="1" stopColor="#14b8a6" />
+            <stop offset="0" stopColor="#44403c" />
+            <stop offset="0.5" stopColor="#7a8a7e" />
+            <stop offset="1" stopColor="#5e7e7a" />
           </linearGradient>
           <radialGradient id="logoGlow" cx="0.3" cy="0.3" r="0.7">
             <stop offset="0" stopColor="#ffffff" stopOpacity="0.4" />

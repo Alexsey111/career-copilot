@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
-  <!-- Mesh-gradient: slate-900 → emerald-600 → teal-500 (изумрудно-серая, как Stripe/Linear Pro). -->
+  <!-- Mesh-gradient: stone-700 → sage-500 → dusty teal («припыленная» warm gray). -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0f172a" />
-      <stop offset="0.5" stop-color="#059669" />
-      <stop offset="1" stop-color="#14b8a6" />
+      <stop offset="0" stop-color="#44403c" />
+      <stop offset="0.5" stop-color="#7a8a7e" />
+      <stop offset="1" stop-color="#5e7e7a" />
     </linearGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#94a3b8" stop-opacity="0.6" />
-      <stop offset="1" stop-color="#6ee7b7" stop-opacity="0.0" />
+      <stop offset="0" stop-color="#a8a29e" stop-opacity="0.6" />
+      <stop offset="1" stop-color="#94a39a" stop-opacity="0.0" />
     </linearGradient>
   </defs>
   <!-- Soft outer ring для глубины. -->
