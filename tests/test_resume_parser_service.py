@@ -74,3 +74,30 @@ def test_parse_txt_records_zero_width_count_in_diagnostics_seed() -> None:
     # Текст очищен от zero-width.
     assert "​" not in parsed.text
     assert "PythonFastAPI" in parsed.text
+
+
+def test_normalize_text_unzips_two_column_layout_into_separate_blocks() -> None:
+    """PDF-резюме с 2 колонками: левая "Опыт", правая "Образование".
+    Текущая реализация re.split(r'\\s{6,}', line) сшивает обе колонки в одну
+    строку, теряя порядок секций. Ожидаемое поведение: левая и правая колонки
+    должны идти отдельными блоками (зигзаг), а НЕ склеиваться в одной строке.
+    """
+    service = ResumeParserService()
+
+    raw_text = (
+        "Опыт работы                              Образование\n"
+        "Python Developer 2020-2024                 МГУ 2010-2015\n"
+        "FastAPI, PostgreSQL                       Бакалавр информатики\n"
+        "Acme Inc 2018-2020                        Coursera ML 2022\n"
+    )
+
+    normalized = service._normalize_text(raw_text)
+
+    # Главное: левая и правая колонки НЕ должны склеиваться через пробел.
+    assert "Python Developer 2020-2024 МГУ 2010-2015" not in normalized
+    assert "FastAPI, PostgreSQL Бакалавр информатики" not in normalized
+    # Каждая колонка должна быть в выходе отдельной строкой.
+    assert "Python Developer 2020-2024" in normalized
+    assert "МГУ 2010-2015" in normalized
+    assert "FastAPI, PostgreSQL" in normalized
+    assert "Бакалавр информатики" in normalized

@@ -399,19 +399,44 @@ class ResumeParserService:
         text = text.replace("\ufeff", "")
         text = text.replace("\t", " ")
 
+        # Двухколонные PDF: многие строки содержат широкий whitespace-разрыв
+        # (>=6 пробелов) — левый и правый столбец одной "логической" строки.
+        # Простой split+flatten склеивает left/right через пробел и портит
+        # порядок секций. Здесь определяем двухколонный layout по доле таких
+        # строк и разворачиваем его зигзагом: сначала вся левая колонка,
+        # затем вся правая. Одноколоночные строки идут как есть.
+        raw_lines = [raw_line.strip() for raw_line in text.splitlines() if raw_line.strip()]
+        two_col_count = sum(1 for line in raw_lines if re.search(r"\s{6,}", line))
+        is_two_column = len(raw_lines) >= 3 and two_col_count / len(raw_lines) >= 0.5
+
         prepared_lines: list[str] = []
 
-        for raw_line in text.splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-
-            # If a line contains a very wide whitespace gap, it often comes from two columns.
-            split_parts = re.split(r"\s{6,}", line)
-            for part in split_parts:
-                cleaned = re.sub(r"\s+", " ", part).strip()
-                if cleaned:
-                    prepared_lines.append(cleaned)
+        if is_two_column:
+            left_col: list[str] = []
+            right_col: list[str] = []
+            for line in raw_lines:
+                split_parts = re.split(r"\s{6,}", line, maxsplit=1)
+                left = re.sub(r"\s+", " ", split_parts[0]).strip() if split_parts else ""
+                right = (
+                    re.sub(r"\s+", " ", split_parts[1]).strip()
+                    if len(split_parts) > 1
+                    else ""
+                )
+                if left:
+                    left_col.append(left)
+                if right:
+                    right_col.append(right)
+            # Зигзаг: сначала вся левая колонка, потом вся правая.
+            prepared_lines.extend(left_col)
+            prepared_lines.extend(right_col)
+        else:
+            for line in raw_lines:
+                # If a line contains a very wide whitespace gap, it often comes from two columns.
+                split_parts = re.split(r"\s{6,}", line)
+                for part in split_parts:
+                    cleaned = re.sub(r"\s+", " ", part).strip()
+                    if cleaned:
+                        prepared_lines.append(cleaned)
 
         merged_lines: list[str] = []
         for line in prepared_lines:
