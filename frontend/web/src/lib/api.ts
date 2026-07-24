@@ -18,6 +18,12 @@ function extractErrorMessage(error: any, status: number): string {
     return detail;
   }
   if (detail && typeof detail === "object") {
+    // Bug#74: backend может вернуть {code, reason, message} для 422
+    // (ai_enhancement_rejected). Приоритет — человеческое ``message``,
+    // а не технический ``reason``.
+    if (typeof detail.message === "string" && detail.message.trim()) {
+      return detail.message;
+    }
     if (typeof detail.reason === "string" && detail.reason.trim()) {
       const used = detail.used ?? null;
       const limit = detail.limit ?? null;

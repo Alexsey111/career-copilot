@@ -344,7 +344,15 @@ async def test_cover_letter_enhance_creates_new_inactive_version(client, db_sess
     with patch.object(
         CoverLetterGenerationService,
         "enhance_cover_letter_with_ai",
-        new=AsyncMock(return_value="Enhanced cover letter text"),
+        new=AsyncMock(
+            return_value={
+                "text": "Enhanced cover letter text",
+                "degraded": False,
+                "reason": None,
+                "tokens_used": {},
+                "cost": None,
+            }
+        ),
     ):
         enhance_response = await client.post(
             f"{API_PREFIX}/documents/letters/{document_a_id}/enhance",

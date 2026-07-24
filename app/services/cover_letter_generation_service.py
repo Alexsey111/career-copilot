@@ -1768,7 +1768,17 @@ class CoverLetterGenerationService:
         user_id: UUID,
         draft_text: str,
         language: str = "ru",
-    ) -> str:
+    ) -> dict[str, Any]:
+        """Запускает AI-enhance для cover letter draft'а.
+
+        Возвращает структуру ``{"text", "degraded", "reason", "tokens_used", "cost"}``:
+        - ``degraded=True`` означает, что LLM уже отработал (токены списаны,
+          ``AIRun`` записан в БД), но safety/factuality-gate отбросил результат
+          как непригодный. В этом случае endpoint **не** должен создавать
+          новый ``DocumentVersion`` и **не** должен возвращать 200 — чтобы
+          пользователь видел, что улучшение не состоялось (Bug#74: иначе
+          «деньги списали, а результат — старый текст»).
+        """
         if not self.ai_orchestrator:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1786,14 +1796,52 @@ class CoverLetterGenerationService:
         )
 
         enhanced = result["result"]["enhanced_text"]
+        usage = result.get("usage", {}) or {}
+        cost = result.get("cost")
 
         if not self._is_safe_enhancement(draft_text, enhanced):
-            return draft_text
+            logger.info(
+                "cover_letter_enhance_safety_gate_rejected",
+                extra={
+                    "user_id": str(user_id),
+                    "draft_words": self._word_count(draft_text),
+                    "enhanced_words": self._word_count(enhanced),
+                    "usage": usage,
+                },
+            )
+            return {
+                "text": draft_text,
+                "degraded": True,
+                "reason": "safety_gate_rejected",
+                "tokens_used": usage,
+                "cost": cost,
+            }
 
         # Factuality-gate: отсекаем выдуманные AI-метрики, отсутствующие в оригинале
         # (baseline — метрики исходного текста письма; новая метрика от AI → откат).
         original_metrics = _extract_metrics(draft_text)
         if original_metrics and (_extract_metrics(enhanced) - original_metrics):
-            return draft_text
+            logger.info(
+                "cover_letter_enhance_factuality_gate_rejected",
+                extra={
+                    "user_id": str(user_id),
+                    "draft_metrics": sorted(original_metrics),
+                    "new_metrics": sorted(_extract_metrics(enhanced) - original_metrics),
+                    "usage": usage,
+                },
+            )
+            return {
+                "text": draft_text,
+                "degraded": True,
+                "reason": "factuality_gate_rejected",
+                "tokens_used": usage,
+                "cost": cost,
+            }
 
-        return enhanced
+        return {
+            "text": enhanced,
+            "degraded": False,
+            "reason": None,
+            "tokens_used": usage,
+            "cost": cost,
+        }

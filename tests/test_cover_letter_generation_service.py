@@ -124,7 +124,8 @@ I am excited about this opportunity to join your team."""
         draft_text=original_text,
     )
 
-    assert result == enhanced_text
+    assert result["text"] == enhanced_text
+    assert result["degraded"] is False
 
 
 @pytest.mark.asyncio
@@ -159,10 +160,12 @@ I would welcome the opportunity to contribute to your team."""
         draft_text=original_text,
     )
 
-    # FastAPI и Redis были удалены AI → фолбэк на оригинал
-    assert result == original_text
-    assert "FastAPI" in result
-    assert "Redis" in result
+    # FastAPI и Redis были удалены AI → фолбэк на оригинал, помечаем degraded
+    assert result["text"] == original_text
+    assert result["degraded"] is True
+    assert result["reason"] == "safety_gate_rejected"
+    assert "FastAPI" in result["text"]
+    assert "Redis" in result["text"]
 
 
 @pytest.mark.asyncio
@@ -200,9 +203,11 @@ I increased overall throughput by 150% and am excited about this opportunity."""
     )
 
     # 150% выдумана AI и отсутствует в оригинале → откат на оригинал
-    assert result == original_text
-    assert "150%" not in result
-    assert "30%" in result
+    assert result["text"] == original_text
+    assert result["degraded"] is True
+    assert result["reason"] == "factuality_gate_rejected"
+    assert "150%" not in result["text"]
+    assert "30%" in result["text"]
 
 
 @pytest.mark.asyncio
@@ -239,7 +244,8 @@ I am excited about this opportunity to join your team."""
         draft_text=original_text,
     )
 
-    assert result == enhanced_text
+    assert result["text"] == enhanced_text
+    assert result["degraded"] is False
 
 
 def test_cover_letter_generation_uses_analysis_strengths_and_gaps_as_truth() -> None:
