@@ -5,10 +5,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToastCtx } from "@/contexts/ToastContext";
 import { api } from "@/lib/api";
 import UsageMeter from "@/components/UsageMeter";
-import type { MySubscriptionResponse } from "@/lib/types";
+import type { MySubscriptionResponse, UserAIProvider } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 export default function BillingPage() {
   const { token } = useAuth();
@@ -58,6 +66,36 @@ export default function BillingPage() {
       toast.error(err instanceof Error ? err.message : "Портал недоступен");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleAIProviderChange = async (value: string) => {
+    if (!token) return;
+    const previous = sub?.ai_provider;
+    // Оптимистичное обновление, чтобы Select не «дёргался» при ошибке.
+    if (sub) {
+      setSub({ ...sub, ai_provider: value as UserAIProvider });
+    }
+    try {
+      const updated = (await api.updateSubscription(token, {
+        ai_provider: value,
+      })) as MySubscriptionResponse;
+      setSub(updated);
+      const label =
+        value === "default"
+          ? "по умолчанию сервера"
+          : ({ gigachat: "GigaChat", openai: "OpenAI", deepseek: "DeepSeek" } as const)[
+              value as "gigachat" | "openai" | "deepseek"
+            ] ?? value;
+      toast.success(`AI-провайдер: ${label}`);
+    } catch (err) {
+      // Откат к предыдущему значению.
+      if (sub && previous) {
+        setSub({ ...sub, ai_provider: previous });
+      }
+      toast.error(
+        err instanceof Error ? err.message : "Не удалось обновить провайдера"
+      );
     }
   };
 
@@ -112,6 +150,35 @@ export default function BillingPage() {
                   Квоты не настроены для этого плана.
                 </p>
               )}
+            </div>
+
+            <div>
+              <h3 className="font-medium mb-3">AI-провайдер</h3>
+              <p className="text-sm text-muted-foreground mb-2">
+                Выберите, через какую языковую модель адаптировать тексты к
+                вакансии. Модель фиксирована для каждого провайдера — выбор
+                только между поставщиками.
+              </p>
+              <div className="flex items-center gap-3">
+                <Label htmlFor="ai-provider" className="sr-only">
+                  AI-провайдер
+                </Label>
+                <Select
+                  value={sub.ai_provider ?? "default"}
+                  onValueChange={handleAIProviderChange}
+                  disabled={busy}
+                >
+                  <SelectTrigger id="ai-provider" className="w-64" aria-label="AI-провайдер">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">По умолчанию сервера</SelectItem>
+                    <SelectItem value="gigachat">GigaChat</SelectItem>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="deepseek">DeepSeek</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {sub.canceled_at && (

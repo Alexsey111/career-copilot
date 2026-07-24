@@ -21,6 +21,7 @@ from .registry.prompts import (
 from .tracing import trace_ai_run
 from app.core.config import get_settings
 from app.repositories.ai_run_repository import AIRunRepository  # создадим ниже
+from app.repositories.subscription_repository import SubscriptionRepository
 
 
 class AIOrchestrator:
@@ -55,6 +56,12 @@ class AIOrchestrator:
         self.config = config or AIOrchestratorConfig.from_settings()
         self.fallback_client = fallback_client
         self.ai_run_repo = AIRunRepository()
+        # Per-user override cache (#37 DeepSeek). Ключ — provider name (lowercase).
+        # Заполняется лениво в ``_resolve_client``, очищается в ``aclose``.
+        # Нет fallback между user-провайдерами: если у пользователя ai_provider="deepseek"
+        # и он сломался — 502, не уходим в settings.ai_fallback_provider. Детерминированная
+        # логика, без сценариев.
+        self._user_provider_clients: dict[str, BaseLLMClient] = {}
     
     @classmethod
     def from_settings(cls) -> "AIOrchestrator":
@@ -67,6 +74,56 @@ class AIOrchestrator:
         await self.client.aclose()
         if self.fallback_client:
             await self.fallback_client.aclose()
+        for user_client in self._user_provider_clients.values():
+            await user_client.aclose()
+        self._user_provider_clients.clear()
+
+    async def _resolve_client(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+    ) -> tuple[BaseLLMClient, bool]:
+        """Возвращает (client, user_provider_active).
+
+        ``user_provider_active=True`` если был применён per-user override
+        (``Subscription.ai_provider`` отличается от ``self.client.provider_name``).
+        Используется для трассировки провайдера в AI_RUNS — чтобы видеть,
+        от имени какого провайдера фактически ушёл запрос. Если провайдер не
+        поддерживается (неизвестная строка в БД) — откат к ``self.client``
+        (логика: «лучше работающий дефолт, чем жёсткий отказ»).
+        """
+        settings = get_settings()
+        default_provider = settings.ai_provider.strip().lower()
+
+        subscription = await SubscriptionRepository().get_or_none(
+            session, user_id=user_id
+        )
+        if subscription is None or not subscription.ai_provider:
+            return self.client, False
+
+        user_provider = subscription.ai_provider.strip().lower()
+        if user_provider == default_provider:
+            # Пользователь явно выбрал дефолт — используем self.client, но
+            # фиксируем факт override, чтобы трассировка отражала решение user.
+            return self.client, True
+
+        if user_provider in self._user_provider_clients:
+            return self._user_provider_clients[user_provider], True
+
+        # Создаём новый клиент для user-провайдера.
+        from app.ai.factory import create_llm_client
+
+        try:
+            user_client = create_llm_client(user_provider)
+        except (ValueError, Exception):
+            # Не удалось создать (например, ключ не задан в env для этого
+            # провайдера) — откат к дефолту. Без exception: иначе пользователь
+            # без OpenAI-ключа не смог бы выбрать DeepSeek, если упадёт
+            # инстанциирование (5xx вместо честного 4xx на UI).
+            return self.client, False
+
+        self._user_provider_clients[user_provider] = user_client
+        return user_client, True
 
     async def execute(
         self,
@@ -84,10 +141,10 @@ class AIOrchestrator:
     ) -> dict[str, Any]:
         """
         Выполняет AI-запрос с полной обвязкой.
-        
+
         Args:
             language: Язык ответа (default: "en")
-        
+
         Returns:
             dict с ключами:
             - result: dict|str (распарсенный ответ)
@@ -95,6 +152,16 @@ class AIOrchestrator:
             - cost: float (если настроено)
             - model: str (какая модель фактически использована)
         """
+        # 0. Per-user provider override (#37 DeepSeek). Если пользователь явно
+        # выбрал провайдера (Subscription.ai_provider), используем его. Иначе —
+        # ``self.client``, инициализированный в ``__init__`` из
+        # ``settings.ai_provider``. ``provider_name`` сравнивается по нормализованной
+        # строке (lowercase), что совпадает с ``Settings.ai_provider`` Literal-типом.
+        # ``_user_provider_clients`` — ленивый кэш на сессию процесса, чтобы
+        # не плодить httpx-клиентов на каждый запрос. ``aclose`` закрывает
+        # все из них (см. ``aclose`` ниже).
+        client, user_provider_active = await self._resolve_client(session, user_id)
+
         # 1. Загружаем спецификацию промпта
         spec = get_prompt(prompt_template)
 
@@ -163,7 +230,7 @@ class AIOrchestrator:
             await DataTransferAuditService().log(
                 session,
                 user_id=user_id,
-                recipient=self.client.provider_name,
+                recipient=client.provider_name,
                 purpose=workflow_name,
                 data_categories=data_categories,
                 consent_type="ai_generation",
@@ -176,6 +243,7 @@ class AIOrchestrator:
                 # 5. Выполнение с ретраями (с глобальным timeout)
                 async with asyncio.timeout(self.config.request_timeout_sec):
                     result = await self._execute_with_retry(
+                        client=client,
                         prompt=prompt,
                         model=model,
                         temperature=temperature,
@@ -198,7 +266,7 @@ class AIOrchestrator:
                     workflow_name=workflow_name,
                     target_type=target_type,
                     target_id=target_id,
-                    provider_name=self.client.provider_name,
+                    provider_name=client.provider_name,
                     model_name=model,
                     prompt_version=prompt_template.value,
                     input_snapshot=self._sanitize_snapshot(prompt_vars),
@@ -244,7 +312,7 @@ class AIOrchestrator:
                     workflow_name=workflow_name,
                     target_type=target_type,
                     target_id=target_id,
-                    provider_name=self.client.provider_name,
+                    provider_name=client.provider_name,
                     model_name=model,
                     prompt_version=prompt_template.value,
                     input_snapshot=self._sanitize_snapshot(prompt_vars),
@@ -253,22 +321,25 @@ class AIOrchestrator:
                 )
                 await session.flush()
             raise
-    
+
     async def _execute_with_retry(
         self,
         *,
+        client: BaseLLMClient,
         prompt: str,
         model: str,
         temperature: float,
         response_format: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """Выполнение с ретраями и fallback"""
+        """Выполнение с ретраями и fallback. ``client`` — primary клиент
+        (per-user override или settings.ai_provider); ``self.fallback_client``
+        — env-уровневый fallback (НЕ per-user)."""
         last_error: Exception | None = None
-        
+
         for attempt in range(self.config.max_retries + 1):
             try:
                 if response_format:
-                    return await self.client.generate_structured(
+                    return await client.generate_structured(
                         prompt=prompt,
                         output_schema=response_format,
                         model=model,
@@ -276,7 +347,7 @@ class AIOrchestrator:
                         max_tokens=self.config.max_tokens,
                     )
                 else:
-                    return await self.client.generate(
+                    return await client.generate(
                         prompt=prompt,
                         model=model,
                         temperature=temperature,

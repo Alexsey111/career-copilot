@@ -375,7 +375,12 @@ export interface MySubscriptionResponse {
   current_period_end?: string | null;
   canceled_at?: string | null;
   usage?: PlanUsageItem[];
+  // Per-user LLM-провайдер (#37 DeepSeek). ``"default"`` = использовать
+  // ``settings.ai_provider``. UI отдаёт выбор в PATCH /me/billing/subscription.
+  ai_provider?: "gigachat" | "openai" | "deepseek" | "default";
 }
+
+export type UserAIProvider = "gigachat" | "openai" | "deepseek" | "default";
 
 export interface CheckoutResponse {
   checkout_url?: string;

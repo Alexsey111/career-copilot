@@ -972,6 +972,17 @@ class Subscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=dict,
     )
+    # Per-user override LLM-провайдера (#37 DeepSeek). ``None`` = использовать
+    # ``settings.ai_provider``. Выбор провайдера — за пользователем, но НЕ
+    # выбор модели: модель фиксирована в коде (deepseek-chat, gpt-4o-mini,
+    # gigachat-pro). Допустимые значения: ``"gigachat" | "openai" | "deepseek"``.
+    # ``mock`` исключён сознательно (тестовая инфраструктура), а в production
+    # validate_runtime_safety всё равно запретит.
+    ai_provider: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        default=None,
+    )
 
 
 class BillingEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):

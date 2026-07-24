@@ -156,6 +156,7 @@ class BillingService:
                 "stripe_subscription_id": None,
                 "current_period_end": None,
                 "canceled_at": None,
+                "ai_provider": "default",
             }
         return {
             "user_id": str(user_id),
@@ -173,6 +174,58 @@ class BillingService:
                 if subscription.canceled_at
                 else None
             ),
+            "ai_provider": subscription.ai_provider or "default",
+        }
+
+    async def update_ai_provider(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        ai_provider: str,
+    ) -> dict[str, Any]:
+        """Per-user выбор LLM-провайдера (#37 DeepSeek).
+
+        ``ai_provider == "default"`` → сбрасывает ``Subscription.ai_provider``
+        в NULL (= использовать ``settings.ai_provider``). Иные значения
+        валидируются против ``UserAIProvider`` в Pydantic-схеме PATCH endpoint;
+        здесь защищаемся дополнительно (whitelist) на случай прямого вызова
+        из тестов.
+
+        Создаёт ``Subscription`` запись с минимальным набором полей, если её
+        ещё нет (free-tier пользователь мог никогда не открывать биллинг).
+        """
+        if ai_provider != "default" and ai_provider not in (
+            "gigachat",
+            "openai",
+            "deepseek",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"unsupported ai_provider: {ai_provider!r}",
+            )
+
+        subscription = await self._subscription_repository.get_or_none(
+            session, user_id=user_id
+        )
+        if subscription is None:
+            subscription = await self._subscription_repository.create(
+                session,
+                user_id=user_id,
+                plan=PLAN_FREE,
+                status=SUBSCRIPTION_ACTIVE,
+                ai_provider=None if ai_provider == "default" else ai_provider,
+            )
+        else:
+            await self._subscription_repository.update(
+                session,
+                subscription,
+                ai_provider=None if ai_provider == "default" else ai_provider,
+            )
+
+        return {
+            "user_id": str(user_id),
+            "ai_provider": ai_provider,
         }
 
     # --- Webhook -------------------------------------------------------------

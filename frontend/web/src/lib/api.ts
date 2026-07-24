@@ -548,6 +548,16 @@ class ApiClient {
     return this.request("/me/billing/subscription", { token });
   }
 
+  async updateSubscription(token: string, payload: { ai_provider: string }) {
+    // PATCH /me/billing/subscription — частичное обновление. Сейчас поддерживает
+    // только ``ai_provider`` (#37 DeepSeek). План/статус — через Stripe webhook.
+    return this.request("/me/billing/subscription", {
+      method: "PATCH",
+      token,
+      body: JSON.stringify(payload),
+    });
+  }
+
   async createCheckout(token: string, payload: Record<string, unknown> = {}) {
     return this.request("/billing/checkout", {
       method: "POST",

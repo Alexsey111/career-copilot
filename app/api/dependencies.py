@@ -15,7 +15,15 @@ from app.security.dependencies import get_current_active_user
 
 
 def get_ai_orchestrator() -> AIOrchestrator:
-    """FastAPI dependency для получения AI-оркестратора."""
+    """FastAPI dependency для получения AI-оркестратора.
+
+    Per-user provider override (#37 DeepSeek) резолвится лениво внутри
+    ``AIOrchestrator.execute()`` через ``Subscription.ai_provider`` —
+    DI не зависит от ``current_user``. Один инстанс оркестратора
+    переиспользуется на все запросы; user-клиенты кэшируются в
+    ``_user_provider_clients`` и закрываются в ``aclose()`` (вызывается
+    в FastAPI lifespan).
+    """
     return create_ai_orchestrator()
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.ai.clients.base import BaseLLMClient
+from app.ai.clients.deepseek import DeepSeekLLMClient
 from app.ai.clients.gigachat import GigaChatClient
 from app.ai.clients.mock import MockLLMClient
 from app.ai.clients.openai import OpenAILLMClient
@@ -18,6 +19,9 @@ def create_llm_client(provider: str) -> BaseLLMClient:
 
     if normalized == "openai":
         return OpenAILLMClient()
+
+    if normalized == "deepseek":
+        return DeepSeekLLMClient()
 
     if normalized == "mock":
         return MockLLMClient()

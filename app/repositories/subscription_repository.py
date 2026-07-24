@@ -74,6 +74,7 @@ class SubscriptionRepository:
         current_period_end: datetime | None = _UNSET,
         canceled_at: datetime | None = _UNSET,
         metadata_json: dict | None = _UNSET,
+        ai_provider: str | None = _UNSET,
     ) -> Subscription:
         if plan is not _UNSET:
             subscription.plan = plan
@@ -89,6 +90,8 @@ class SubscriptionRepository:
             subscription.canceled_at = canceled_at
         if metadata_json is not _UNSET:
             subscription.metadata_json = metadata_json
+        if ai_provider is not _UNSET:
+            subscription.ai_provider = ai_provider
         await session.flush()
         await session.refresh(subscription)
         return subscription

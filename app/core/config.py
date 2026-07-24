@@ -11,7 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 AppEnv = Literal["local", "test", "staging", "prod"]
 StorageMode = Literal["local", "minio", "s3"]
-LLMProvider = Literal["gigachat", "openai", "mock"]
+LLMProvider = Literal["gigachat", "openai", "mock", "deepseek"]
 
 
 def _is_loopback_origin(origin: str) -> bool:
@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
     openai_timeout: float = Field(default=30.0, alias="OPENAI_TIMEOUT")
+
+    # DeepSeek: OpenAI-compatible Chat Completions API. drop-in клиент (см. app/ai/clients/deepseek.py).
+    deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com/v1", alias="DEEPSEEK_BASE_URL"
+    )
+    deepseek_timeout: float = Field(default=30.0, alias="DEEPSEEK_TIMEOUT")
 
     hh_user_agent: str = Field(
         default="career-copilot/0.1 contact@example.com",
@@ -280,6 +287,14 @@ class Settings(BaseSettings):
 
             if self.ai_fallback_provider == "mock":
                 raise ValueError("AI_FALLBACK_PROVIDER=mock is not allowed in production")
+
+            # Дефолтный провайдер должен иметь ключ. Per-user override
+            # (Subscription.ai_provider) не валидируем здесь — это runtime,
+            # бэк вернёт 503 если user-провайдер без ключа.
+            if self.ai_provider == "openai" and not self.openai_api_key:
+                raise ValueError("AI_PROVIDER=openai requires OPENAI_API_KEY")
+            if self.ai_provider == "deepseek" and not self.deepseek_api_key:
+                raise ValueError("AI_PROVIDER=deepseek requires DEEPSEEK_API_KEY")
 
             unsafe_encryption_keys = {"", "dev-fernet-key"}
             if (

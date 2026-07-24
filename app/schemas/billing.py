@@ -5,12 +5,20 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import Field
 
 from app.schemas.base import StrictBaseModel
+
+# Per-user LLM-провайдер (#37 DeepSeek). Модель НЕ выбирается пользователем —
+# она фиксирована в коде (deepseek-chat, gpt-4o-mini, gigachat-pro). ``None``
+# (в БД) трактуется как «использовать settings.ai_provider». На UI PATCH
+# принимает Literal-строку, а None передаётся через явный флаг ``"default"``.
+# ``mock`` исключён сознательно: production-валидатор ``Settings`` его
+# блокирует, а в dev/test — отдельный test client.
+UserAIProvider = Literal["gigachat", "openai", "deepseek", "default"]
 
 
 class CheckoutResponse(StrictBaseModel):
@@ -45,6 +53,18 @@ class MySubscriptionResponse(StrictBaseModel):
     current_period_end: str | None = None
     canceled_at: str | None = None
     usage: list[PlanUsageItem] = Field(default_factory=list)
+    # Per-user override LLM-провайдера. ``"default"`` означает «использовать
+    # settings.ai_provider» (т.е. ``Subscription.ai_provider IS NULL``). UI
+    # получает строку, бэк маппит ``"default"`` → None при записи.
+    ai_provider: str = "default"
+
+
+class UpdateMySubscriptionRequest(StrictBaseModel):
+    """Тело PATCH /me/billing/subscription. Поддерживает только ``ai_provider``
+    (выбор LLM-провайдера пользователем, #37 DeepSeek). План/статус
+    управляются Stripe-webhook, не пользователем."""
+
+    ai_provider: UserAIProvider
 
 
 class WebhookAck(StrictBaseModel):
