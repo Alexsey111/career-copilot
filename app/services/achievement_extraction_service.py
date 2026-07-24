@@ -354,9 +354,9 @@ class AchievementExtractionService:
         for line in lines:
             if self._looks_like_hard_achievement_stop(line):
                 break
-            if re.match(r"^\s*[-•]\s+", line):
+            if re.match(r"^\s*[-•*]\s+", line):
                 cleaned = self._strip_inline_layout_heading_tail(
-                    re.sub(r"^\s*[-•]\s+", "", line).strip()
+                    re.sub(r"^\s*[-•*]\s+", "", line).strip()
                 )
                 if self._looks_like_resume_layout_noise(cleaned):
                     continue
@@ -773,6 +773,24 @@ class AchievementExtractionService:
             "опыт проектирования",
             "опыт автоматизации",
             "опыт интеграции",
+            # Bug#72: AI-product marketing phrases без action-глагола. Легитимный
+            # кейс «Создал AI-платформу» защищён strong_result_marker выше
+            # (строка 701-731) — «создал» выводит текст из-под capability-фильтра.
+            "ai-платформа",
+            "ai-бот",
+            "ai-система",
+            "ai-продукт",
+            "ai-ассистент",
+            "ai-консультант",
+            "ai-сервис",
+            "ai-решение",
+            "ai-инструмент",
+            "ai-модуль",
+            "ai-агенты",
+            "ai-агент",
+            "ai-саас",
+            "saas-платформа",
+            "saas-решение",
             # Bug#10: курсы / обучение / сертификаты
             "data science",
             "нейросети",
