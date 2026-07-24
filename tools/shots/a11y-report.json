@@ -1,0 +1,62 @@
+[
+  {
+    "page": "login",
+    "path": "/login",
+    "violations": []
+  },
+  {
+    "page": "register",
+    "path": "/register",
+    "violations": []
+  },
+  {
+    "page": "profile",
+    "path": "/profile",
+    "violations": []
+  },
+  {
+    "page": "vacancies",
+    "path": "/vacancies",
+    "violations": []
+  },
+  {
+    "page": "applications",
+    "path": "/applications",
+    "violations": []
+  },
+  {
+    "page": "documents",
+    "path": "/documents",
+    "violations": []
+  },
+  {
+    "page": "career",
+    "path": "/career",
+    "violations": []
+  },
+  {
+    "page": "interview",
+    "path": "/interview",
+    "violations": []
+  },
+  {
+    "page": "evidence",
+    "path": "/evidence",
+    "violations": []
+  },
+  {
+    "page": "trust",
+    "path": "/trust",
+    "violations": []
+  },
+  {
+    "page": "billing",
+    "path": "/billing",
+    "violations": []
+  },
+  {
+    "page": "consent",
+    "path": "/consent",
+    "violations": []
+  }
+]

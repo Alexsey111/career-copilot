@@ -83,7 +83,13 @@ export default function AuthLayout({
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset>
-              <header className="flex h-14 items-center gap-2 border-b px-4">
+              {/* Это НЕ landmark-banner (как в layout — он идёт в <main>,
+                  что нарушает landmark-banner-is-top-level). Просто
+                  контейнер-«шапка» с триггером sidebar и логотипом. */}
+              <div
+                aria-label="Шапка приложения"
+                className="flex h-14 items-center gap-2 border-b px-4"
+              >
                 <SidebarTrigger />
                 {/* Bug#36: добавили логотип в шапку. Раньше здесь был только
                     текст «AI Career Copilot» — пользователь жаловался, что
@@ -93,8 +99,8 @@ export default function AuthLayout({
                 <span className="text-sm font-semibold text-foreground">
                   AI Career Copilot
                 </span>
-              </header>
-              <main className="flex-1 p-6">{children}</main>
+              </div>
+              <div className="flex-1 p-6">{children}</div>
             </SidebarInset>
           </SidebarProvider>
         </TooltipProvider>

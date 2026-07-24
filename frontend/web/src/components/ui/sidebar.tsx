@@ -166,8 +166,12 @@ function Sidebar({
 
   if (collapsible === "none") {
     return (
+      // role="complementary" (= <aside>) — иначе axe flagит "region":
+      // весь текст внутри Sidebar оказывается вне landmark.
       <div
         data-slot="sidebar"
+        role="complementary"
+        aria-label="Навигация по сайту"
         className={cn(
           "flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground",
           className
@@ -213,6 +217,8 @@ function Sidebar({
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
+      role="complementary"
+      aria-label="Навигация по сайту"
     >
       {/* This is what handles the sidebar gap on desktop */}
       <div

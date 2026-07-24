@@ -118,9 +118,9 @@ export default function TrustPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Выберите сущность</Label>
+            <Label htmlFor="entity-select">Выберите сущность</Label>
             <Select value={entityId} onValueChange={(v) => setEntityId(v ?? "")}>
-              <SelectTrigger>
+              <SelectTrigger id="entity-select" aria-label="Выберите сущность">
                 <SelectValue placeholder="— выберите —" />
               </SelectTrigger>
               <SelectContent>

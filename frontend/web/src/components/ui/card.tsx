@@ -34,8 +34,12 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  // Рендерим <h2>: обычно CardTitle идёт сразу после page-level <h1>,
+  // и если это <div>, axe flagит heading-order (h1→h3 пропуск). h2
+  // здесь семантически правилен — секции верхнего уровня. Вложенные
+  // подсекции на самих страницах — <h3>.
   return (
-    <div
+    <h2
       data-slot="card-title"
       className={cn(
         "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",

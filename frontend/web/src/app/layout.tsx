@@ -14,7 +14,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Career Copilot for HH",
+  // title.template — для дочерних layout/страниц: они могут указать
+  // title="Отклики" → DOM получит "Отклики | AI Career Copilot for HH".
+  // title.default — fallback для страниц без своего title (раньше был
+  // плоский string, и динамические маршруты /applications, /interview,
+  // /evidence давали "document-title" нарушение в axe).
+  title: {
+    default: "AI Career Copilot for HH",
+    template: "%s | AI Career Copilot for HH",
+  },
   description: "AI-powered career assistant for HeadHunter",
   // Bug#36: favicon.ico теперь существует (ранее был 404 — браузер
   // игнорировал logo.svg и показывал пустую вкладку / старый кэш).
