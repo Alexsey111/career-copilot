@@ -9,7 +9,10 @@ WORKDIR /app
 RUN pip install --upgrade pip
 
 COPY pyproject.toml build_backend.py README.md ./
-RUN --mount=type=cache,target=/root/.cache/pip pip install \
+# NB: --mount=type=cache (buildkit-only) убран, чтобы build проходил и с
+# DOCKER_BUILDKIT=0 (legacy builder). Кеш работает через PIP_CACHE_DIR
+# в volume /root/.cache/pip (см. ENV выше).
+RUN pip install \
     --default-timeout=1000 \
     --retries 5 \
     --no-cache-dir \

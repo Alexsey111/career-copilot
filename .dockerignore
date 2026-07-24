@@ -1,11 +1,62 @@
 .git
 .pytest_cache
+.ruff_cache
 .venv
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 .vscode
+.idea
+.claude
+.agents
+
+# tests и документация
 tests
 docs
-infra
+RUNBOOK.md
+MVP_RUNBOOK.md
+Makefile
+Procfile
+
+# dev-overhead (кириллические файлы ТЗ, диагностика, логи, скриншоты)
+тех задание.md
+первоначальное исследование.md
+*.diag_*.txt
+.diag_*
+.tok.txt
+
+# Скриншоты Playwright (сотни МБ, никогда не нужны в образе)
+tools/shots
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.mp4
+*.mov
+
+# Локальные логи
+*.log
+uvicorn.out.log
+uvicorn.err.log
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+*.whl
+*.tar.gz
+
+# IDE/OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets (compose передаёт их отдельно)
+.env
+.env.*
+!.env.example
+
+# Frontend (Node) — никогда не нужен в Python-образе
+frontend
+memory
