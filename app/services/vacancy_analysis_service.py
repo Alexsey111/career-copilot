@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +32,9 @@ from app.services.requirement_canonicalizer import (
     split_atomic_requirements,
 )
 from app.services.semantic_requirement_matcher import SemanticRequirementMatcher
+
+
+logger = logging.getLogger(__name__)
 
 
 REQUIREMENT_START_HEADINGS = {
@@ -235,6 +239,31 @@ class VacancyAnalysisService:
             must_have=must_have,
         )
 
+        # Bug#73: если описание слишком короткое, анализ малоосмысленный —
+        # записываем warning в match_logic_json, чтобы UI мог показать баннер.
+        # Раньше endpoint возвращал 200 + пустые must_have + match_score=0
+        # без объяснений, и пользователь не понимал, почему «анализ ничего не дал».
+        description_chars = len(vacancy.description_raw or "")
+        match_logic_json: dict[str, Any] = {}
+        if description_chars < 200:
+            match_logic_json = {
+                "warning": "short_description",
+                "message": (
+                    "Текст вакансии слишком короткий для качественного анализа "
+                    f"({description_chars} символов). Импортируйте вакансию "
+                    "вручную (вставьте полный текст), чтобы получить разбор."
+                ),
+                "description_chars": description_chars,
+            }
+            logger.warning(
+                "vacancy_analysis_short_description",
+                extra={
+                    "vacancy_id": str(vacancy.id),
+                    "user_id": str(user_id),
+                    "description_chars": description_chars,
+                },
+            )
+
         analysis = await self.analysis_repo.replace_for_vacancy(
             session,
             vacancy_id=vacancy.id,
@@ -246,6 +275,7 @@ class VacancyAnalysisService:
             match_score=validated.match_score,
             analysis_version="deterministic_v1",
             language_tone_hints_json=language_tone_hints,
+            match_logic_json=match_logic_json,
         )
 
         await session.commit()

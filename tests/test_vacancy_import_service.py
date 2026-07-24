@@ -183,3 +183,102 @@ async def test_vacancy_import_extracts_structured_fields_from_manual_text() -> N
     assert captured["employment_type"] == "Полная занятость"
     assert captured["experience_level"] == "Нет опыта"
     assert captured["normalized_json"]["fields_extraction"] == "vacancy_fields_extractor"
+
+
+# --- Bug#73: short_description warning -----------------------------------------
+# Раньше вакансия с коротким текстом (hh.ru пагинация/дубль) проходила import без
+# маркера, и при analyze_vacancy юзер видел "Анализ готов" + match_score=0 без
+# объяснений. Теперь: import пишет short_description=True в normalized_json, а
+# analysis кладёт warning в match_logic_json. Юзер видит ⚠ баннер в UI.
+
+
+@pytest.mark.asyncio
+async def test_vacancy_import_marks_short_description_in_normalized_json() -> None:
+    """Если description_raw короче 200 символов, normalized_json должен
+    содержать short_description=True, чтобы UI/аналитика видели причину
+    «анализ ничего не дал»."""
+    service = VacancyImportService()
+    captured: dict[str, object] = {}
+
+    async def fake_create(session, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            id="vacancy-id",
+            title=kwargs["title"],
+            description_raw=kwargs["description_raw"],
+            normalized_json=kwargs["normalized_json"],
+        )
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+        async def refresh(self, obj) -> None:
+            return None
+
+    service.vacancy_repository.create = fake_create  # type: ignore[method-assign]
+
+    short_text = "Сокращённая вакансия без подробностей."  # < 200 символов
+    assert len(short_text) < 200
+
+    await service.import_vacancy(
+        FakeSession(),
+        user_id="user-id",
+        source="manual",
+        source_url=None,
+        external_id=None,
+        title="Short",
+        company=None,
+        location=None,
+        description_raw=short_text,
+    )
+
+    assert captured["normalized_json"]["short_description"] is True
+    assert captured["normalized_json"]["raw_text_length"] == len(short_text)
+
+
+@pytest.mark.asyncio
+async def test_vacancy_import_does_not_mark_long_description_as_short() -> None:
+    """Регрессия: только текст < 200 символов маркируется как short;
+    нормальная вакансия НЕ должна получать short_description=True."""
+    service = VacancyImportService()
+    captured: dict[str, object] = {}
+
+    async def fake_create(session, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            id="vacancy-id",
+            title=kwargs["title"],
+            description_raw=kwargs["description_raw"],
+            normalized_json=kwargs["normalized_json"],
+        )
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+        async def refresh(self, obj) -> None:
+            return None
+
+    service.vacancy_repository.create = fake_create  # type: ignore[method-assign]
+
+    long_text = (
+        "Ищем Senior Python Developer.\n"
+        "Требования: FastAPI, PostgreSQL, Redis, Docker.\n"
+        "Опыт от 5 лет. Удалённая работа. " + "A" * 200
+    )
+    assert len(long_text) >= 200
+
+    await service.import_vacancy(
+        FakeSession(),
+        user_id="user-id",
+        source="manual",
+        source_url=None,
+        external_id=None,
+        title="Long",
+        company=None,
+        location=None,
+        description_raw=long_text,
+    )
+
+    assert "short_description" not in captured["normalized_json"]

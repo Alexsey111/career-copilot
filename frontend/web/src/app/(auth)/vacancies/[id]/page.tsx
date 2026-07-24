@@ -122,6 +122,19 @@ export default function VacancyDetailPage() {
                 {analysis.match_score ?? "-"}%
               </div>
 
+              {/* Bug#73: бэк записывает warning в match_logic, если description_raw
+                  короче 200 символов. Без этого баннера юзер видел "Анализ готов",
+                  match_score=0 и не понимал, что вакансия слишком короткая. */}
+              {analysis.match_logic?.warning === "short_description" && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
+                  <div className="font-medium mb-1">⚠ {analysis.match_logic.message}</div>
+                  <div className="text-xs text-amber-800">
+                    Перейдите на страницу «Вакансии» и вставьте полный текст вручную —
+                    анализ станет содержательным.
+                  </div>
+                </div>
+              )}
+
               {analysis.must_have?.length > 0 && (
                 <div className="mb-3">
                   <h3 className="text-sm font-medium text-gray-700 mb-1">Требования</h3>

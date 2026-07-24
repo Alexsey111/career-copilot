@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from uuid import UUID
@@ -27,6 +28,8 @@ from app.domain.vacancy_fields_extractor import VacancyFields, extract_vacancy_f
 
 
 MAX_VACANCY_TEXT_LENGTH = 120_000
+
+logger = logging.getLogger(__name__)
 
 
 class VacancyImportService:
@@ -166,6 +169,23 @@ class VacancyImportService:
                 else None
             ),
         }
+
+        # Bug#73: явно помечаем короткое описание, чтобы UI/аналитика видели,
+        # почему вакансия без анализа. Сейчас короткий текст проходит молча —
+        # и юзер не понимает, почему на импортированной URL-вакансии «анализ
+        # ничего не дал». Раньше: import → 200, analyze → match_score=0 без
+        # объяснений. Теперь: import пишет short_description=true в БД.
+        if len(final_description) < 200:
+            normalized_json["short_description"] = True
+            logger.warning(
+                "vacancy_import_short_description",
+                extra={
+                    "user_id": str(user_id),
+                    "vacancy_chars": len(final_description),
+                    "source": normalized_source,
+                    "source_url": source_url,
+                },
+            )
 
         vacancy = await self.vacancy_repository.create(
             session,

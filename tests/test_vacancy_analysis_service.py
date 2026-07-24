@@ -575,3 +575,127 @@ def test_soft_ai_interest_is_not_scored_as_technical_must_have() -> None:
     assert ("AI Workflow", "Интерес к AI workflow и желание развиваться в искусственном интеллекте") not in scoped_keywords
     assert any(item.keyword == "ChatGPT" for item in requirement_keywords)
     assert any(item.keyword == "LLM" for item in requirement_keywords)
+
+
+# --- Bug#73: short_description warning в analysis -----------------------------
+# Если описание короче 200 символов, analyze_vacancy должен записать
+# match_logic_json={"warning": "short_description", "message": ..., "description_chars": N}
+# через replace_for_vacancy, чтобы UI показал баннер «Анализ малоосмысленный».
+
+
+@pytest.mark.asyncio
+async def test_analyze_vacancy_writes_short_description_warning_to_match_logic(monkeypatch) -> None:
+    """Регрессия Bug#73: на коротком description_raw (< 200 chars) анализ
+    раньше возвращал 200 + match_score=0 без объяснений. Теперь —
+    match_logic_json содержит warning='short_description' и текст для UI."""
+    service = VacancyAnalysisService()
+    captured: dict = {}
+
+    class FakeVacancy:
+        id = "vacancy-id"
+        user_id = "user-id"
+        title = "Short vacancy"
+        description_raw = "Короткий текст"  # < 200 символов
+
+    class FakeAnalysis:
+        id = "analysis-id"
+        vacancy_id = "vacancy-id"
+        must_have_json = []
+        nice_to_have_json = []
+        keywords_json = []
+        gaps_json = []
+        strengths_json = []
+        match_score = 0
+        match_logic_json = None
+        language_tone_hints_json = None
+        risks_json = None
+        analysis_version = None
+        created_at = None
+
+    async def fake_get_by_id(session, vacancy_id, *, user_id):
+        return FakeVacancy()
+
+    async def fake_replace_for_vacancy(session, **kwargs):
+        captured.update(kwargs)
+        return FakeAnalysis()
+
+    async def fake_get_with_related_by_user_id(session, user_id):
+        return None
+
+    service.vacancy_repo.get_by_id = fake_get_by_id  # type: ignore[method-assign]
+    service.analysis_repo.replace_for_vacancy = fake_replace_for_vacancy  # type: ignore[method-assign]
+    service.profile_repo.get_with_related_by_user_id = fake_get_with_related_by_user_id  # type: ignore[method-assign]
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+    result = await service.analyze_vacancy(
+        FakeSession(),
+        vacancy_id="vacancy-id",
+        user_id="user-id",
+    )
+
+    assert captured["match_logic_json"]["warning"] == "short_description"
+    assert "Текст вакансии слишком короткий" in captured["match_logic_json"]["message"]
+    assert captured["match_logic_json"]["description_chars"] == len("Короткий текст")
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_analyze_vacancy_does_not_warn_on_long_description(monkeypatch) -> None:
+    """Регрессия: на нормальном description_raw (>= 200 chars) match_logic_json
+    остаётся пустым — баннер не должен показываться зря."""
+    service = VacancyAnalysisService()
+    captured: dict = {}
+
+    class FakeVacancy:
+        id = "vacancy-id"
+        user_id = "user-id"
+        title = "Senior Python Developer"
+        description_raw = (
+            "Ищем Senior Python Developer.\n"
+            "Требования: FastAPI, PostgreSQL, Redis, Docker.\n"
+            "Опыт от 5 лет. Удалённая работа. " + "A" * 300
+        )  # > 200
+
+    class FakeAnalysis:
+        id = "analysis-id"
+        vacancy_id = "vacancy-id"
+        must_have_json = []
+        nice_to_have_json = []
+        keywords_json = []
+        gaps_json = []
+        strengths_json = []
+        match_score = 0
+        match_logic_json = None
+        language_tone_hints_json = None
+        risks_json = None
+        analysis_version = None
+        created_at = None
+
+    async def fake_get_by_id(session, vacancy_id, *, user_id):
+        return FakeVacancy()
+
+    async def fake_replace_for_vacancy(session, **kwargs):
+        captured.update(kwargs)
+        return FakeAnalysis()
+
+    async def fake_get_with_related_by_user_id(session, user_id):
+        return None
+
+    service.vacancy_repo.get_by_id = fake_get_by_id  # type: ignore[method-assign]
+    service.analysis_repo.replace_for_vacancy = fake_replace_for_vacancy  # type: ignore[method-assign]
+    service.profile_repo.get_with_related_by_user_id = fake_get_with_related_by_user_id  # type: ignore[method-assign]
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+    await service.analyze_vacancy(
+        FakeSession(),
+        vacancy_id="vacancy-id",
+        user_id="user-id",
+    )
+
+    assert captured["match_logic_json"] == {}
