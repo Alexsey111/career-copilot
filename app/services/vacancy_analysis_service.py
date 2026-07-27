@@ -54,6 +54,11 @@ REQUIREMENT_START_HEADINGS = {
     "ЧЕГО ОЖИДАЕМ",
     "МЫ ИЩЕМ ЧЕЛОВЕКА",
     "ЧТО ВЫ БУДЕТЕ ДЕЛАТЬ",
+    "ЧТО НУЖНО БУДЕТ ДЕЛАТЬ",
+    "ЧТО НУЖНО ДЕЛАТЬ",
+    "В РАБОТЕ БУДУТ",
+    "В РАБОТЕ БУДЕТ",
+    "НАМ ВАЖНЫ",
     "ОБЯЗАННОСТИ",
     "REQUIREMENTS",
     "QUALIFICATIONS",
@@ -943,16 +948,24 @@ class VacancyAnalysisService:
         )
 
     def _match_heading_prefix(self, value: str) -> tuple[str, str] | None:
-        known_headings = sorted(
+        known_headings = (
             REQUIREMENT_START_HEADINGS
             | NICE_TO_HAVE_START_HEADINGS
-            | STOP_HEADINGS,
-            key=len,
-            reverse=True,
+            | STOP_HEADINGS
         )
         normalized_value = self._normalize_heading(value)
 
-        for heading in known_headings:
+        # Точное совпадение с известным заголовком — это чистый заголовок
+        # раздела («Что нужно будет делать»), а не inline «заголовок+хвост».
+        # Раньше короткий heading «ЧТО НУЖНО» prefix-матчил «ЧТО НУЖНО БУДЕТ
+        # ДЕЛАТЬ» и разбивал его на [«Что Нужно», «БУДЕТ ДЕЛАТЬ»], превращая
+        # обрубок «Будет делать» в отдельное требование.
+        if normalized_value in known_headings:
+            return None
+
+        known_sorted = sorted(known_headings, key=len, reverse=True)
+
+        for heading in known_sorted:
             if not normalized_value.startswith(f"{heading} "):
                 continue
 

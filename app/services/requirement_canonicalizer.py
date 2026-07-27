@@ -160,13 +160,61 @@ FRAGMENT_START_WORDS = {
     "выполняемых", "проводимых", "охватывающих", "затрагивающих",
 }
 
+# Косвенные падежные окончания первого слова обрубка (творит./родит./дат./
+# предл.), указывающие на продолжение перечисления однородных членов:
+# «связанных с сервисами, автоматизацией», «работы ботов, форм, сервисов»,
+# «доступами, сервисами и настройками». Именительный падеж сюда не входит —
+# он открывает самостоятельный пункт («разработка», «выполнение»).
+_KOSVENNYY_ENDINGS = (
+    "ами", "ями", "ой", "ей", "ею", "ью",            # творит.
+    "ов", "ев", "ей", "ий", "ям", "ам", "ах", "ях",   # родит./дат./предл.
+    "ым", "им", "ыми", "ими", "ого", "его", "ому", "ему", "ых", "их",  # прилаг.
+)
+
+# Именительные окончания — обрубок с таким окончанием первого слова —
+# самостоятельный пункт (субъект/навык/действие), не продолжение.
+_IMENITELNYY_ENDINGS = ("а", "я", "о", "е", "ы", "и", "ь")
+
+
+def _is_tech_token(word: str) -> bool:
+    """Латиница/цифры/tech-символы — tech-термин, всегда самостоятельный пункт."""
+    return bool(re.fullmatch(r"[a-z0-9][a-z0-9._+\-#]*", word))
+
+
+def _is_cyrillic(word: str) -> bool:
+    return bool(re.fullmatch(r"[а-яё]+", word, flags=re.UNICODE))
+
 
 def _is_continuation_fragment(value: str) -> bool:
     cleaned = _clean_text(value)
     if not cleaned:
         return False
-    first = re.split(r"\s+", cleaned.lower(), maxsplit=1)[0]
-    return first in FRAGMENT_START_WORDS
+    # Сохраняем исходный регистр первого слова — имена собственные/продукты
+    # («Контур», «Битрикс») пишутся с заглавной и НЕ являются обрубками.
+    orig_words = re.split(r"\s+", cleaned)
+    first_orig = orig_words[0]
+    first = first_orig.lower()
+
+    if first in FRAGMENT_START_WORDS:
+        return True
+    if _is_tech_token(first):
+        return False
+    # Косвенный падеж первого слова (>=4 букв) → продолжение перечисления.
+    if len(first) >= 4 and any(first.endswith(e) for e in _KOSVENNYY_ENDINGS):
+        return True
+    # 1-словный нарицательный обрубок с нулевым/согласным окончанием, не
+    # именительный («форм», «таблиц», «ссылок») — род. падеж ж.р., продолжение
+    # перечисления («работы ботов, форм, таблиц»). Имена собственные (первая
+    # буква заглавная) — самостоятельные пункты, не склеиваются.
+    if (
+        len(orig_words) == 1
+        and _is_cyrillic(first)
+        and len(first) >= 3
+        and not any(first.endswith(e) for e in _IMENITELNYY_ENDINGS)
+        and not first_orig[:1].isupper()
+    ):
+        return True
+    return False
 
 
 def canonicalize_requirement(value: str) -> CanonicalRequirement:

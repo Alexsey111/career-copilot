@@ -17,6 +17,7 @@ from app.services.vacancy_analysis_service import (
     STOP_HEADINGS,
     VacancyAnalysisService,
 )
+import pytest
 
 # Реальная hh-вакансия «Технический ассистент по AI и автоматизации»
 # (эмодзи уже вырезаны нормализацией импорта, fix #3): раздел «Что нужно будет
@@ -129,3 +130,104 @@ def test_comma_inside_phrase_does_not_create_stub_fragment() -> None:
         "FastAPI",
         "PostgreSQL",
     ]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # Творит./родит. падеж первого слова обрубка — продолжение перечисления
+        # («связанных с сервисами, автоматизацией», «доступами, сервисами»).
+        (
+            "помощь с доступами, сервисами и рабочими настройками для сотрудников",
+            ["помощь с доступами, сервисами и рабочими настройками для сотрудников"],
+        ),
+        (
+            "процессов, связанных с сервисами, автоматизацией и AI-инструментами",
+            ["процессов, связанных с сервисами, автоматизацией и AI-инструментами"],
+        ),
+        # Нулевое/согласное окончание 1-словного нарицательного обрубка
+        # («форм», «таблиц» — род. падеж ж.р.) — продолжение перечисления.
+        (
+            "работы ботов, форм, таблиц, сервисов и автоматизаций",
+            ["работы ботов, форм, таблиц, сервисов и автоматизаций"],
+        ),
+        # Имена собственные (Capitalized) — самостоятельные пункты, не обрубки.
+        ("1С 8.3, Контур", ["1С 8.3", "Контур"]),
+        ("Python, Битрикс", ["Python", "Битрикс"]),
+        # Именительный падеж первого слова — самостоятельный пункт (не склейка).
+        (
+            "разработка новых решений, выполнение задач по автоматизации",
+            ["разработка новых решений", "выполнение задач по автоматизации"],
+        ),
+    ],
+)
+def test_oblique_case_fragments_are_glued_back(value: str, expected: list[str]) -> None:
+    """Расширенная склейка #89: обрубки в косвенном падеже (творит./родит./
+    нулевое ж.р.) — продолжение перечисления, склеиваются к предыдущему пункту.
+    Имена собственные (Capitalized) и именительный падеж — отдельные пункты."""
+    from app.services.requirement_canonicalizer import split_atomic_requirements
+
+    assert split_atomic_requirements(value) == expected
+
+
+def test_section_heading_does_not_leak_as_stub_fragment() -> None:
+    """Заголовок раздела «Что нужно будет делать» не должен протекать как
+    обрубок «Будет делать». Раньше _match_heading_prefix ложно prefix-матчил
+    короткий heading «ЧТО НУЖНО» → разбивал на [«Что Нужно», «Будет делать»],
+    и «Будет делать» становилось требованием. Guard (точное совпадение с
+    known heading → не разбивать) + добавление «ЧТО НУЖНО БУДЕТ ДЕЛАТЬ» в
+    REQUIREMENT_START_HEADINGS — заголовок отбрасывается как start_heading."""
+    from app.services.vacancy_analysis_service import (
+        REQUIREMENT_START_HEADINGS,
+        STOP_HEADINGS,
+        VacancyAnalysisService,
+    )
+
+    text = """Что нужно будет делать
+— автоматизация рутинных процессов;
+— помощь руководителю в технических задачах.
+
+Что мы предлагаем
+Оплата труда
+"""
+    service = VacancyAnalysisService()
+    lines = service._clean_lines(text)
+    must_have = service._extract_section_items(
+        lines,
+        start_headings=REQUIREMENT_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+    # Заголовочные обрубки не появляются как требования.
+    assert "Будет делать" not in must_have
+    assert "Что Нужно" not in must_have
+    assert "В работе будут" not in must_have
+    assert "Нам важны" not in must_have
+    # Реальные требования сохранены.
+    assert any("автоматизаци" in m.lower() for m in must_have)
+    assert any("руководител" in m.lower() for m in must_have)
+
+
+def test_subsection_heading_is_not_a_requirement() -> None:
+    """Подсекция «В работе будут:» внутри «Что нужно будет делать» — это
+    заголовок, а не требование. Добавление «В РАБОТЕ БУДУТ» в
+    REQUIREMENT_START_HEADINGS → capture-continue, заголовок отбрасывается."""
+    from app.services.vacancy_analysis_service import (
+        REQUIREMENT_START_HEADINGS,
+        STOP_HEADINGS,
+        VacancyAnalysisService,
+    )
+
+    text = """Что нужно будет делать
+В работе будут:
+— работа с внутренними инструментами компании;
+— разработка новых решений, выполнение задач по автоматизации;
+"""
+    service = VacancyAnalysisService()
+    lines = service._clean_lines(text)
+    must_have = service._extract_section_items(
+        lines,
+        start_headings=REQUIREMENT_START_HEADINGS,
+        stop_headings=STOP_HEADINGS,
+    )
+    assert "В работе будут" not in must_have
+    assert any("внутренними" in m.lower() for m in must_have)
