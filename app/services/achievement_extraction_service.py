@@ -441,6 +441,8 @@ class AchievementExtractionService:
             "НАВЫКИ",
             "КОНТАКТЫ",
             "КУРСЫ",
+            "О СЕБЕ",
+            "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
         )
 
         for heading in inline_headings:
@@ -452,13 +454,47 @@ class AchievementExtractionService:
             ).strip()
 
         cleaned = re.sub(
-            r"\s+(профессиональные\s+навыки|желаемая\s+должность|опыт\s+работы|образование|навыки|контакты|курсы)\s*[:：]?\s*$",
+            r"\s+(профессиональные\s+навыки|желаемая\s+должность|опыт\s+работы|образование|навыки|контакты|курсы|о\s+себе|дополнительные\s+сведения)\s*[:：]?\s*$",
             "",
             cleaned,
             flags=re.IGNORECASE,
         ).strip()
 
         return cleaned
+
+    def _strip_trailing_section_heading(self, line: str) -> tuple[str, bool]:
+        """Обрезает inline trailing section-heading в конце строки (склейка
+        колонок PDF): «… (Университет)» О себе:» → prefix «… (Университет)»».
+
+        Возвращает (prefix, had_heading). Симметричен _strip_trailing_section_
+        heading в ProfileStructuringService (#2d) — тот же класс бага, но в
+        achievement-экстракторе (отдельный путь от structuring).
+        """
+        stripped = str(line or "").strip()
+        if not stripped:
+            return line, False
+        headings = (
+            "О СЕБЕ",
+            "ДОПОЛНИТЕЛЬНЫЕ СВЕДЕНИЯ",
+            "ОПЫТ РАБОТЫ",
+            "ОБРАЗОВАНИЕ",
+            "ПРОФЕССИОНАЛЬНЫЕ НАВЫКИ",
+            "ЖЕЛАЕМАЯ ДОЛЖНОСТЬ",
+            "НАВЫКИ",
+            "КОНТАКТЫ",
+            "КУРСЫ",
+        )
+        for heading in headings:
+            h_escaped = re.escape(heading)
+            pattern = re.compile(
+                rf"[\s»).!?\]]+\s*{h_escaped}\s*[:：-]?\s*$",
+                re.IGNORECASE,
+            )
+            match = pattern.search(stripped)
+            if match:
+                prefix = stripped[: match.start()].strip(" -–—•»«")
+                return prefix, True
+        return line, False
 
     def _build_contribution_source_text(self, block: list[str]) -> str:
         """Собирает source_text блока, вычищая layout-заголовки так же,
@@ -888,6 +924,19 @@ class AchievementExtractionService:
                 break
 
             if current:
+                # Inline trailing section-heading (склейка колонок PDF / однострочный
+                # markdown): «… (Московский Политехнический Университет)» О себе:».
+                # Без обрыва здесь блок впитывает весь prose-раздел «О себе», и
+                # _looks_like_responsibility_like_contribution отбрасывает пункт
+                # за маркер «взаимодейств» из самоописания. Prefix до heading
+                # остаётся в блоке, дальше сборка останавливается.
+                prefix, had_heading = self._strip_trailing_section_heading(line)
+                if had_heading:
+                    if prefix:
+                        current.append(prefix)
+                    blocks.append(current)
+                    current = []
+                    break
                 # Company line внутри нумерованного списка — это, как правило,
                 # организация-работодатель текущего пункта (стажировки/проекта
                 # в скобках), а не граница раздела «ОПЫТ РАБОТЫ». Организация

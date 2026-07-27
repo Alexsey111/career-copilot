@@ -695,6 +695,13 @@ class VacancyAnalysisService:
             corpus_parts.append(profile.summary)
         if profile.target_roles_json:
             corpus_parts.extend(profile.target_roles_json)
+        # technologies_json пишется И структурингом резюме, И GitHub-intake
+        # (языки репозиториев). Без него в corpus GitHub-данные матчера не
+        # видны — профиль, созданный импортом GitHub, не матчился вовсе.
+        # getattr — профиль из тестов/legacy может не иметь атрибута.
+        technologies_json = getattr(profile, "technologies_json", None)
+        if technologies_json:
+            corpus_parts.extend(technologies_json)
 
         for exp in profile.experiences:
             corpus_parts.append(exp.company)

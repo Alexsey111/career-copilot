@@ -86,11 +86,20 @@ export default function VacanciesPage() {
     if (!importUrl.trim() || !token) return;
     setImporting(true);
     try {
-      await api.importVacancyFromUrl(token, importUrl);
+      const res = (await api.importVacancyFromUrl(token, importUrl)) as any;
       setImportUrl("");
-      toast.success("Вакансия импортирована по ссылке");
       setQuotaRefreshKey((k) => k + 1);
       if (searchQuery) handleSearch();
+      // Редирект на detail — там «1. Анализировать вакансию» и дальше
+      // пошаговый CTA (резюме/письмо/отклик). Раньше юзер оставался в списке
+      // без перехода к анализу («вакансия по ссылке получается, но дальше
+      // анализа нет»). Паритет с text/file-импортом (router.push ниже).
+      if (res?.vacancy_id || res?.id) {
+        toast.success("Вакансия импортирована по ссылке");
+        router.push(`/vacancies/${res.vacancy_id || res.id}`);
+      } else {
+        toast.success("Вакансия импортирована по ссылке");
+      }
     } catch (err: any) {
       toast.error(err.message || "Ошибка импорта");
     } finally {

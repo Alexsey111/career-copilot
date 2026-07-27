@@ -288,6 +288,10 @@ def test_semantic_vacancy_matching_maps_ai_workflow_chatgpt_prompting_and_nocode
         nice_to_have=[],
     )
 
+    # После #3b каталог распознаёт «AI» как Artificial Intelligence (patterns
+    # \bai\b/\bии\b) — «AI workflow automation» в must_have и «Built AI workflow»
+    # в профиле дополнительно триггерят Artificial Intelligence. Это ожидаемое
+    # расширение каталога (общие AI-синонимы, не хардкод).
     assert {item["keyword"] for item in strengths} == {
         "Automation",
         "AI Workflow",
@@ -297,9 +301,10 @@ def test_semantic_vacancy_matching_maps_ai_workflow_chatgpt_prompting_and_nocode
         "AI Interaction",
         "No-code",
         "Automation Tooling",
+        "Artificial Intelligence",
     }
     assert gaps == []
-    assert match_score == 85
+    assert match_score == 100
 
 
 def test_extract_section_items_handles_inline_colon_headings() -> None:
