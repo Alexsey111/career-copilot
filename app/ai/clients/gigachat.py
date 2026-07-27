@@ -10,7 +10,7 @@ from jsonschema import validate, ValidationError
 
 from app.core.config import get_settings
 
-from .base import BaseLLMClient, LLMClientError
+from .base import BaseLLMClient, LLMClientError, resolve_llm_verify
 
 
 class GigaChatClient(BaseLLMClient):
@@ -30,6 +30,7 @@ class GigaChatClient(BaseLLMClient):
                 "Content-Type": "application/json",
             },
             timeout=settings.ai_request_timeout,
+            verify=resolve_llm_verify(settings),
         )
 
     async def aclose(self) -> None:

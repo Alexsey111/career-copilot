@@ -17,10 +17,17 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
       SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
       MINIO_SECURE: "false"
+      # GigaChat (Сбер) подписан Russian Trusted CA (Минцифры), которого нет в
+      # certifi (Mozilla удалила российские CA) → httpx verify=True падает с
+      # CERTIFICATE_VERIFY_FAILED. Пробрасываем публичный PEM цепочки Минцифры
+      # (leaf + Sub CA + Root CA, вытащен из openssl s_client -showcerts) как
+      # доп. trust anchor, объединяется с certifi в resolve_llm_verify.
+      AI_SSL_CA_BUNDLE: /app/russian-trusted-ca.pem
     volumes:
       - ../../app:/app/app
       - ../../alembic:/app/alembic
       - ../../alembic.ini:/app/alembic.ini
+      - ../../infra/docker/russian-trusted-ca.pem:/app/russian-trusted-ca.pem:ro
     # entrypoint гонит миграции (wait postgres → alembic upgrade head → exec),
     # поэтому `docker compose up` сразу даёт рабочий стенд без ручного шага.
     entrypoint: ["/app/infra/docker/api-entrypoint.sh"]
@@ -57,8 +64,10 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career_user}:${POSTGRES_PASSWORD:-career_pass}@postgres:5432/${POSTGRES_DB:-career_copilot}
+      AI_SSL_CA_BUNDLE: /app/russian-trusted-ca.pem
     volumes:
       - ../../app:/app/app
+      - ../../infra/docker/russian-trusted-ca.pem:/app/russian-trusted-ca.pem:ro
     command: celery -A app.celery_app:celery_app worker -l info -Q celery,vacancy,resume,cover_letter,interview,pipeline -c 4
     depends_on:
       redis:

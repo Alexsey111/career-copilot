@@ -2,16 +2,48 @@
 
 from __future__ import annotations
 
+import ssl
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
+
+import certifi
 
 
 class LLMClientError(Exception):
     """Базовое исключение для ошибок LLM-клиента"""
-    
+
     def __init__(self, message: str, retryable: bool = True):
         super().__init__(message)
         self.retryable = retryable
+
+
+def resolve_llm_verify(settings: Any) -> "ssl.SSLContext | bool":
+    """Значение ``verify`` для ``httpx.AsyncClient`` по настройкам SSL.
+
+    Возвращает:
+    - ``SSLContext`` если задан ``AI_SSL_CA_BUNDLE`` — системный trust
+      (certifi) + доп. PEM с CA (Root CA антивируса/корпоративного прокси).
+      Обычные сайты тоже работают — system trust сохранён. Безопасный способ
+      для dev-сред с MITM-прокси.
+    - ``settings.ai_ssl_verify`` (bool) — ``True`` (прод, system trust) или
+      ``False`` (dev, проверка отключена — MITM-риск).
+
+    Если ``AI_SSL_CA_BUNDLE`` указан, но файл не найден — поднимаем
+    ``LLMClientError`` (retryable=False): тихо игнорировать нельзя, иначе
+    LLM-клиент молча падает на SSL и улучшения degraded без понятной причины.
+    """
+    ca_bundle = settings.ai_ssl_ca_bundle
+    if not isinstance(ca_bundle, str) or not ca_bundle.strip():
+        return settings.ai_ssl_verify
+    ca_bundle = ca_bundle.strip()
+    if not Path(ca_bundle).is_file():
+        raise LLMClientError(
+            f"AI_SSL_CA_BUNDLE file not found: {ca_bundle}", retryable=False
+        )
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.load_verify_locations(cafile=ca_bundle)
+    return context
 
 
 class BaseLLMClient(ABC):

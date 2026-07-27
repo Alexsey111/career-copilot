@@ -137,7 +137,7 @@ export default function DocumentWorkspacePage() {
           <button
             onClick={handleEnhance}
             disabled={enhancing}
-            className="px-3 py-1 text-sm bg-[color:var(--brand-teal-5)] text-white rounded-lg hover:bg-[color:var(--brand-teal-5)] disabled:opacity-50"
+            className="px-3 py-1 text-sm bg-[color:var(--brand-teal)] text-white rounded-lg hover:opacity-90 disabled:opacity-50"
           >
             {enhancing ? "Улучшение…" : "Создать улучшенную версию (AI)"}
           </button>

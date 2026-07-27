@@ -130,6 +130,17 @@ class Settings(BaseSettings):
     ai_request_timeout: float = Field(default=30.0, alias="AI_REQUEST_TIMEOUT")
     ai_max_retries: int = Field(default=3, alias="AI_MAX_RETRIES")
     ai_temperature: float = Field(default=0.1, alias="AI_TEMPERATURE")
+    # SSL-верификация TLS-сертификатов LLM-провайдера. True по умолчанию
+    # (прод). В dev/корпоративных сетях с MITM-прокси (антивирус, корпоративный
+    # CA) цепочка содержит self-signed cert → httpx verify=True падает с
+    # CERTIFICATE_VERIFY_FAILED на каждом LLM-вызове (resume/cover_letter
+    # enhance, interview) → все NLG-операции degraded.
+    #   - AI_SSL_VERIFY=false — отключить проверку (dev, небезопасно: MITM-риск).
+    #   - AI_SSL_CA_BUNDLE=/path/to/ca.pem — PEM с доп. CA (Root CA антивируса/
+    #     прокси), объединяется с системным trust (certifi). Безопасно: обычные
+    #     сайты тоже работают. Предпочтительный способ для dev с MITM-прокси.
+    ai_ssl_verify: bool = Field(default=True, alias="AI_SSL_VERIFY")
+    ai_ssl_ca_bundle: str | None = Field(default=None, alias="AI_SSL_CA_BUNDLE")
     # Cost accounting (ТЗ §3.4): стоимость за 1000 токенов в валюте учёта.
     # 0.0 по умолчанию — учёт отключён, пока ставки не заданы.
     ai_cost_per_1k_input: float = Field(default=0.0, alias="AI_COST_PER_1K_INPUT")

@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 from jsonschema import ValidationError, validate
 
-from app.ai.clients.base import BaseLLMClient, LLMClientError
+from app.ai.clients.base import BaseLLMClient, LLMClientError, resolve_llm_verify
 from app.core.config import get_settings
 
 
@@ -26,6 +26,7 @@ class OpenAILLMClient(BaseLLMClient):
                 "Content-Type": "application/json",
             },
             timeout=settings.openai_timeout,
+            verify=resolve_llm_verify(settings),
         )
 
     @property
