@@ -21,6 +21,11 @@ export default function VacancyDetailPage() {
   const [resume, setResume] = useState<any>(null);
   const [coverLetter, setCoverLetter] = useState<any>(null);
   const [letterVariant, setLetterVariant] = useState("standard");
+  // #1 UX «а что дальше?»: профиль кандидата, чтобы после анализа вакансии
+  // подсказать загрузить резюме для точной fit-оценки, если его ещё нет.
+  // resume_import есть только для file_kind=resume — его отсутствие = профиль
+  // создан из GitHub/вручную без резюме.
+  const [profile, setProfile] = useState<any>(null);
 
   useEffect(() => {
     if (token && id) {
@@ -31,6 +36,7 @@ export default function VacancyDetailPage() {
           if (res?.analysis_id) sessionDocs.setSessionDoc(id, "analysisId", res.analysis_id);
         })
         .catch(() => {});
+      api.getProfile(token).then(setProfile).catch(() => {});
     }
   }, [token, id, sessionDocs]);
 
@@ -167,6 +173,38 @@ export default function VacancyDetailPage() {
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* #1 UX «а что дальше?»: анализ готов, но резюме не загружено —
+              fit-оценка и генерация документов будут слабыми без резюме.
+              Подсказываем загрузить резюме (profile.resume_import отсутствует
+              для file_kind=resume → профиль GitHub-only/ручной). */}
+          {analysis && profile && !profile.resume_import && (
+            <div className="bg-[color:var(--brand-lime-soft)] border border-[color:var(--brand-lime)] rounded-xl p-5">
+              <h3 className="font-semibold text-[color:var(--brand-teal)] mb-1">
+                Что дальше?
+              </h3>
+              <p className="text-sm text-[color:var(--brand-teal)] mb-3">
+                Для точной fit-оценки и сильного сопроводительного письма
+                загрузите резюме — анализ сравнит ваши навыки с требованиями
+                вакансии.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => router.push("/profile")}
+                  className="px-4 py-2 bg-[color:var(--brand-teal)] text-white rounded-lg text-sm font-medium hover:opacity-90"
+                >
+                  Загрузить резюме в профиле
+                </button>
+                <button
+                  onClick={handleGenerateLetter}
+                  disabled={generating}
+                  className="px-4 py-2 border border-[color:var(--brand-teal-20)] rounded-lg text-sm font-medium text-[color:var(--brand-teal)] hover:bg-[color:var(--brand-cream-soft)] disabled:opacity-50"
+                >
+                  {generating ? "Генерация..." : "Сгенерировать письмо"}
+                </button>
+              </div>
             </div>
           )}
 

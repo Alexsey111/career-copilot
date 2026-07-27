@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Upload, Sparkles, CheckCircle2, AlertTriangle, User, Target, MapPin, BarChart3 } from "lucide-react";
+import { Upload, Sparkles, CheckCircle2, AlertTriangle, User, Target, MapPin, BarChart3, ArrowRight, FileText } from "lucide-react";
 
 export default function ProfilePage() {
   const { token } = useAuth();
@@ -258,8 +258,49 @@ export default function ProfilePage() {
         Профиль кандидата
       </h1>
 
+      {/* #1 UX «а что дальше?»: профиль создан (GitHub/ручной), но резюме не
+          загружено — направляющий CTA. resume_import есть только для
+          file_kind=resume, поэтому его отсутствие = GitHub-only/ручной профиль.
+          Когда резюме загружено, направляющие CTA уже есть в блоке достижений
+          ниже («Перейти к вакансиям»), поэтому здесь карточку не дублируем. */}
+      {profile && profile.structured_profile && !profile.resume_import && (
+        <Alert
+          style={{
+            borderColor: "var(--brand-lime)",
+            backgroundColor: "var(--brand-lime-soft)",
+          }}
+        >
+          <ArrowRight style={{ color: "var(--brand-teal)" }} />
+          <AlertTitle style={{ color: "var(--brand-teal)" }}>Что дальше?</AlertTitle>
+          <AlertDescription style={{ color: "var(--brand-teal)" }}>
+            Профиль создан. Чтобы получить точный матчинг с вакансиями и
+            доказательства для сопроводительного письма — загрузите резюме.
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() =>
+                  document
+                    .getElementById("upload-resume-card")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+              >
+                <FileText />
+                Загрузить резюме
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => router.push("/vacancies")}
+              >
+                Перейти к вакансиям
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Upload Resume */}
-      <Card>
+      <Card id="upload-resume-card">
         <CardHeader>
           <CardTitle style={{ color: "var(--brand-teal)" }}>Загрузить резюме</CardTitle>
         </CardHeader>
