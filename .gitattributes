@@ -1,0 +1,3 @@
+# LF line endings для shell-скриптов, монтируемых/копируемых в Linux-контейнеры
+# (иначе CRLF из Windows-чекаута ломает `#!/bin/sh`).
+*.sh text eol=lf

@@ -22,6 +22,8 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY gunicorn.conf.py ./
+COPY infra/docker/api-entrypoint.sh /app/infra/docker/api-entrypoint.sh
+RUN chmod +x /app/infra/docker/api-entrypoint.sh
 
 EXPOSE 7000
 
