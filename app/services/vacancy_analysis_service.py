@@ -559,10 +559,16 @@ class VacancyAnalysisService:
             else:
                 categories["soft_skills"]["total"] += 1
 
-        matched_keywords = {s.get("keyword", "").lower() for s in strengths}
+        # Элемент считаем matched по его исходному тексту (requirement_text
+        # в strengths), а не сравнивая canonical-ключи («automation») со
+        # словами сырой русской фразы («автоматизацией») — инфлексия никогда
+        # не совпадёт, и category_score оставался 0 даже при реальном матче.
+        matched_requirement_texts = {
+            s.get("requirement_text") for s in strengths if s.get("requirement_text")
+        }
         for item in all_items:
             lower = item.lower()
-            is_matched = any(k in matched_keywords for k in lower.split() if len(k) > 2)
+            is_matched = item in matched_requirement_texts
             if is_matched:
                 if any(k in lower for k in skill_keywords):
                     categories["skills"]["matched"] += 1
