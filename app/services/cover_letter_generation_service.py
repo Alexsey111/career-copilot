@@ -47,6 +47,8 @@ from app.domain.text_normalization import (
     clean_vacancy_title,
     dedupe_subsumed_phrases,
     make_user_facing_evidence_phrase,
+    strip_emoji,
+    strip_emoji_deep,
 )
 from app.services.resume_renderer import render_cover_letter
 from app.services.core_service_policy import LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
@@ -403,6 +405,11 @@ class CoverLetterGenerationService:
             else:
                 rendered_text = enhanced_text
 
+        # LLM-NLG (включая AI-enhancement) может вставить эмодзи — юзер явно
+        # просил «эмодзи нигде не использовать». Вырезаем из итогового текста
+        # письма и из content_json (предпросмотр/сводка).
+        rendered_text = strip_emoji(rendered_text)
+
         confidence_assessment = self._build_confidence_assessment(
             selected_achievements=selected_achievements,
             selected_evidence_reason=selected_evidence_reason,
@@ -458,6 +465,8 @@ class CoverLetterGenerationService:
             ),
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
+
+        content_json = strip_emoji_deep(content_json)
 
         document = await self.document_version_repository.create(
             session,

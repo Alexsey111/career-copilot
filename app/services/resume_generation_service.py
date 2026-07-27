@@ -34,6 +34,7 @@ from app.domain.text_normalization import (
     dedupe_subsumed_phrases,
     humanize_vacancy_requirement_phrase,
     make_user_facing_evidence_phrase,
+    strip_emoji_deep,
 )
 from app.services.document_compat import (
     achievement_to_dict,
@@ -716,6 +717,11 @@ class ResumeGenerationService:
             market=resolved_market,
         )
 
+        # LLM-NLG может вставить эмодзи в поля (target_position/summary) —
+        # юзер явно просил «эмодзи нигде не использовать». Граница загрузки
+        # (strip_emoji) покрывает импорт; здесь покрываем LLM-вывод, чтобы
+        # content_json и rendered_text были чистыми.
+        content_json = strip_emoji_deep(content_json)
         rendered_text = render_resume(content_json)
 
         document = await self.document_version_repository.create(

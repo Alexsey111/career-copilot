@@ -40,6 +40,24 @@ def strip_emoji(text: str | None) -> str:
     return EMOJI_PATTERN.sub("", text)
 
 
+def strip_emoji_deep(value):
+    """Рекурсивно вырезать эмодзи из всех строк в dict/list/str-структуре.
+
+    Для sanitizing content_json генерируемых документов (резюме/письмо):
+    LLM-NLG может вставить эмодзи в поле (target_position, summary), хотя
+    юзер явно просил «эмодзи нигде не использовать». Граница загрузки
+    (strip_emoji) покрывает импорт; здесь покрываем LLM-вывод. Нестроковые
+    значения (числа, bool, None) проходят как есть.
+    """
+    if isinstance(value, str):
+        return strip_emoji(value)
+    if isinstance(value, dict):
+        return {key: strip_emoji_deep(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [strip_emoji_deep(item) for item in value]
+    return value
+
+
 INTERNAL_EVIDENCE_LABEL_MARKERS = (
     "signals",
     "implementation signals",

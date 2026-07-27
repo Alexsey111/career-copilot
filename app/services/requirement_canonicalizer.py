@@ -115,15 +115,58 @@ def split_atomic_requirements(value: str) -> list[str]:
         return []
 
     protected_text, placeholders = _protect_tokens(cleaned)
-    protected_text = re.sub(r"\s*[;|/•]\s*", ", ", protected_text)
+    # Сплитим по явным разделителям пунктов: ; | / • и запятой. Запятая нужна
+    # для легитимных списков («Python, FastAPI, PostgreSQL» → 3 пункта, каждое
+    # со своим coverage в fit). Но запятая внутри фразы-предложения («работа
+    # с инструментами, связанными с сервисами») давала обрубок «Связанных с
+    # сервисами» как отдельное требование — это продолжение фразы, не пункт.
+    # Поэтому после сплита склеиваем обратно обрубки, начинающиеся с
+    # предлога/союза/причастия (FRAGMENT_START_WORDS).
+    protected_text = re.sub(r"\s*[;|/•]\s*", "@@REQSEP@@", protected_text)
 
-    parts = [
-        _restore_tokens(part, placeholders)
-        for part in re.split(r"\s*,\s*", protected_text)
-        if _clean_text(part)
-    ]
+    parts: list[str] = []
+    for chunk in protected_text.split("@@REQSEP@@"):
+        if not _clean_text(chunk):
+            continue
+        sub = [
+            _restore_tokens(s, placeholders)
+            for s in re.split(r"\s*,\s*", chunk)
+            if _clean_text(s)
+        ]
+        # Склейка обрубков-продолжений к предыдущему пункту.
+        merged: list[str] = []
+        for s in sub:
+            if merged and _is_continuation_fragment(s):
+                merged[-1] = f"{merged[-1]}, {s}"
+            else:
+                merged.append(s)
+        parts.extend(merged)
 
     return _dedupe_preserve_order(parts or [cleaned])
+
+
+# Обрубки, начинающиеся с этих слов — продолжение предыдущей фразы, не новый
+# пункт. Предлоги/союзы и причастия/деепричастия, которые в русском открывают
+# уточнение («связанных с сервисами», «и Формами», «в работе будут»). Общая
+# лингвистическая эвристика, не хардкод под конкретное резюме.
+FRAGMENT_START_WORDS = {
+    "с", "со", "в", "во", "на", "по", "при", "или", "для", "от", "до", "из",
+    "а", "но", "что", "как", "так", "через", "над", "под", "об", "о", "к",
+    "и", "из-за", "без", "кроме", "среди", "между", "перед", "про",
+    "связанных", "связанные", "связанная", "связанными", "связан", "связано",
+    "включая", "используя", "используемых", "применяемых", "включающих",
+    "содержащих", "относящихся", "касающихся", "влияющих", "позволяющих",
+    "обеспечивающих", "участвующих", "применяющих", "имеющих", "входящих",
+    "выполняемых", "проводимых", "охватывающих", "затрагивающих",
+}
+
+
+def _is_continuation_fragment(value: str) -> bool:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return False
+    first = re.split(r"\s+", cleaned.lower(), maxsplit=1)[0]
+    return first in FRAGMENT_START_WORDS
 
 
 def canonicalize_requirement(value: str) -> CanonicalRequirement:

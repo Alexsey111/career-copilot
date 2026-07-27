@@ -111,3 +111,21 @@ def test_nice_to_have_also_unmerged() -> None:
     assert len(nice) >= 5
     for item in nice:
         assert "; " not in item, f"semicolon-merge leaked into nice_to_have: {item!r}"
+
+
+def test_comma_inside_phrase_does_not_create_stub_fragment() -> None:
+    """Запятая внутри фразы-предложения («работа с инструментами,
+    связанными с сервисами») не должна давать обрубок «Связанных с сервисами»
+    как отдельное требование. После fix склейки обрубков-продолжений
+    (FRAGMENT_START_WORDS: причастия/предлоги/союзы) фраза остаётся целой."""
+    from app.services.requirement_canonicalizer import split_atomic_requirements
+
+    result = split_atomic_requirements("работа с инструментами, связанными с сервисами")
+    assert result == ["работа с инструментами, связанными с сервисами"]
+
+    # Легитимный список технологий через запятую — всё ещё сплитится.
+    assert split_atomic_requirements("Python, FastAPI, PostgreSQL") == [
+        "Python",
+        "FastAPI",
+        "PostgreSQL",
+    ]
