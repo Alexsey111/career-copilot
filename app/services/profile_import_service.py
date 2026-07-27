@@ -14,6 +14,7 @@ from app.repositories.source_file_repository import SourceFileRepository
 from app.services.parse_diagnostics_service import ParseDiagnosticsService
 from app.services.resume_parser_service import ParsedResume, ResumeParserService
 from app.services.storage_service import StorageService
+from app.domain.text_normalization import strip_emoji
 
 
 class ProfileImportService:
@@ -132,6 +133,9 @@ class ProfileImportService:
 
         # Этап 8: частичная диагностика для text-импорта (без файла → нет
         # hidden-text/метаданных, но блоки/структурные warnings/zero-width доступны).
+        # Эмодзи вырезаем на границе загрузки (см. text_normalization.strip_emoji),
+        # чтобы детерминированный экстрактор не получал эмодзи-префиксы.
+        text = strip_emoji(text)
         text_parsed = ParsedResume(
             text=text,
             detected_format="text",

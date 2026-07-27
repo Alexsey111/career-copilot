@@ -3,6 +3,43 @@ from __future__ import annotations
 import re
 
 
+# Эмодзи-пиктограммы и variation-селекторы. Убираются на границе загрузки
+# текста (импорт вакансии, парсер резюме, GitHub-intake), чтобы
+# детерминированный downstream-анализ никогда не видел эмодзи-префиксы
+# вида «✅ Что нужно будет делать» / «⭐️ Будет преимуществом» и не
+# нуждался в поп_RULE-обработке. Регекс покрывает основные emoji-блоки:
+#   - U+1F000–U+1FAFF  emoticons / transport / misc pictographs / supplemental
+#   - U+1F1E6–U+1F1FF  regional indicator symbols (флаги-литеры)
+#   - U+2600–U+27BF    misc symbols & pictographs (✅ ✈ ✨ ✔ ❤ ➡ ☕ ⚡)
+#   - U+2B00–U+2BFF    misc symbols & arrows (⭐ ⭕)
+#   - U+FE0F/U+FE0E    variation selectors (emoji-presentation)
+#   - U+200D           zero-width joiner (составные эмодзи)
+# © ® ™ намеренно НЕ вырезаются — встречаются в названиях компаний как текст.
+EMOJI_PATTERN = re.compile(
+    "["
+    "🀀-🫿"   # emoticons / transport / misc pictographs / supplemental
+    "🇦-🇿"   # regional indicator symbols (флаги-литеры)
+    "☀-➿"            # misc symbols & pictographs: ✅ ✈ ✨ ✔ ❤ ➡ ☕ ⚡
+    "⬀-⯿"            # misc symbols & arrows: ⭐ ⭕
+    "️︎"             # variation selectors (emoji-presentation)
+    "‍"                   # zero-width joiner (составные эмодзи)
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def strip_emoji(text: str | None) -> str:
+    """Удалить эмодзи-пиктограммы и variation-селекторы из текста.
+
+    Применяется один раз на границе загрузки, чтобы ни один downstream-модуль
+    не получал эмодзи и не дублировал их обработку. Лишние пробелы, остающиеся
+    после вырезания, схлопываются вызывающей стороной в ``_normalize_text``.
+    """
+    if not text:
+        return ""
+    return EMOJI_PATTERN.sub("", text)
+
+
 INTERNAL_EVIDENCE_LABEL_MARKERS = (
     "signals",
     "implementation signals",

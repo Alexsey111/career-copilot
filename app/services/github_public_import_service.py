@@ -13,6 +13,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.evidence import build_evidence_fingerprint, extract_skill_tags
+from app.domain.text_normalization import strip_emoji
 from app.repositories.evidence_snippet_repository import EvidenceSnippetRepository
 from app.schemas.profile_intake import GitHubPublicProfileImportRequest
 from app.services.github_repository_evidence_service import GitHubRepositoryEvidenceService
@@ -106,6 +107,9 @@ class GitHubPublicImportService:
             target_role=payload.target_role,
             projects=projects,
         )
+        # Эмодзи вырезаем на границе загрузки (см. text_normalization.strip_emoji),
+        # чтобы детерминированный downstream не получал эмодзи из описаний репо.
+        raw_text = strip_emoji(raw_text)
 
         profile = await self.profile_intake_service._get_or_create_profile(
             session,

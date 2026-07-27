@@ -24,6 +24,7 @@ from app.services.vacancy_text_extractors.trafilatura_extractor import (
     TrafilaturaVacancyExtractor,
 )
 from app.services.embedding_service import EmbeddingService
+from app.domain.text_normalization import strip_emoji
 from app.domain.vacancy_fields_extractor import VacancyFields, extract_vacancy_fields
 
 
@@ -320,6 +321,11 @@ class VacancyImportService:
         return result
 
     def _normalize_text(self, text: str) -> str:
+        # Эмодзи вырезаем на границе загрузки, чтобы downstream-анализ
+        # (VacancyAnalysisService) никогда не получал эмодзи-префиксы вида
+        # «✅ Что нужно будет делать» / «⭐️ Будет преимуществом» и не
+        # нуждался в поп_RULE-обработке. См. text_normalization.strip_emoji.
+        text = strip_emoji(text)
         lines = [line.strip() for line in text.splitlines()]
         non_empty = [line for line in lines if line]
         normalized = "\n".join(non_empty)
