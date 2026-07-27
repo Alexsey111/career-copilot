@@ -165,7 +165,7 @@ export default function BillingPage() {
                 </Label>
                 <Select
                   value={sub.ai_provider ?? "default"}
-                  onValueChange={handleAIProviderChange}
+                  onValueChange={(v) => handleAIProviderChange(v ?? "default")}
                   disabled={busy}
                 >
                   <SelectTrigger id="ai-provider" className="w-64" aria-label="AI-провайдер">
