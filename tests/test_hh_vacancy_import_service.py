@@ -44,6 +44,7 @@ def test_map_hh_payload_to_import_payload() -> None:
             "area": {"name": "Барановичи"},
             "description": "<p>Требования:</p><ul><li>ChatGPT</li><li>Claude</li></ul>",
             "key_skills": [{"name": "AI workflow"}, {"name": "Автоматизация"}],
+            "salary": {"from": 60000, "to": 120000, "currency": "RUR"},
             "experience": {"name": "1–3 года"},
             "employment": {"name": "Проектная работа"},
             "schedule": {"name": "Удалённая работа"},
@@ -56,9 +57,43 @@ def test_map_hh_payload_to_import_payload() -> None:
     assert result["title"] == "AI-специалист"
     assert result["company"] == "MakrosDigital"
     assert result["location"] == "Барановичи"
+    assert result["salary_from"] == 60000
+    assert result["salary_to"] == 120000
+    assert result["salary_currency"] == "RUR"
+    assert result["employment_type"] == "Проектная работа"
+    assert result["experience_level"] == "1–3 года"
     assert "ChatGPT" in result["description_raw"]
     assert "Claude" in result["description_raw"]
     assert "AI workflow" in result["description_raw"]
+    # Зарплата/опыт/занятость теперь в отдельных полях — dict-repr не должен
+    # попадать в description_raw (мусор «Зарплата: {'from': 60000, ...}»).
+    assert "Зарплата" not in result["description_raw"]
+    assert "Тип занятости" not in result["description_raw"]
+    # График отдельного поля не имеет — остаётся в описании.
+    assert "График: Удалённая работа" in result["description_raw"]
+
+
+def test_map_hh_payload_without_salary_omits_salary_fields() -> None:
+    """Edge-case: вакансия без salary → salary_from/to/currency = None,
+    employment/experience всё равно извлекаются."""
+    service = HHVacancyImportService()
+    result = service.map_to_import_payload(
+        {
+            "id": "1",
+            "name": "Без зарплаты",
+            "employer": {"name": "Co"},
+            "area": {"name": "Москва"},
+            "description": "<p>Описание</p>",
+            "experience": {"name": "Нет опыта"},
+            "employment": {"name": "Полная занятость"},
+        },
+        source_url="https://hh.ru/vacancy/1",
+    )
+    assert result["salary_from"] is None
+    assert result["salary_to"] is None
+    assert result["salary_currency"] is None
+    assert result["employment_type"] == "Полная занятость"
+    assert result["experience_level"] == "Нет опыта"
 
 
 @pytest.mark.asyncio

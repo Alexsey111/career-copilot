@@ -98,6 +98,19 @@ class VacancyImportService:
                     location = mapped_payload.get("location")
                 if not external_id:
                     external_id = mapped_payload.get("external_id")
+                # hh-поля (Зарплата/Занятость/Опыт) теперь приходят из
+                # map_to_import_payload отдельными ключами — раньше они
+                # терялись (sidebar «-»), а в description попадал dict-repr.
+                if salary_from is None:
+                    salary_from = mapped_payload.get("salary_from")
+                if salary_to is None:
+                    salary_to = mapped_payload.get("salary_to")
+                if not salary_currency:
+                    salary_currency = mapped_payload.get("salary_currency")
+                if not employment_type:
+                    employment_type = mapped_payload.get("employment_type")
+                if not experience_level:
+                    experience_level = mapped_payload.get("experience_level")
             else:
                 extraction_result = await self._fetch_url_text(source_url)
                 fetched_title = extraction_result.title

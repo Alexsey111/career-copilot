@@ -288,15 +288,11 @@ class HHVacancyImportService:
                 "Ключевые навыки:\n" + "\n".join(f"- {skill}" for skill in key_skills)
             )
 
-        if salary:
-            description_parts.append(f"Зарплата: {salary}")
-
-        if experience:
-            description_parts.append(f"Опыт: {experience.get('name')}")
-
-        if employment:
-            description_parts.append(f"Тип занятости: {employment.get('name')}")
-
+        # График отдельного поля не имеет — оставляем в описании. Зарплата/
+        # опыт/занятость раньше тоже встраивались сюда как dict-repr
+        # («Зарплата: {'from': 60000, ...}») — теперь они в отдельных полях
+        # ниже, из description убраны (мусорный dict-repr ломал читаемость и
+        # не парсился _extract_fields_if_missing).
         if schedule:
             description_parts.append(f"График: {schedule.get('name')}")
 
@@ -307,6 +303,20 @@ class HHVacancyImportService:
             "title": str(payload.get("name") or "").strip() or "HH vacancy",
             "company": str(employer.get("name") or "").strip() or None,
             "location": str(area.get("name") or "").strip() or None,
+            "salary_from": salary.get("from") if isinstance(salary, dict) else None,
+            "salary_to": salary.get("to") if isinstance(salary, dict) else None,
+            "salary_currency": (
+                str(salary.get("currency") or "").strip() or None
+                if isinstance(salary, dict) else None
+            ),
+            "employment_type": (
+                str(employment.get("name") or "").strip() or None
+                if isinstance(employment, dict) else None
+            ),
+            "experience_level": (
+                str(experience.get("name") or "").strip() or None
+                if isinstance(experience, dict) else None
+            ),
             "description_raw": "\n\n".join(part for part in description_parts if part),
         }
 

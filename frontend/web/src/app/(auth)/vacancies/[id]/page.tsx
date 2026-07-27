@@ -37,6 +37,18 @@ export default function VacancyDetailPage() {
         })
         .catch(() => {});
       api.getProfile(token).then(setProfile).catch(() => {});
+
+      // Persist: восстанавливаем ранее сгенерированные резюме/письмо по их
+      // ID из SessionDocumentsContext (localStorage). Без этого юзер, уйдя
+      // со страницы и вернувшись (или не нажав «Отклик» сразу), терял
+      // документы — state сбрасывался, генерировать приходилось заново.
+      const sess = sessionDocs.getSession(id);
+      if (sess?.resumeId) {
+        api.getDocument(token, sess.resumeId).then((res: any) => setResume(res)).catch(() => {});
+      }
+      if (sess?.coverLetterId) {
+        api.getDocument(token, sess.coverLetterId).then((res: any) => setCoverLetter(res)).catch(() => {});
+      }
     }
   }, [token, id, sessionDocs]);
 
@@ -272,7 +284,7 @@ export default function VacancyDetailPage() {
               <button
                 onClick={handleAnalyze}
                 disabled={analyzing}
-                className="w-full py-3 bg-[color:var(--brand-teal-5)] text-white rounded-lg hover:bg-[color:var(--brand-teal-5)] disabled:opacity-50 font-medium"
+                className="w-full py-3 bg-[color:var(--brand-teal)] text-white rounded-lg hover:opacity-90 disabled:opacity-50 font-medium"
               >
                 {analyzing ? "Анализ..." : "1. Анализировать вакансию"}
               </button>
@@ -302,7 +314,7 @@ export default function VacancyDetailPage() {
                         <button
                           onClick={handleGenerateLetter}
                           disabled={generating}
-                          className="w-full py-3 bg-[color:var(--brand-teal-5)] text-white rounded-lg hover:bg-[color:var(--brand-teal-5)] disabled:opacity-50 font-medium"
+                          className="w-full py-3 bg-[color:var(--brand-teal)] text-white rounded-lg hover:opacity-90 disabled:opacity-50 font-medium"
                         >
                           {generating ? "Генерация..." : "3. Сгенерировать письмо"}
                         </button>
@@ -310,7 +322,7 @@ export default function VacancyDetailPage() {
                     ) : (
                       <button
                         onClick={handleCreateApplication}
-                        className="w-full py-3 bg-[color:var(--brand-lime-soft)] text-white rounded-lg hover:bg-[color:var(--brand-lime-soft)] font-medium"
+                        className="w-full py-3 bg-[color:var(--brand-lime)] text-[color:var(--brand-teal)] font-semibold rounded-lg hover:bg-[#b8e85c] font-medium"
                       >
                         4. Создать отклик
                       </button>

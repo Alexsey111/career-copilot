@@ -207,8 +207,13 @@ class VacancyAnalysisService:
             nice_to_have=nice_to_have,
         )
 
-        must_have = self._group_requirements(must_have)
-        nice_to_have = self._group_requirements(nice_to_have)
+        # Раньше тут звался _group_requirements: при >5 пунктов он склеивал
+        # top-5 keywords группы через «;», создавая мусор «автоматизацией;
+        # автоматизации; автоматизаций; автоматизировать; агентов» (формы
+        # слова + неродственное). match_score считается выше по не-сгруппиро-
+        # ванному списку, UI показывает slice(0,5) — группировка не нужна,
+        # только портила читаемость fit-карты (ноут #3). Удалено вместе с
+        # dead-методами _group_requirements/_merge_requirements/_categorize.
 
         validated = VacancyAnalysisSchema(
             must_have=[
@@ -1002,62 +1007,3 @@ class VacancyAnalysisService:
             result.append(value)
 
         return result
-
-    def _group_requirements(self, requirements: list[str]) -> list[str]:
-        if len(requirements) <= 5:
-            return requirements
-
-        groups: dict[str, list[str]] = {}
-        for req in requirements:
-            category = self._categorize_requirement(req)
-            if category not in groups:
-                groups[category] = []
-            groups[category].append(req)
-
-        grouped: list[str] = []
-        for category, items in groups.items():
-            if len(items) == 1:
-                grouped.append(items[0])
-            else:
-                combined = self._merge_requirements(items)
-                grouped.append(combined)
-
-        return grouped
-
-    def _categorize_requirement(self, requirement: str) -> str:
-        lower = requirement.lower()
-
-        if any(k in lower for k in ["python", "java", "javascript", "typescript", "sql", "react", "vue", "fastapi", "django"]):
-            return "programming"
-        if any(k in lower for k in ["docker", "kubernetes", "aws", "gcp", "azure", "ci/cd", "gitlab", "jenkins"]):
-            return "devops"
-        if any(k in lower for k in ["тест", "test", "автотест", "qa", "quality"]):
-            return "testing"
-        if any(k in lower for k in ["api", "rest", "graphql", "microservice", "микросервис"]):
-            return "architecture"
-        if any(k in lower for k in ["база данных", "database", "postgresql", "mysql", "mongodb", "redis"]):
-            return "database"
-        if any(k in lower for k in ["документ", "documentation", "коммуникац", "team", "команд"]):
-            return "soft_skills"
-        if any(k in lower for k in ["опыт", "experience", "стаж", "лет", "год"]):
-            return "experience"
-
-        return "other"
-
-    def _merge_requirements(self, items: list[str]) -> str:
-        if len(items) <= 2:
-            return "; ".join(items)
-
-        keywords_per_item = []
-        for item in items:
-            words = set(re.findall(r"\b\w{3,}\b", item.lower()))
-            keywords_per_item.append(words)
-
-        all_keywords = set()
-        for kw_set in keywords_per_item:
-            all_keywords.update(kw_set)
-
-        stop_words = {"для", "или", "что", "как", "это", "все", "его", "при", "из", "по", "не", "на", "от", "до"}
-        important_keywords = sorted(all_keywords - stop_words)[:5]
-
-        return "; ".join(important_keywords) if important_keywords else items[0]

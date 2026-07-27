@@ -24,22 +24,47 @@ function readinessLabel(rec?: string): { label: string; cls: string } {
 
 function FitMetric({ label, score }: { label: string; score: number }) {
   const color = score >= 75 ? "text-[color:var(--brand-teal)]" : score >= 50 ? "text-yellow-600" : "text-[color:var(--brand-ink)]";
+  // Статус-граница по тому же порогу — карточки не сливаются на cream-фоне,
+  // глазу есть цветовой якорь (иначе всё монотонно teal, «глазам больно»).
+  const border =
+    score >= 75
+      ? "border-green-300"
+      : score >= 50
+        ? "border-yellow-300"
+        : "border-[color:var(--brand-ink)]";
   return (
-    <div className="bg-[color:var(--brand-cream-soft)] rounded-lg p-3 text-center">
+    <div className={`bg-[color:var(--brand-cream-soft)] rounded-lg p-3 text-center border ${border}`}>
       <div className={`text-2xl font-bold ${color}`}>{score}</div>
       <div className="text-xs text-[color:var(--brand-teal-60)] mt-1">{label}</div>
     </div>
   );
 }
 
+// Цветные pill-badges для coverage level. Раньше coverage был мелким text-xs
+// справа без фона — монотонно, не читалось. Теперь pill с фоном даёт
+// визуальную иерархию: strong=lime-soft, medium=yellow, missing=ink.
+const COVERAGE_BADGE: Record<string, { label: string; cls: string }> = {
+  strong: {
+    label: "Подтверждено",
+    cls: "bg-[color:var(--brand-lime-soft)] text-[color:var(--brand-teal)] border-green-300",
+  },
+  medium: {
+    label: "Частично",
+    cls: "bg-yellow-50 text-yellow-700 border-yellow-300",
+  },
+  missing: {
+    label: "Нет",
+    cls: "bg-[color:var(--brand-ink-10)] text-[color:var(--brand-ink)] border-[color:var(--brand-ink)]",
+  },
+};
+
+function coverageBadge(level: string) {
+  return COVERAGE_BADGE[level] ?? { label: level, cls: "bg-gray-50 text-gray-700 border-gray-300" };
+}
+
 function RequirementRow({ req }: { req: VacancyFitResponse["evidence_coverage"]["strong"][number] }) {
   const [expanded, setExpanded] = useState(false);
-  const coverageColor =
-    req.coverage_level === "strong"
-      ? "text-[color:var(--brand-teal)]"
-      : req.coverage_level === "medium"
-        ? "text-yellow-600"
-        : "text-[color:var(--brand-ink)]";
+  const badge = coverageBadge(req.coverage_level);
   return (
     <div className="border-b border-[color:var(--brand-teal-10)] last:border-0 py-2">
       <button
@@ -47,9 +72,12 @@ function RequirementRow({ req }: { req: VacancyFitResponse["evidence_coverage"][
         onClick={() => setExpanded((v) => !v)}
         className="w-full text-left flex items-start justify-between gap-2"
       >
-        <span className="text-sm font-medium text-[color:var(--brand-teal)]">{req.requirement}</span>
-        <span className={`text-xs ${coverageColor} capitalize whitespace-nowrap`}>
-          {req.coverage_level}
+        {/* requirement — тёмный ink (читабельнее, чем монотонный teal) */}
+        <span className="text-sm font-medium text-[color:var(--brand-ink)]">{req.requirement}</span>
+        <span
+          className={`text-xs font-medium whitespace-nowrap px-2 py-0.5 rounded-full border ${badge.cls}`}
+        >
+          {badge.label}
         </span>
       </button>
       {req.reason && <p className="text-xs text-[color:var(--brand-teal-60)] mt-1">{req.reason}</p>}
@@ -67,6 +95,16 @@ function RequirementRow({ req }: { req: VacancyFitResponse["evidence_coverage"][
         </ul>
       )}
     </div>
+  );
+}
+
+function SectionHeader({ label, cls }: { label: string; cls: string }) {
+  return (
+    <span
+      className={`inline-block text-sm font-medium mb-2 px-3 py-1 rounded-full border ${cls}`}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -171,7 +209,10 @@ export default function VacancyFitBlock({
         <div className="space-y-3">
           {coverage.strong.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Хорошо подтверждено</h3>
+              <SectionHeader
+                label={`Хорошо подтверждено (${coverage.strong.length})`}
+                cls="bg-[color:var(--brand-lime-soft)] text-[color:var(--brand-teal)] border-green-300"
+              />
               {coverage.strong.map((r, i) => (
                 <RequirementRow key={i} req={r} />
               ))}
@@ -179,7 +220,10 @@ export default function VacancyFitBlock({
           )}
           {coverage.medium.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-yellow-700 mb-1">Частично подтверждено</h3>
+              <SectionHeader
+                label={`Частично подтверждено (${coverage.medium.length})`}
+                cls="bg-yellow-50 text-yellow-700 border-yellow-300"
+              />
               {coverage.medium.map((r, i) => (
                 <RequirementRow key={i} req={r} />
               ))}
@@ -187,7 +231,10 @@ export default function VacancyFitBlock({
           )}
           {coverage.missing.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-[color:var(--brand-ink)] mb-1">Пока не подтверждено</h3>
+              <SectionHeader
+                label={`Пока не подтверждено (${coverage.missing.length})`}
+                cls="bg-[color:var(--brand-ink-10)] text-[color:var(--brand-ink)] border-[color:var(--brand-ink)]"
+              />
               {coverage.missing.map((r, i) => (
                 <RequirementRow key={i} req={r} />
               ))}
