@@ -482,6 +482,38 @@ class ProfileStructuringService:
             for signal in project_signals
             if signal.category == "achievement"
         ]
+        if not draft.achievements:
+            # GENERAL fallback: явного раздела «Достижения»/«Ключевые
+            # достижения» нет — относим реальные нумерованные
+            # project/internship-блоки (стажировки, проекты) к достижениям.
+            # Это НЕ выдумывание (decision-rules: «запрещается выдумывать
+            # достижения») — контент целиком взят из текста резюме.
+            # Люди без стажировок/проектов получают пустой список
+            # (project_signals и internship_signals пусты) — корректно.
+            achievement_fallback: list[StructuredResumeSignal] = []
+            seen_titles: set[str] = set()
+            for signal in (*project_signals_without_internships, *internship_signals):
+                if signal.category not in {
+                    "project",
+                    "ai_project",
+                    "automation",
+                    "prompt_engineering",
+                    "internship",
+                }:
+                    continue
+                key = (signal.title or "").casefold()
+                if not key or key in seen_titles:
+                    continue
+                seen_titles.add(key)
+                achievement_fallback.append(
+                    StructuredResumeSignal(
+                        title=signal.title,
+                        category="achievement",
+                        skills=signal.skills,
+                        snippet_text=signal.snippet_text,
+                    )
+                )
+            draft.achievements = self._dedupe_signals(achievement_fallback)
         draft.workflow_experience = [
             signal
             for signal in project_signals_without_internships + competency_signals
@@ -977,6 +1009,20 @@ class ProfileStructuringService:
                     blocks.append(current)
                 break
 
+            # GENERAL: строка может заканчиваться inline section-heading
+            # (напр. «…территорий (Университет)» О себе:») — это граница
+            # секции, capture останавливаем, а префикс перед заголовком
+            # сохраняем в текущий блок (иначе пункт N теряет хвост, а
+            # следующий раздел «О себе» кровит в блок и ломает title).
+            prefix, had_trailing = self._strip_trailing_section_heading(line)
+            if had_trailing:
+                if prefix and current:
+                    current.append(prefix)
+                if current:
+                    blocks.append(current)
+                    current = []
+                break
+
             if current:
                 current.append(line)
 
@@ -984,18 +1030,58 @@ class ProfileStructuringService:
             blocks.append(current)
         return blocks
 
+    def _strip_trailing_section_heading(self, line: str) -> tuple[str, bool]:
+        """Если строка заканчивается inline section-heading («… О себе:»),
+        отрезать хвост-заголовок и вернуть (префикс, был-ли-заголовок).
+
+        GENERAL-эвристика: для однословных heading'ов (ОПЫТ/НАВЫКИ/ГОРОД)
+        требуем двоеточие, чтобы не отрезать «большой опыт» внутри
+        предложения. Многословные (О СЕБЕ, ОПЫТ РАБОТЫ, ОБРАЗОВАНИЕ, …)
+        отрезаем и без двоеточия — они однозначно секционные. Перед
+        heading'ом обязан boundary-символ (пробел/кавычка/скобка/знак), чтобы
+        не разрезать слово.
+        """
+        stripped = line.strip()
+        if not stripped:
+            return line, False
+        # длинные heading'и первыми — чтобы «ОПЫТ РАБОТЫ» матчило раньше «ОПЫТ»
+        headings = sorted(STRUCTURED_V2_SECTION_HEADINGS, key=len, reverse=True)
+        for heading in headings:
+            h_escaped = re.escape(heading)
+            if " " in heading:
+                pattern = re.compile(
+                    rf"[\s»).!?\]]+\s*{h_escaped}\s*[:：-]?\s*$",
+                    re.IGNORECASE,
+                )
+            else:
+                pattern = re.compile(
+                    rf"[\s»).!?\]]+\s*{h_escaped}\s*[:：]\s*$",
+                    re.IGNORECASE,
+                )
+            match = pattern.search(stripped)
+            if match:
+                prefix = stripped[: match.start()].strip(" -–—•»«")
+                return prefix, True
+        return line, False
+
     def _clean_signal_title(self, lines: list[str]) -> str:
         recovered = self._recover_private_noisy_ai_signal_title_legacy(lines)
         if recovered:
             return recovered
 
-        useful_lines = [
-            line
-            for line in lines
-            if not self._looks_like_layout_heading(line)
-            and not self._looks_like_resume_layout_noise(line)
-            and not self._looks_like_signal_stop(line)
-        ]
+        useful_lines = []
+        for line in lines:
+            if self._looks_like_layout_heading(line):
+                continue
+            if self._looks_like_resume_layout_noise(line):
+                continue
+            if self._looks_like_signal_stop(line):
+                continue
+            # GENERAL: убрать inline trailing section-heading («… О себе:»),
+            # чтобы хвост-заголовок не попадал в title сигнала.
+            line, _ = self._strip_trailing_section_heading(line)
+            if line:
+                useful_lines.append(line)
         title = re.sub(r"\s+", " ", " ".join(useful_lines)).strip(" -–—•")
         if ")" in title:
             title = title[: title.rfind(")") + 1].strip()
@@ -1961,6 +2047,35 @@ class ProfileStructuringService:
 
         return cleaned
 
+    def _dedupe_education_strings(self, items: list[str]) -> list[str]:
+        """GENERAL дедуп образователь. Один вуз мог попасть дважды — с
+        патронимом/локацией («… им. И.И. Ползунова, Барнаул») и без
+        («… университет»). Сравниваем по корню названия (отрезаем
+        «им./имени X» и хвост после первой запятой) и оставляем более
+        подробный вариант. Не использует хардкоды конкретных вузов."""
+        result: list[str] = []
+        roots: dict[str, int] = {}
+        for item in items:
+            root = self._education_institution_root(item)
+            if not root:
+                result.append(item)
+                continue
+            idx = roots.get(root)
+            if idx is None:
+                roots[root] = len(result)
+                result.append(item)
+                continue
+            if len(item) > len(result[idx]):
+                result[idx] = item
+        return result
+
+    def _education_institution_root(self, value: str) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip().lower()
+        # отрезать от « им.»/«имени »/первой запятой — патроним и локация,
+        # не ядро названия учреждения
+        text = re.split(r"\s+им(?:ени)?\.?\s+|,", text, maxsplit=1)[0].strip()
+        return text
+
     def _extract_education(self, lines: list[str]) -> list[StructuredEducationDraft]:
         section = self._extract_section(
             lines,
@@ -2013,7 +2128,7 @@ class ProfileStructuringService:
                     institution=item,
                     details=item,
                 )
-                for item in known_items
+                for item in self._dedupe_education_strings(known_items)
             ]
 
         institution = None

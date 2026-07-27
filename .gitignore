@@ -43,6 +43,7 @@ memory/
 # — это разовые дампы для отладки, не для репозитория.
 .diag_*.txt
 .diag_*.py
+tools/diag_*.py
 .tok.txt
 .claude/
 

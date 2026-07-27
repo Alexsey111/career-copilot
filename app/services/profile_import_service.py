@@ -112,6 +112,14 @@ class ProfileImportService:
         await session.refresh(profile)
         await session.refresh(extraction)
 
+        # Авто-структурирование: детерминированный экстрактор (без LLM) сразу
+        # наполняет profile/experiences/evidence (internships/projects/
+        # achievements) из свежего extraction, иначе пользователь видел
+        # «достижений нет» — отдельный ручной шаг /extract-structured забывали
+        # запустить. На cached-возврате выше не вызываем, чтобы не затирать
+        # курируемые данные при no-op импорте (force_reparse=False).
+        await self._auto_structure(session, extraction_id=extraction.id, user_id=user_id)
+
         return profile, extraction, parsed.detected_format
 
     async def import_resume_from_text(
@@ -166,4 +174,26 @@ class ProfileImportService:
         await session.refresh(profile)
         await session.refresh(extraction)
 
+        # Авто-структурирование и для text-импорта — см. комментарий в
+        # import_resume. Text-импорт всегда создаёт новый extraction.
+        await self._auto_structure(session, extraction_id=extraction.id, user_id=user_id)
+
         return profile, extraction, "text"
+
+    async def _auto_structure(
+        self,
+        session: AsyncSession,
+        *,
+        extraction_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        # Локальный import — избегаем цикла зависимостей profile_import ←
+        # profile_structuring на старте модуля. Структурирование детерминировано
+        # (LLM не участвует), поэтому не требует ai_consent/квоты ai_request.
+        from app.services.profile_structuring_service import ProfileStructuringService
+
+        await ProfileStructuringService().extract_into_profile(
+            session,
+            extraction_id=extraction_id,
+            user_id=user_id,
+        )
