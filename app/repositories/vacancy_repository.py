@@ -181,11 +181,11 @@ class VacancyRepository:
         where_sql = " AND ".join(where_clauses)
 
         sql = text(f"""
-            SELECT v.*, 1 - (v.embedding <=> :embedding::vector) AS similarity
+            SELECT v.*, 1 - (v.embedding <=> CAST(:embedding AS vector)) AS similarity
             FROM vacancies v
             WHERE {where_sql}
-              AND 1 - (v.embedding <=> :embedding::vector) >= :threshold
-            ORDER BY v.embedding <=> :embedding::vector
+              AND 1 - (v.embedding <=> CAST(:embedding AS vector)) >= :threshold
+            ORDER BY v.embedding <=> CAST(:embedding AS vector)
             LIMIT :limit
         """)
 
@@ -197,6 +197,20 @@ class VacancyRepository:
             vacancy = await session.get(Vacancy, row["id"])
             if vacancy is not None:
                 vacancies_with_score.append((vacancy, float(row["similarity"])))
+
+        # Semantic может вернуть пусто, если cosine-сходство ниже порога
+        # (модель embedding даёт низкие absolute-значения cosine, и дефолтный
+        # threshold 0.3 отсекает даже релевантные вакансии). В этом случае
+        # честнее показать текстовый fallback, чем пустой список — иначе для
+        # юзера поиск выглядит «не работающим».
+        if not vacancies_with_score and query_text:
+            return await self._text_fallback_search(
+                session,
+                user_id=user_id,
+                query=query_text,
+                location=location,
+                limit=limit,
+            )
 
         return vacancies_with_score
 
