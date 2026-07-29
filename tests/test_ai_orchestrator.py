@@ -106,6 +106,11 @@ async def test_orchestrator_from_settings_uses_mock_provider(monkeypatch, db_ses
     try:
         orchestrator = create_ai_orchestrator()
         assert orchestrator.client.provider_name == "mock"
+        # Factory создаёт через __new__, минуя __init__. Атрибуты __init__
+        # должны быть заданы явно — иначе _resolve_client падает с
+        # AttributeError при per-user override (Subscription.ai_provider !=
+        # default) → 500 на «Улучшить».
+        assert hasattr(orchestrator, "_user_provider_clients")
 
         result = await orchestrator.execute(
             db_session,

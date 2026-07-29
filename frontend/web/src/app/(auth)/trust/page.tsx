@@ -207,11 +207,15 @@ export default function TrustPage() {
                   Утверждения, требующие подтверждения
                 </h3>
                 <ul className="space-y-1">
-                  {summary.claims_requiring_confirmation.map((c, i) => (
-                    <li key={i} className="text-sm text-[color:var(--brand-teal-60)]">
-                      • {String((c as Record<string, unknown>).title ?? c)}
-                    </li>
-                  ))}
+                  {summary.claims_requiring_confirmation.map((c, i) => {
+                    const claim = c as Record<string, unknown>;
+                    const text = String(claim?.claim_text ?? claim?.text ?? claim?.title ?? "");
+                    return (
+                      <li key={i} className="text-sm text-[color:var(--brand-teal-60)]">
+                        • {text || "Утверждение без описания"}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -220,11 +224,19 @@ export default function TrustPage() {
               <div>
                 <h3 className="text-sm font-medium text-[color:var(--brand-teal)] mb-1">Рекомендуемые действия</h3>
                 <ul className="space-y-1">
-                  {summary.recommended_actions.map((a, i) => (
-                    <li key={i} className="text-sm text-[color:var(--brand-teal)]">
-                      → {String((a as Record<string, unknown>).title ?? (a as Record<string, unknown>).action ?? a)}
-                    </li>
-                  ))}
+                  {summary.recommended_actions.map((a, i) => {
+                    const action = a as Record<string, unknown>;
+                    const label = String(action?.label ?? action?.title ?? action?.action ?? "");
+                    const reason = String(action?.reason ?? "").trim();
+                    return (
+                      <li key={i} className="text-sm text-[color:var(--brand-teal)]">
+                        → {label || "Действие"}
+                        {reason && (
+                          <span className="text-[color:var(--brand-teal-60)]"> — {reason}</span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}

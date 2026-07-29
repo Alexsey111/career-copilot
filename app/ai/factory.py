@@ -47,4 +47,9 @@ def create_ai_orchestrator() -> AIOrchestrator:
     orchestrator.config = config
     orchestrator.fallback_client = fallback_client
     orchestrator.ai_run_repo = AIRunRepository()
+    # __init__ не вызывается (см. комментарий выше), поэтому атрибуты,
+    # инициализируемые в __init__, задаём явно. ``_user_provider_clients``
+    # нужен ``_resolve_client`` для per-user override (Subscription.ai_provider);
+    # без него — AttributeError → 500 на «Улучшить» при ai_provider != default.
+    orchestrator._user_provider_clients = {}
     return orchestrator
