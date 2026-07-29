@@ -240,3 +240,109 @@ async def test_vacancy_fit_service_uses_user_provided_project_evidence() -> None
     assert any("no-code" in str(item["requirement"]).casefold() for item in covered)
     assert fit["evidence_fit"] > 0
     assert fit["requirements"][0]["supporting_evidence"][0]["fact_status"] == "user_provided"
+
+
+def test_collapse_requirements_by_text_dedupes_display_duplicates() -> None:
+    """Один must_have пункт, из которого _extract_keywords достаёт N ключевых
+    слов, порождает N записей с одинаковым ``requirement``-текстом. Для display
+    это дубль (ноут #91: «Опыт работы с Cursor» → 3 AI-ключа → 3 строки в
+    missing). _collapse_requirements_by_text сворачивает их в один пункт с
+    лучшим coverage_level и объединённым evidence (дедуб по evidence_id)."""
+    service = VacancyFitService(
+        vacancy_repository=_VacancyRepo(None),
+        vacancy_analysis_repository=_AnalysisRepo(None),
+        candidate_profile_repository=_ProfileRepo(None),
+        evidence_snippet_repository=_EvidenceRepo([]),
+    )
+    eid_a, eid_b = uuid4(), uuid4()
+    items = [
+        {
+            "requirement": "Опыт работы с Cursor",
+            "scope": "must_have",
+            "severity": "minor",
+            "coverage_level": "missing",
+            "reason": "r1",
+            "evidence_ids": [],
+            "supporting_evidence": [],
+        },
+        {
+            "requirement": "Опыт работы с Cursor",
+            "scope": "must_have",
+            "severity": "moderate",
+            "coverage_level": "strong",
+            "reason": "r2",
+            "evidence_ids": [str(eid_a)],
+            "supporting_evidence": [{"evidence_id": str(eid_a), "fact_status": "confirmed"}],
+        },
+        {
+            "requirement": "Опыт работы с Cursor",
+            "scope": "must_have",
+            "severity": "moderate",
+            "coverage_level": "medium",
+            "reason": "r3",
+            "evidence_ids": [str(eid_b)],
+            "supporting_evidence": [{"evidence_id": str(eid_b), "fact_status": "user_provided"}],
+        },
+    ]
+
+    collapsed = service._collapse_requirements_by_text(items)
+
+    assert len(collapsed) == 1
+    only = collapsed[0]
+    assert only["requirement"] == "Опыт работы с Cursor"
+    # Лучший coverage (strong) побеждает — берём его поля.
+    assert only["coverage_level"] == "strong"
+    assert only["reason"] == "r2"
+    # Evidence объединён из всех вариантов, дедуп по evidence_id.
+    assert set(only["evidence_ids"]) == {str(eid_a), str(eid_b)}
+    assert len(only["supporting_evidence"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_build_vacancy_fit_collapses_multi_keyword_requirement() -> None:
+    """End-to-end: одна фраза требования, из которой _extract_keywords достаёт
+    3 ключа → 3 сигнала с одним ``requirement``. До фикса в
+    ``evidence_coverage.missing`` лежало 3 одинаковые строки; после — одна.
+    Общая эвристика (через monkeypatch каталога), БЕЗ хардкода профессии."""
+    vacancy = SimpleNamespace(
+        id=uuid4(),
+        title="Any Role",
+        company="Acme",
+        location="Remote",
+        description_raw="Must have: опыт работы с Cursor.",
+    )
+    analysis = SimpleNamespace(
+        id=uuid4(),
+        analysis_version="deterministic_v1",
+        must_have_json=[{"text": "Опыт работы с Cursor"}],
+        nice_to_have_json=[],
+        keywords_json=["Опыт работы с Cursor"],
+    )
+    profile = SimpleNamespace(
+        full_name="Test Candidate",
+        headline="Any",
+        location="Remote",
+        summary="",
+        target_roles_json=["Any"],
+        experiences=[],
+        achievements=[],
+    )
+
+    service = VacancyFitService(
+        vacancy_repository=_VacancyRepo(vacancy),
+        vacancy_analysis_repository=_AnalysisRepo(analysis),
+        candidate_profile_repository=_ProfileRepo(profile),
+        evidence_snippet_repository=_EvidenceRepo([]),
+    )
+    # Один must_have пункт → 3 ключа каталога → 3 сигнала с одним requirement.
+    service._extract_keywords = lambda label: ["Ключевой навык 1", "Ключевой навык 2", "Ключевой навык 3"]
+
+    fit = await service.build_vacancy_fit(None, vacancy_id=vacancy.id, user_id=uuid4())
+
+    req_texts = [str(item["requirement"]) for item in fit["requirements"]]
+    assert req_texts == ["Опыт работы с Cursor"], f"expected single collapsed item, got {req_texts}"
+    missing = fit["evidence_coverage"]["missing"]
+    assert len(missing) == 1
+    assert missing[0]["requirement"] == "Опыт работы с Cursor"
+    # required-список тоже без дублей.
+    assert fit["evidence_coverage"]["required"] == ["Опыт работы с Cursor"]

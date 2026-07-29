@@ -173,6 +173,23 @@ class VacancyFitService:
                 if usable_matches:
                     leadership_fit_weight += signal.weight * self._coverage_score_ratio(coverage_level) * 0.5
 
+        # Свернуть display-пункты по тексту требования: один must_have пункт с
+        # N ключевыми словами порождал N записей с одинаковым ``requirement``
+        # (дубль «Cursor» в missing был именно таким — 3 ключа AI-каталога).
+        # Score (matched_*_weight) уже посчитан выше per-keyword — свёртка его
+        # не касается, она убирает только display-дубли и завышение количества
+        # в gap_severity/leadership_fit.
+        requirements = self._collapse_requirements_by_text(requirements)
+        grouped = {"strong": [], "medium": [], "missing": []}
+        for item in requirements:
+            coverage_level = item.get("coverage_level")
+            if coverage_level == "strong":
+                grouped["strong"].append(item)
+            elif coverage_level == "medium":
+                grouped["medium"].append(item)
+            else:
+                grouped["missing"].append(item)
+
         skills_fit = round((matched_skill_weight / total_weight) * 100)
         experience_fit = round((matched_experience_weight / total_weight) * 100)
         evidence_fit = round((matched_evidence_weight / total_weight) * 100)
@@ -199,7 +216,9 @@ class VacancyFitService:
             evidence_fit=evidence_fit,
         )
 
-        required = [signal.requirement for signal in signals]
+        required = list(
+            dict.fromkeys(str(sig.requirement) for sig in signals if sig.requirement)
+        )
         return {
             "analysis_id": analysis.id,
             "analysis_version": analysis.analysis_version,
@@ -287,6 +306,53 @@ class VacancyFitService:
             seen.add(key)
             result.append(item)
         return result
+
+    def _collapse_requirements_by_text(self, requirements: list[dict]) -> list[dict]:
+        """Схлопнуть display-пункты с одинаковым текстом требования.
+
+        Один must_have/nice_to_have пункт, из которого ``_extract_keywords``
+        достаёт N ключевых слов, порождает N сигналов с **одинаковым**
+        ``requirement``-текстом (но разными ``keyword``). ``_dedupe_*``
+        работает по ``(keyword, scope)`` — поэтому N сигналов выживают и в
+        ``evidence_coverage.missing/strong/medium`` (и в ``requirements``)
+        пункт дублируется N раз. Для **score** это безвредно (вес per-keyword
+        копится в цикле выше), но для **display** — дубль.
+
+        Здесь: один пункт на уникальный текст требования, с лучшим
+        ``coverage_level`` (strong>medium>missing) и объединённым evidence
+        (дедуб по ``evidence_id``). Общая эвристика, БЕЗ хардкодов.
+        """
+        priority = {"strong": 0, "medium": 1, "missing": 2}
+        by_text: dict[str, dict] = {}
+        order: list[str] = []
+        for item in requirements:
+            text = str(item.get("requirement") or "")
+            if not text:
+                continue
+            existing = by_text.get(text)
+            if existing is None:
+                by_text[text] = {
+                    **item,
+                    "evidence_ids": list(item.get("evidence_ids") or []),
+                    "supporting_evidence": list(item.get("supporting_evidence") or []),
+                }
+                order.append(text)
+                continue
+            # Лучший coverage берёт severity/coverage_level/reason.
+            if priority.get(item.get("coverage_level"), 2) < priority.get(
+                existing.get("coverage_level"), 2
+            ):
+                for k in ("coverage_level", "severity", "reason"):
+                    existing[k] = item.get(k)
+            # Объединить evidence (дедуб по evidence_id).
+            for eid in item.get("evidence_ids") or []:
+                if eid and eid not in existing["evidence_ids"]:
+                    existing["evidence_ids"].append(eid)
+            for match in item.get("supporting_evidence") or []:
+                mid = match.get("evidence_id")
+                if not any(x.get("evidence_id") == mid for x in existing["supporting_evidence"]):
+                    existing["supporting_evidence"].append(match)
+        return [by_text[text] for text in order]
 
     def _build_profile_corpus(self, profile) -> str:
         parts: list[str] = []
