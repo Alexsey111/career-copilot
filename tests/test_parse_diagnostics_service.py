@@ -234,3 +234,88 @@ def test_report_as_dict_roundtrip_shape() -> None:
         "metadata_exposure_warning",
     }
     assert isinstance(d["extracted_blocks"], list) and d["extracted_blocks"]
+
+
+class _FakePdfPage:
+    """Имитация fitz-страницы: ``get_text("dict")`` возвращает структуру
+    blocks→lines→spans с ``text``/``color``/``size``. ``color`` — signed ARGB
+    int как у fitz (белый = -1 = 0xFFFFFFFF, чёрный = -16777216)."""
+
+    def __init__(self, spans: list[dict]) -> None:
+        self._spans = spans
+
+    def get_text(self, mode: str) -> dict:
+        line = {"spans": self._spans}
+        return {"blocks": [{"lines": [line]}]}
+
+
+_WHITE = -1  # 0xFFFFFFFF
+_BLACK = -16777216  # 0xFF000000
+_GRAY = 0xFF666666 & 0xFFFFFFFF  # видимый серый (как у Google Docs артефакта)
+
+
+def _spans(*triples: tuple[str, int, float]) -> list[dict]:
+    return [{"text": t, "color": c, "size": s} for t, c, s in triples]
+
+
+def test_white_on_white_real_hidden_is_flagged() -> None:
+    """Белый текст, которого нигде на странице нет в видимом виде — реальный
+    hidden keyword-stuffing, flagged (severity high)."""
+    service = ResumeParserService()
+    findings: list[dict] = []
+    page = _FakePdfPage(_spans(("Python", _BLACK, 12.0), ("SEO spam hidden", _WHITE, 12.0)))
+    service._collect_pdf_hidden_spans(page, findings)
+
+    white = [f for f in findings if f["kind"] == "white_on_white"]
+    assert len(white) == 1
+    assert white[0]["count"] == 1
+    assert "hidden" in white[0]["sample"].casefold()
+
+
+def test_white_on_white_google_docs_artifact_not_flagged() -> None:
+    """Ноут #91/#92: Google Docs кладёт поверх видимого текста белую копию того
+    же span (render-artifact). Белый дубль видимого текста — НЕ hidden, не
+    flagged. Видимый серый «Промпт-инжиниринг» + белая копия → 0 findings."""
+    service = ResumeParserService()
+    findings: list[dict] = []
+    page = _FakePdfPage(
+        _spans(
+            ("Промпт-инжиниринг", _GRAY, 12.0),
+            ("Промпт-инжиниринг", _WHITE, 12.0),
+        )
+    )
+    service._collect_pdf_hidden_spans(page, findings)
+
+    assert not any(f["kind"] == "white_on_white" for f in findings)
+
+
+def test_white_on_white_artifact_plus_real_hidden() -> None:
+    """Смешанный случай: артефакт-дубль (видимая копия есть) игнорируется, а
+    настоящий белый hidden (видимой копии нет) — flagged. Счётчик = 1, не 2."""
+    service = ResumeParserService()
+    findings: list[dict] = []
+    page = _FakePdfPage(
+        _spans(
+            ("Промпт-инжиниринг", _GRAY, 12.0),
+            ("Промпт-инжиниринг", _WHITE, 12.0),  # артефакт — игнор
+            ("Keyword stuffing", _WHITE, 12.0),  # real hidden — flagged
+        )
+    )
+    service._collect_pdf_hidden_spans(page, findings)
+
+    white = [f for f in findings if f["kind"] == "white_on_white"]
+    assert len(white) == 1
+    assert white[0]["count"] == 1
+    assert "stuffing" in white[0]["sample"].casefold()
+
+
+def test_tiny_font_still_flagged() -> None:
+    """Tiny-font (<2pt) детектится независимо от white-on-white отсева."""
+    service = ResumeParserService()
+    findings: list[dict] = []
+    page = _FakePdfPage(_spans(("Python", _BLACK, 12.0), ("tiny secret", _BLACK, 1.0)))
+    service._collect_pdf_hidden_spans(page, findings)
+
+    tiny = [f for f in findings if f["kind"] == "tiny_font"]
+    assert len(tiny) == 1
+    assert tiny[0]["count"] == 1

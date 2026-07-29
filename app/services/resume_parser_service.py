@@ -131,17 +131,22 @@ class ResumeParserService:
         размером шрифта. White-on-white: span color == 0xFFFFFF (предполагаем
         белый фон — стандарт резюме; severity high, но помечаем как «вероятно
         hidden»). Tiny-font: size < 2pt (severity medium).
+
+        **Отсев дублей-артефактов экспорта** (Google Docs и ряд экспортёров в
+        PDF кладут поверх видимого текста белую копию того же span — это
+        render-artifact, не keyword-stuffing): белый span не flagged, если тот
+        же текст (casefold) виден на этой же странице обычным цветом. Реальный
+        hidden-text (белый текст, которого нигде на странице нет в видимом
+        виде) по-прежнему детектится.
         """
         try:
             page_dict = page.get_text("dict")
         except Exception:  # pragma: no cover - defensive
             return
 
-        white_count = 0
-        tiny_count = 0
-        white_sample = ""
-        tiny_sample = ""
-
+        # Проход 1: собрать видимый (не-белый) текст страницы и кеш spans.
+        visible_texts: set[str] = set()
+        spans: list[tuple[str, int, float]] = []
         for block in page_dict.get("blocks", []):
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
@@ -150,17 +155,31 @@ class ResumeParserService:
                         continue
                     color = span.get("color", 0)
                     size = float(span.get("size", 0) or 0)
-                    # fitz хранит span color как signed ARGB int (alpha=0xFF для
-                    # непрозрачного текста): белый = -1 (0xFFFFFFFF), чёрный =
-                    # -16777216 (0xFF000000). Маска низких 24 бит = sRGB.
-                    if (color & 0xFFFFFF) == 0xFFFFFF:
-                        white_count += 1
-                        if not white_sample:
-                            white_sample = span_text[:80]
-                    if size < 2.0:
-                        tiny_count += 1
-                        if not tiny_sample:
-                            tiny_sample = span_text[:80]
+                    spans.append((span_text, color, size))
+                    # fitz хранит span color как signed ARGB int (alpha=0xFF
+                    # для непрозрачного текста): белый = -1 (0xFFFFFFFF),
+                    # чёрный = -16777216 (0xFF000000). Маска низких 24 бит = sRGB.
+                    if (color & 0xFFFFFF) != 0xFFFFFF:
+                        visible_texts.add(span_text.casefold())
+
+        # Проход 2: flagged только «настоящий» hidden (нет видимой копии).
+        white_count = 0
+        tiny_count = 0
+        white_sample = ""
+        tiny_sample = ""
+        for span_text, color, size in spans:
+            is_white = (color & 0xFFFFFF) == 0xFFFFFF
+            if is_white and span_text.casefold() in visible_texts:
+                # Белый дубль видимого текста — артефакт экспорта, не hidden.
+                continue
+            if is_white:
+                white_count += 1
+                if not white_sample:
+                    white_sample = span_text[:80]
+            if size < 2.0:
+                tiny_count += 1
+                if not tiny_sample:
+                    tiny_sample = span_text[:80]
 
         if white_count:
             findings.append(
