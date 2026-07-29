@@ -109,11 +109,11 @@ _FABRICATED_MARKERS = (
 _RECOMMENDED_FACT_STATUSES = ("confirmed", "user_provided")
 
 _TITLE_MAP: dict[str, str] = {
-    "system_design": "System design practice",
-    "debugging_scenario": "Debugging scenario practice",
-    "data_analysis": "Data analysis practice",
-    "behavioral_case": "Behavioral case practice",
-    "take_home_brief": "Take-home brief practice",
+    "system_design": "Практика системного дизайна",
+    "debugging_scenario": "Практика отладки и инцидентов",
+    "data_analysis": "Практика анализа данных",
+    "behavioral_case": "Поведенческий кейс (STAR)",
+    "take_home_brief": "Тестовое задание (take-home)",
 }
 
 
@@ -264,39 +264,39 @@ def build_rubric(case_type: str) -> list[str]:
     """Статические критерии самопроверки для типа кейса (≥4 пункта)."""
     rubrics: dict[str, list[str]] = {
         "system_design": [
-            "Scalability is considered and quantified where possible",
-            "Failure modes and graceful degradation are identified",
-            "Trade-offs are explicit, with alternatives considered",
-            "Data flow and component responsibilities are clear",
-            "Assumptions are stated and bounded",
+            "Масштабируемость учтена и по возможности оценена количественно",
+            "Выделены режимы отказов и деградация с запасом прочности",
+            "Компромиссы прописаны явно, с рассмотренными альтернативами",
+            "Понятны поток данных и зоны ответственности компонентов",
+            "Допущения сформулированы и ограничены по области",
         ],
         "debugging_scenario": [
-            "A hypothesis is formed before acting",
-            "Evidence and logs are used to confirm or refute it",
-            "Variables are isolated one at a time",
-            "A rollback or safety net is considered before changing state",
-            "The root cause is addressed, not just the symptom",
+            "Гипотеза формулируется до действий",
+            "Логи и факты подтверждают или опровергают гипотезу",
+            "Переменные изолируются по одной за раз",
+            "Откат/страховка продумываются до изменения состояния",
+            "Устраняется корневая причина, а не симптом",
         ],
         "data_analysis": [
-            "The question is framed before any querying",
-            "Metric definitions are explicit and consistent",
-            "Segmentation is considered and justified",
-            "Confounders and data-quality caveats are noted",
-            "The conclusion is actionable, not just descriptive",
+            "Вопрос сформулирован до любых запросов",
+            "Определения метрик явные и согласованные",
+            "Сегментация обоснована и осмысленна",
+            "Учтены конфаундеры и оговорки по качеству данных",
+            "Вывод ведёт к действию, а не просто описывает",
         ],
         "behavioral_case": [
-            "Situation is concrete and specific",
-            "Task and your role are clear",
-            "Action describes what YOU did, with specifics",
-            "Result is quantified where possible",
-            "Ownership and learning are evident",
+            "Ситуация конкретная и определённая",
+            "Задача и ваша роль описаны ясно",
+            "Действие — что сделали ИМЕННО ВЫ, со specifics",
+            "Результат по возможности оцифрован",
+            "Видна ответственность и извлечённый урок",
         ],
         "take_home_brief": [
-            "Scope is clarified before building",
-            "Assumptions are documented",
-            "The core happy path is delivered first",
-            "Tests and edge cases are addressed",
-            "Trade-offs and next steps are written up",
+            "Объём уточнён до начала работы",
+            "Допущения зафиксированы",
+            "Сначала реализован базовый happy path",
+            "Тесты и краевые случаи проработаны",
+            "Описаны компромиссы и следующие шаги",
         ],
     }
     return list(rubrics.get(case_type, rubrics["behavioral_case"]))
@@ -306,49 +306,51 @@ def build_suggested_approach(case_type: str) -> list[str]:
     """Статические шаги подхода для типа кейса."""
     approaches: dict[str, list[str]] = {
         "system_design": [
-            "Restate the problem and clarify scope and constraints",
-            "Sketch the high-level components and data flow",
-            "Work through capacity, bottlenecks, and failure modes",
-            "State explicit trade-offs and alternatives you rejected",
-            "Summarise what you would build first and why",
+            "Перефразируйте задачу и уточните объём и ограничения",
+            "Набросайте компоненты верхнего уровня и поток данных",
+            "Проработайте ёмкость, узкие места и режимы отказов",
+            "Назовите явные компромиссы и отвергнутые альтернативы",
+            "Сформулируйте, что стали бы делать первым и почему",
         ],
         "debugging_scenario": [
-            "Restate the symptom and define what 'healthy' looks like",
-            "Form a prioritised list of hypotheses",
-            "Pick the cheapest confirming probe for the top hypothesis",
-            "Isolate one variable at a time and record what you observe",
-            "Propose a fix plus a rollback, then verify the root cause is gone",
+            "Перефразируйте симптом и опишите, как выглядит «здоровое» состояние",
+            "Составьте приоритизированный список гипотез",
+            "Выберите самую дешёвую проверку для верхней гипотезы",
+            "Изолируйте по одной переменной и фиксируйте наблюдения",
+            "Предложите исправление и откат, затем убедитесь, что причина устранена",
         ],
         "data_analysis": [
-            "Restate the business question in one sentence",
-            "Define the metrics and the granularity you need",
-            "Plan the segments and comparisons that answer the question",
-            "Note data-quality caveats and confounders up front",
-            "State the conclusion and the next action it implies",
+            "Сформулируйте бизнес-вопрос одним предложением",
+            "Определите метрики и нужную гранулярность",
+            "Продумайте сегменты и сравнения, отвечающие на вопрос",
+            "Заранее отметьте оговорки по качеству данных и конфаундеры",
+            "Сформулируйте вывод и следующее действие, которое из него следует",
         ],
         "behavioral_case": [
-            "Pick a concrete situation that maps to the competency",
-            "State the task and your specific responsibility",
-            "Describe your action step by step with specifics",
-            "Quantify the result and name what you learned",
-            "Tie it back to the role you are interviewing for",
+            "Выберите конкретную ситуацию под компетенцию",
+            "Опишите задачу и вашу зону ответственности",
+            "Расскажите действие по шагам со specifics",
+            "Оцифруйте результат и назовите, чему научились",
+            "Свяжите историю с ролью, на которую собеседуетесь",
         ],
         "take_home_brief": [
-            "Clarify scope and success criteria before writing code",
-            "Document the assumptions you are making",
-            "Build the core happy path first and keep it runnable",
-            "Add tests and handle the most important edge cases",
-            "Write up trade-offs, limitations, and what you would do next",
+            "Уточните объём и критерии успеха до написания кода",
+            "Зафиксируйте допущения",
+            "Сначала сделайте базовый happy path и держите его рабочим",
+            "Добавьте тесты и обработайте ключевые краевые случаи",
+            "Опишите компромиссы, ограничения и что стали бы делать дальше",
         ],
     }
     return list(approaches.get(case_type, approaches["behavioral_case"]))
 
 
 def _framework_for(case_type: str) -> str:
+    # Методологические названия: акронимы (STAR, RTL) — универсальны, оставляем.
+    # Описательные — переводим. Используется в UI «Фреймворк: …».
     return {
-        "system_design": "hypothesis-driven",
-        "debugging_scenario": "hypothesis-driven",
-        "data_analysis": "structured_walkthrough",
+        "system_design": "гипотезы-ориентированный",
+        "debugging_scenario": "гипотезы-ориентированный",
+        "data_analysis": "структурированный разбор",
         "behavioral_case": "STAR",
         "take_home_brief": "RTL",
     }.get(case_type, "STAR")
@@ -357,44 +359,44 @@ def _framework_for(case_type: str) -> str:
 def _time_guidance_for(case_type: str) -> str:
     # Band, не конкретный дедлайн (non-goal: выдуманные сроки/даты).
     return {
-        "system_design": "60-90 minutes",
-        "debugging_scenario": "60-90 minutes",
-        "data_analysis": "60-90 minutes",
-        "behavioral_case": "15-30 minutes",
-        "take_home_brief": "2-4 hours, take-home",
-    }.get(case_type, "30-60 minutes")
+        "system_design": "60–90 минут",
+        "debugging_scenario": "60–90 минут",
+        "data_analysis": "60–90 минут",
+        "behavioral_case": "15–30 минут",
+        "take_home_brief": "2–4 часа, тестовое на дом",
+    }.get(case_type, "30–60 минут")
 
 
 def _build_prompt(case_type: str, requirement_text: str, gap_keyword: str) -> str:
     """Rule-based шаблон промпта, параметризуется ТОЛЬКО requirement/gap keyword.
 
     БЕЗ выдуманных компаний/чисел/имён (non-goal). Пустой requirement →
-    ``gap_keyword`` или обобщённая «core area».
+    ``gap_keyword`` или обобщённая «ключевая область роли».
     """
-    subject = (requirement_text or gap_keyword or "the role's core area").strip()
+    subject = (requirement_text or gap_keyword or "ключевая область роли").strip()
     templates: dict[str, str] = {
         "system_design": (
-            f"Design a system for the area implied by '{subject}'. "
-            "Outline components, data flow, trade-offs, and failure modes. "
-            "State your assumptions; do not assume a specific product or company."
+            f"Спроектируйте систему для области, подразумеваемой «{subject}». "
+            "Опишите компоненты, поток данных, компромиссы и режимы отказов. "
+            "Сформулируйте допущения; не предполагайте конкретный продукт или компанию."
         ),
         "debugging_scenario": (
-            f"A service exhibiting behaviour related to '{subject}' is degraded. "
-            "Walk through how you would investigate and isolate the cause. "
-            "State hypotheses and the probes you would use."
+            f"Сервис с поведением, связанным с «{subject}», деградировал. "
+            "Опишите, как стали бы исследовать и изолировать причину. "
+            "Сформулируйте гипотезы и проверки, которые применили бы."
         ),
         "data_analysis": (
-            f"Given a request touching '{subject}', define the analysis: "
-            "the question, the metrics, the segmentation, and the conclusion "
-            "you would aim to deliver."
+            f"Дан запрос, затрагивающий «{subject}». Определите анализ: "
+            "вопрос, метрики, сегментацию и вывод, "
+            "к которому стали бы стремиться."
         ),
         "behavioral_case": (
-            f"Describe a situation from your own experience where you addressed "
-            f"'{subject}'. Use STAR and quantify the result."
+            f"Опишите ситуацию из вашего опыта, где вы работали с "
+            f"«{subject}». Используйте STAR и оцифруйте результат."
         ),
         "take_home_brief": (
-            f"A short take-home exercising '{subject}'. Clarify scope, deliver "
-            "the core path, cover edge cases, and document trade-offs and next steps."
+            f"Короткое тестовое на дом по «{subject}». Уточните объём, реализуйте "
+            "базовый путь, покройте краевые случаи и опишите компромиссы и следующие шаги."
         ),
     }
     return templates.get(case_type, templates["behavioral_case"])
@@ -430,8 +432,8 @@ def build_case(
         sources=["vacancy_fit"],
         requires_human_review=True,
         notes=[
-            "deterministic; scenario is a template — adapt to the actual prompt",
-            "no fabricated specifics (companies, numbers, names)",
+            "детерминированный сценарий-шаблон — адаптируйте под реальный промпт работодателя",
+            "без выдуманных подробностей (компании, числа, имена)",
         ],
     )
 

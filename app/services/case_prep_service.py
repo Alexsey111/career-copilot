@@ -37,14 +37,14 @@ logger = logging.getLogger(__name__)
 
 
 _HUMAN_REVIEW_NOTE = (
-    "deterministic; scenario is a template — adapt to the actual prompt"
+    "детерминированный сценарий-шаблон — адаптируйте под реальный промпт работодателя"
 )
-_NO_FABRICATED_NOTE = "no fabricated specifics (companies, numbers, names)"
+_NO_FABRICATED_NOTE = "без выдуманных подробностей (компании, числа, имена)"
 _FIT_UNAVAILABLE_NOTE = (
-    "vacancy fit unavailable; run vacancy analysis and profile extraction first"
+    "fit-анализ вакансии недоступен — сначала запустите анализ вакансии и извлечение профиля"
 )
 _NO_CONFIRMED_EVIDENCE_NOTE = (
-    "no confirmed evidence matched this requirement"
+    "нет подтверждённой evidence, сматченной с этим требованием"
 )
 
 _RECOMMENDED_FACT_STATUSES = ("confirmed", "user_provided")

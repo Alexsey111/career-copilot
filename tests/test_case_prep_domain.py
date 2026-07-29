@@ -158,9 +158,10 @@ def test_build_case_provenance_requires_human_review() -> None:
 
 
 def test_build_case_framework_mapping() -> None:
-    assert build_case("system_design", requirement=_req("x")).framework == "hypothesis-driven"
-    assert build_case("debugging_scenario", requirement=_req("x")).framework == "hypothesis-driven"
-    assert build_case("data_analysis", requirement=_req("x")).framework == "structured_walkthrough"
+    # Описательные фреймворки переведены; акронимы (STAR, RTL) — универсальны.
+    assert build_case("system_design", requirement=_req("x")).framework == "гипотезы-ориентированный"
+    assert build_case("debugging_scenario", requirement=_req("x")).framework == "гипотезы-ориентированный"
+    assert build_case("data_analysis", requirement=_req("x")).framework == "структурированный разбор"
     assert build_case("behavioral_case", requirement=_req("x")).framework == "STAR"
     assert build_case("take_home_brief", gap=_gap("x")).framework == "RTL"
 
