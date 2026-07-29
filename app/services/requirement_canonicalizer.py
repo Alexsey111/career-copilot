@@ -115,22 +115,23 @@ def split_atomic_requirements(value: str) -> list[str]:
         return []
 
     protected_text, placeholders = _protect_tokens(cleaned)
-    # Сплитим по явным разделителям пунктов: ; | / • и запятой. Запятая нужна
-    # для легитимных списков («Python, FastAPI, PostgreSQL» → 3 пункта, каждое
-    # со своим coverage в fit). Но запятая внутри фразы-предложения («работа
-    # с инструментами, связанными с сервисами») давала обрубок «Связанных с
-    # сервисами» как отдельное требование — это продолжение фразы, не пункт.
-    # Поэтому после сплита склеиваем обратно обрубки, начинающиеся с
-    # предлога/союза/причастия (FRAGMENT_START_WORDS).
-    protected_text = re.sub(r"\s*[;|/•]\s*", "@@REQSEP@@", protected_text)
-
+    # Жёсткие разделители пунктов (; | / •) — через них обрубки-продолжения
+    # НЕ склеиваются (это граница независимых пунктов). Запятая — мягкий
+    # разделитель: легитимные tech-списки («Python, FastAPI, PostgreSQL» → 3
+    # пункта, каждое со своим coverage в fit), но запятая внутри фразы-
+    # предложения («работа с инструментами, связанными с сервисами») давала
+    # обрубок «Связанных с сервисами» — поэтому обрубки, начинающиеся с
+    # предлога/союза/причастия (FRAGMENT_START_WORDS), склеиваем обратно.
+    # Оба сплита учитывают баланс скобок: разделитель ВНУТРИ парентез
+    # («API нейросетей (OpenAI, Anthropic, российские модели)») не режет фразу
+    # на обрубки «(OpenAI» / «российские модели)».
     parts: list[str] = []
-    for chunk in protected_text.split("@@REQSEP@@"):
-        if not _clean_text(chunk):
+    for segment in _split_at_depth_zero(protected_text, ";|/•"):
+        if not _clean_text(segment):
             continue
         sub = [
             _restore_tokens(s, placeholders)
-            for s in re.split(r"\s*,\s*", chunk)
+            for s in _split_at_depth_zero(segment, ",")
             if _clean_text(s)
         ]
         # Склейка обрубков-продолжений к предыдущему пункту.
@@ -143,6 +144,35 @@ def split_atomic_requirements(value: str) -> list[str]:
         parts.extend(merged)
 
     return _dedupe_preserve_order(parts or [cleaned])
+
+
+def _split_at_depth_zero(text: str, delimiters: str) -> list[str]:
+    """Разбить ``text`` по любому из символов ``delimiters``, но только на
+    нулевой глубине вложенности скобок. Запятая/разделитель внутри парентез
+    («(OpenAI, Anthropic)») не разрезает фразу — баланс ``(``/``)`` защищает
+    перечисление внутри скобок от over-split. Незакрытые скобки деградируют
+    мягко: лишняя ``)`` не уводит глубину в минус, незакрытая ``(`` оставляет
+    хвост одним сегментом. Каждый сегмент обрезается по пробелам — эквивалент
+    ``\\s*DELIM\\s*``."""
+    parts: list[str] = []
+    depth = 0
+    buf: list[str] = []
+    delim_set = set(delimiters)
+    for ch in text:
+        if ch == "(":
+            depth += 1
+            buf.append(ch)
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+            buf.append(ch)
+        elif depth == 0 and ch in delim_set:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    parts.append("".join(buf))
+    return [p.strip() for p in parts]
 
 
 # Обрубки, начинающиеся с этих слов — продолжение предыдущей фразы, не новый

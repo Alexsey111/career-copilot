@@ -170,6 +170,38 @@ def test_oblique_case_fragments_are_glued_back(value: str, expected: list[str]) 
     assert split_atomic_requirements(value) == expected
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # Ноут #90: запятая ВНУТРИ парентез не режет фразу на обрубки — раньше
+        # было [«API нейросетей (OpenAI», «Anthropic», «российские модели)»].
+        (
+            "API нейросетей (OpenAI, Anthropic, российские модели)",
+            ["API нейросетей (OpenAI, Anthropic, российские модели)"],
+        ),
+        # Запятая на верхнем уровне — всё ещё сплитит, внутри скобок — нет.
+        (
+            "работа с API (OpenAI, Anthropic), Python, PostgreSQL",
+            ["работа с API (OpenAI, Anthropic)", "Python", "PostgreSQL"],
+        ),
+        # Вложенные скобки — баланс учитывается, внутренние запятые защищены.
+        (
+            "модели (OpenAI (GPT, o-серия), Anthropic)",
+            ["модели (OpenAI (GPT, o-серия), Anthropic)"],
+        ),
+        # Незакрытая «(» — хвост одним сегментом (мягкая деградация).
+        ("работа с API (OpenAI, Anthropic", ["работа с API (OpenAI, Anthropic"]),
+    ],
+)
+def test_comma_inside_parens_does_not_split(value: str, expected: list[str]) -> None:
+    """Баланс скобок в split_atomic_requirements: запятая внутри парентез не
+    разрезает перечисление на обрубки. Запятая на верхнем уровне сплитит как
+    прежде (легитимные tech-списки)."""
+    from app.services.requirement_canonicalizer import split_atomic_requirements
+
+    assert split_atomic_requirements(value) == expected
+
+
 def test_section_heading_does_not_leak_as_stub_fragment() -> None:
     """Заголовок раздела «Что нужно будет делать» не должен протекать как
     обрубок «Будет делать». Раньше _match_heading_prefix ложно prefix-матчил
