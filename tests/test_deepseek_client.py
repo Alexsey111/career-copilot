@@ -225,3 +225,49 @@ async def test_generate_structured_schema_validation_error():
 def test_provider_name_is_deepseek():
     client = DeepSeekLLMClient.__new__(DeepSeekLLMClient)
     assert client.provider_name == "deepseek"
+
+
+def test_resolve_model_normalizes_foreign_model():
+    """Per-user override на deepseek + глобальный default ``gigachat-pro``:
+    оркестратор передаёт чужую модель, клиент обязан нормализовать её в
+    ``deepseek-chat`` — иначе DeepSeek API отдаёт 400 → 500 «Улучшить».
+    Никаких хардкодов профессии/пользователя — общая защита провайдера.
+    """
+    assert DeepSeekLLMClient._resolve_model("gigachat-pro") == "deepseek-chat"
+    assert DeepSeekLLMClient._resolve_model(None) == "deepseek-chat"
+    assert DeepSeekLLMClient._resolve_model("deepseek-reasoner") == "deepseek-reasoner"
+    assert DeepSeekLLMClient._resolve_model("deepseek-chat") == "deepseek-chat"
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_deepseek_chat_when_foreign_model_passed():
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "model": "deepseek-chat",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "OK"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    client = _build_client(httpx.MockTransport(handler))
+    try:
+        # Имитируем, что оркестратор маршрутизировал глобальный дефолт.
+        result = await client.generate("Улучши текст", model="gigachat-pro")
+    finally:
+        await client.aclose()
+
+    assert captured["body"]["model"] == "deepseek-chat", (
+        "foreign model must be normalized before sending to DeepSeek API"
+    )
+    assert result["model"] == "deepseek-chat"

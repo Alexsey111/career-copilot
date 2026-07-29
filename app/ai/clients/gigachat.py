@@ -40,6 +40,22 @@ class GigaChatClient(BaseLLMClient):
     def provider_name(self) -> str:
         return "gigachat"
 
+    @staticmethod
+    def _resolve_model(model: str | None) -> str:
+        """Нормализация модели под GigaChat: None или не-gigachat-модель
+        (например, ``deepseek-chat`` из per-user override) → ``gigachat-pro``.
+        Глобальный ``AI_DEFAULT_MODEL`` учитывается, если он gigachat-семейства.
+        """
+        if model and str(model).strip().lower().startswith("gigachat"):
+            return str(model)
+        try:
+            default = str(get_settings().ai_default_model or "").strip()
+            if default.lower().startswith("gigachat"):
+                return default
+        except Exception:
+            pass
+        return "gigachat-pro"
+
     async def generate(
         self,
         prompt: str,
@@ -49,8 +65,9 @@ class GigaChatClient(BaseLLMClient):
         max_tokens: int | None = None,
     ) -> dict[str, Any]:
         try:
+            resolved_model = self._resolve_model(model)
             payload = {
-                "model": model,
+                "model": resolved_model,
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
@@ -76,7 +93,7 @@ class GigaChatClient(BaseLLMClient):
             return {
                 "content": content,
                 "usage": data.get("usage", {}),
-                "model": data.get("model", model),
+                "model": data.get("model", resolved_model),
                 "finish_reason": data["choices"][0].get("finish_reason"),
             }
 

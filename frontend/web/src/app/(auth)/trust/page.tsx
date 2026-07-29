@@ -8,7 +8,7 @@ import DeterministicDisclaimer from "@/components/DeterministicDisclaimer";
 import type {
   ReviewSummaryResponse,
   HealthDiagnosticsResponse,
-  ActiveDocumentResponse,
+  DocumentListItem,
   InterviewPrepSessionListItem,
 } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,22 +27,23 @@ export default function TrustPage() {
   const [summary, setSummary] = useState<ReviewSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
-  const [docs, setDocs] = useState<ActiveDocumentResponse[]>([]);
+  const [docs, setDocs] = useState<DocumentListItem[]>([]);
   const [sessions, setSessions] = useState<InterviewPrepSessionListItem[]>([]);
 
   useEffect(() => {
     if (!token) return;
     Promise.allSettled([
       api.getHealthDiagnostics(token).then((r) => r as HealthDiagnosticsResponse),
-      api.getActiveDocument(token, "resume").then((r) => r as ActiveDocumentResponse),
-      api.getActiveDocument(token, "cover_letter").then((r) => r as ActiveDocumentResponse),
+      api.listDocuments(token).then((r) => r as { items: DocumentListItem[] } | DocumentListItem[]),
       api.listInterviewPrepSessions(token).then((r) => r as InterviewPrepSessionListItem[]),
-    ]).then(([h, d1, d2, s]) => {
+    ]).then(([h, d, s]) => {
       if (h.status === "fulfilled") setHealth(h.value);
-      const collected: ActiveDocumentResponse[] = [];
-      if (d1.status === "fulfilled" && d1.value?.id) collected.push(d1.value);
-      if (d2.status === "fulfilled" && d2.value?.id) collected.push(d2.value);
-      setDocs(collected);
+      if (d.status === "fulfilled") {
+        const value = d.value;
+        // Бэкенд отдаёт { items, total }; на случай иной формы — массив.
+        const items = Array.isArray(value) ? value : (value?.items ?? []);
+        setDocs(items);
+      }
       if (s.status === "fulfilled") setSessions(s.value ?? []);
       setLoading(false);
     });
@@ -127,7 +128,9 @@ export default function TrustPage() {
                 {entityType === "document"
                   ? docs.map((d) => (
                       <SelectItem key={d.id} value={d.id}>
-                        {d.document_kind} · {d.id.slice(0, 8)}…
+                        {d.document_kind === "resume" ? "Резюме" : d.document_kind === "cover_letter" ? "Сопроводительное" : d.document_kind}
+                        {d.version_label ? ` · ${d.version_label}` : ""} · {d.id.slice(0, 8)}…
+                        {d.is_active ? " ✓" : ""}
                       </SelectItem>
                     ))
                   : sessions.map((s) => (
@@ -137,6 +140,16 @@ export default function TrustPage() {
                     ))}
               </SelectContent>
             </Select>
+            {entityType === "document" && docs.length === 0 && (
+              <p className="text-xs text-[color:var(--brand-teal-60)]">
+                Нет документов. Создайте резюме или сопроводительное на странице вакансии.
+              </p>
+            )}
+            {entityType === "interview_prep" && sessions.length === 0 && (
+              <p className="text-xs text-[color:var(--brand-teal-60)]">
+                Нет сессий подготовки. Запустите подготовку к интервью на странице вакансии.
+              </p>
+            )}
           </div>
 
           <Button onClick={handleFetch} disabled={fetching || !entityId}>

@@ -395,6 +395,10 @@ class ApiClient {
   }
 
   // Documents — list/active/review/diff/enhance/activate
+  async listDocuments(token: string) {
+    return this.request(`/documents`, { token });
+  }
+
   async getActiveDocument(token: string, documentKind: string, vacancyId?: string) {
     const query = new URLSearchParams({ document_kind: documentKind });
     if (vacancyId) query.set("vacancy_id", vacancyId);

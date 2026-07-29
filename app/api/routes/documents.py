@@ -32,6 +32,8 @@ from app.schemas.document import (
     DocumentActivateResponse,
     DocumentDiffResponse,
     DocumentHistoryResponse,
+    DocumentListItem,
+    DocumentListResponse,
     DocumentReadinessResponse,
     DocumentReviewSummaryResponse,
     DocumentReviewRequest,
@@ -412,6 +414,38 @@ async def enhance_cover_letter(
         created_at=new_document.created_at,
         enhanced_text=enhanced_text,
     )
+
+
+@router.get(
+    "",
+    response_model=DocumentListResponse,
+)
+async def list_documents(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentListResponse:
+    """Список документов пользователя (любой kind/vacancy), свежие сверху.
+
+    Нужен селектору панели доверия: ``GET /documents/active`` возвращает только
+    ``is_active``-версию конкретного kind и 404, если её нет — селектор
+    оказывался пустым при наличии созданных, но не активированных документов.
+    """
+    repo = DocumentVersionRepository()
+    documents = await repo.list_by_user(session, user_id=current_user.id, limit=100)
+    items = [
+        DocumentListItem(
+            id=doc.id,
+            vacancy_id=doc.vacancy_id,
+            document_kind=doc.document_kind,
+            version_label=doc.version_label,
+            review_status=doc.review_status,
+            is_active=doc.is_active,
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+        )
+        for doc in documents
+    ]
+    return DocumentListResponse(items=items, total=len(items))
 
 
 @router.get(

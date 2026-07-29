@@ -48,6 +48,18 @@ class DeepSeekLLMClient(BaseLLMClient):
     async def aclose(self) -> None:
         await self.client.aclose()
 
+    @staticmethod
+    def _resolve_model(model: str | None) -> str:
+        """Модель фиксирована в коде (deepseek-chat), как и обещает докстринг
+        класса: пользователь выбирает провайдера (``Subscription.ai_provider``),
+        а не модель. Оркестратор по умолчанию подставляет глобальный
+        ``gigachat-pro``; чужая модель в DeepSeek API → 400. Поэтому None или
+        не-deepseek-модель заменяем на ``deepseek-chat``.
+        """
+        if model and str(model).strip().lower().startswith("deepseek"):
+            return str(model)
+        return "deepseek-chat"
+
     async def generate(
         self,
         prompt: str,
@@ -57,8 +69,9 @@ class DeepSeekLLMClient(BaseLLMClient):
         max_tokens: int | None = None,
     ) -> dict[str, Any]:
         try:
+            resolved_model = self._resolve_model(model)
             payload: dict[str, Any] = {
-                "model": model,
+                "model": resolved_model,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": temperature if temperature is not None else 0.1,
             }
@@ -80,7 +93,7 @@ class DeepSeekLLMClient(BaseLLMClient):
             return {
                 "content": choice["message"]["content"],
                 "usage": data.get("usage", {}),
-                "model": data.get("model", model),
+                "model": data.get("model", resolved_model),
                 "finish_reason": choice.get("finish_reason"),
             }
         except LLMClientError:

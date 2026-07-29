@@ -16,6 +16,14 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "border-l-green-400",
 };
 
+// Русские подписи для ключей evidence_coverage_trends (бэкенд отдаёт английские
+// имена полей most_reusable_evidence / unused_evidence / weak_evidence_clusters).
+const COVERAGE_TREND_LABELS: Record<string, string> = {
+  most_reusable_evidence: "Чаще всего переиспользуется",
+  unused_evidence: "Неиспользованные доказательства",
+  weak_evidence_clusters: "Слабые кластеры",
+};
+
 export default function CareerPage() {
   const { token } = useAuth();
   const [insights, setInsights] = useState<CareerInsightsResponse | null>(null);
@@ -103,14 +111,16 @@ export default function CareerPage() {
             <CardTitle>Тренды покрытия доказательств</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-1 text-sm">
+            <div className="space-y-4 text-sm">
               {Object.entries(coverageTrends).map(([k, v]) => (
-                <li key={k} className="flex justify-between">
-                  <span className="text-[color:var(--brand-teal-60)]">{k}</span>
-                  <span className="font-medium">{String(v)}</span>
-                </li>
+                <div key={k}>
+                  <div className="text-[color:var(--brand-teal-60)] mb-1">
+                    {COVERAGE_TREND_LABELS[k] ?? k}
+                  </div>
+                  {renderCoverageTrendValue(k, v)}
+                </div>
               ))}
-            </ul>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -142,6 +152,41 @@ export default function CareerPage() {
         />
       )}
     </div>
+  );
+}
+
+function renderCoverageTrendValue(key: string, value: unknown) {
+  if (key === "weak_evidence_clusters") {
+    const clusters = Array.isArray(value) ? value : [];
+    if (clusters.length === 0) return <p className="text-[color:var(--brand-teal-60)]">—</p>;
+    return (
+      <ul className="space-y-1">
+        {clusters.map((c, i) => (
+          <li key={i} className="flex justify-between">
+            <span className="font-medium">{String((c as Record<string, unknown>)?.skill ?? "Кластер")}</span>
+            <span className="text-[color:var(--brand-teal-60)]">×{Number((c as Record<string, unknown>)?.count ?? 0)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  // most_reusable_evidence / unused_evidence — массивы объектов-сниппетов.
+  const items = Array.isArray(value) ? value : [];
+  if (items.length === 0) return <p className="text-[color:var(--brand-teal-60)]">—</p>;
+  return (
+    <ul className="space-y-1">
+      {items.map((item, i) => {
+        const it = item as Record<string, unknown>;
+        const strength = String(it?.evidence_strength ?? "—");
+        const fact = String(it?.fact_status ?? "—");
+        return (
+          <li key={i} className="flex flex-wrap justify-between gap-x-2">
+            <span className="font-medium">{String(it?.title ?? "Доказательство")}</span>
+            <span className="text-[color:var(--brand-teal-60)]">{strength} · {fact}</span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

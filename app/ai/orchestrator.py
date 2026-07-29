@@ -256,6 +256,15 @@ class AIOrchestrator:
 
             duration_ms = int((time.time() - start_ts) * 1000)
             cost = self._calc_cost(result.get("usage", {}))
+            # Фактическая модель, на которой отработал клиент (нормализованная
+            # внутри клиента — deepseek-chat/gigachat-pro/gpt-4o-mini). До
+            # выполнения ``model`` может быть чужой провайдеру (глобальный
+            # gigachat-pro при per-user override на deepseek); клиент её
+            # нормализует и возвращает реальную в ``result["model"]``. Для
+            # трассировки пишем именно её — честный audit провайдер+модель.
+            # ``return_value["model"]`` остаётся маршрутизированной оркестратором
+            # моделью (контракт ModelRouter, проверяется тестами).
+            effective_model = result.get("model") or model
 
             # 6. Трассировка успеха
             if self.config.enable_tracing:
@@ -267,7 +276,7 @@ class AIOrchestrator:
                     target_type=target_type,
                     target_id=target_id,
                     provider_name=client.provider_name,
-                    model_name=model,
+                    model_name=effective_model,
                     prompt_version=prompt_template.value,
                     input_snapshot=self._sanitize_snapshot(prompt_vars),
                     output_snapshot=self._sanitize_snapshot(result),

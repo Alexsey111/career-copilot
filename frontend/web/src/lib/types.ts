@@ -78,6 +78,22 @@ export interface ActiveDocumentResponse {
   rendered_text?: string;
 }
 
+export interface DocumentListItem {
+  id: string;
+  vacancy_id: string | null;
+  document_kind: string;
+  version_label: string | null;
+  review_status: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentListResponse {
+  items: DocumentListItem[];
+  total: number;
+}
+
 export interface DocumentRead {
   id: string;
   document_kind?: string;

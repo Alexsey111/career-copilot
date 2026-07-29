@@ -200,3 +200,22 @@ class ActiveDocumentResponse(StrictBaseModel):
     created_at: datetime
     updated_at: datetime
     rendered_text: str | None
+
+
+class DocumentListItem(StrictBaseModel):
+    """Краткий элемент списка документов пользователя (для панели доверия и
+    селекторов). Без тяжёлого ``rendered_text``/``content_json``."""
+
+    id: UUID
+    vacancy_id: UUID | None
+    document_kind: DocumentKind
+    version_label: str | None
+    review_status: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class DocumentListResponse(StrictBaseModel):
+    items: list[DocumentListItem]
+    total: int

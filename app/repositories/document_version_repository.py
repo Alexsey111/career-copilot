@@ -130,3 +130,22 @@ class DocumentVersionRepository:
         stmt = stmt.order_by(DocumentVersion.created_at.desc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_by_user(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        limit: int = 100,
+    ) -> list[DocumentVersion]:
+        """Все документы пользователя (любой kind/vacancy), свежие сверху.
+        Используется селектором панели доверия — чтобы выбор сущности не был
+        пуст, когда есть документы, но нет ``is_active``-версии."""
+        stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.user_id == user_id)
+            .order_by(DocumentVersion.updated_at.desc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
