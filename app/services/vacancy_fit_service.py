@@ -364,6 +364,14 @@ class VacancyFitService:
         target_roles = getattr(profile, "target_roles_json", None) or []
         parts.extend(str(item) for item in target_roles if item)
 
+        # technologies_json пишётся И структурингом резюме, И (косвенно) GitHub-
+        # импортом языков репозиториев. Без него в corpus структурированный стек
+        # не виден skills-матчеру — fit-карта занижала skills_fit для профилей,
+        # где стек лежит в technologies_json, а summary пуст/нерелевантен.
+        # Симметрично с VacancyAnalysisService._build_profile_corpus (Fix B).
+        technologies = getattr(profile, "technologies_json", None) or []
+        parts.extend(str(item) for item in technologies if item)
+
         for experience in getattr(profile, "experiences", []) or []:
             for field in ("company", "role", "description_raw"):
                 value = getattr(experience, field, None)

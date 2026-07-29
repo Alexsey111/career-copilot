@@ -346,3 +346,57 @@ async def test_build_vacancy_fit_collapses_multi_keyword_requirement() -> None:
     assert missing[0]["requirement"] == "Опыт работы с Cursor"
     # required-список тоже без дублей.
     assert fit["evidence_coverage"]["required"] == ["Опыт работы с Cursor"]
+
+
+@pytest.mark.asyncio
+async def test_build_vacancy_fit_uses_technologies_json_in_profile_corpus() -> None:
+    """technologies_json входит в profile_corpus (симметрично с
+    VacancyAnalysisService Fix B). Профиль со стеком ТОЛЬКО в technologies_json
+    (summary/experiences/achievements не упоминают технологию) — требование по
+    этой технологии должно матчиться skills-матчером, а не уходить в missing.
+    Общая эвристика для любой профессии, БЕЗ хардкода."""
+    vacancy = SimpleNamespace(
+        id=uuid4(),
+        title="Backend Engineer",
+        company="Acme",
+        location="Remote",
+        description_raw="Must have: PostgreSQL.",
+    )
+    analysis = SimpleNamespace(
+        id=uuid4(),
+        analysis_version="deterministic_v1",
+        must_have_json=[{"text": "PostgreSQL"}],
+        nice_to_have_json=[],
+        keywords_json=["PostgreSQL"],
+    )
+    profile = SimpleNamespace(
+        full_name="Test Candidate",
+        headline="Backend Engineer",
+        location="Remote",
+        summary="I build backend systems.",  # НЕ упоминает PostgreSQL
+        target_roles_json=["Backend Engineer"],
+        # Стек лежит только в technologies_json (как после структуринга резюме
+        # или GitHub-импорта языков репозиториев).
+        technologies_json=["Python", "FastAPI", "PostgreSQL", "Docker"],
+        experiences=[],
+        achievements=[],
+    )
+
+    service = VacancyFitService(
+        vacancy_repository=_VacancyRepo(vacancy),
+        vacancy_analysis_repository=_AnalysisRepo(analysis),
+        candidate_profile_repository=_ProfileRepo(profile),
+        evidence_snippet_repository=_EvidenceRepo([]),
+    )
+
+    fit = await service.build_vacancy_fit(None, vacancy_id=vacancy.id, user_id=uuid4())
+
+    # PostgreSQL из technologies_json сматчен skills-матчером (profile-supported).
+    # До фикса technologies_json не было в corpus → skills_fit=0, requirement
+    # не находился в профиле. Пункт в missing остаётся (нет evidence-сниппета —
+    # coverage про evidence, не про skills), но reason подтверждает профильный матч.
+    assert fit["skills_fit"] > 0, "PostgreSQL from technologies_json should raise skills_fit"
+    req = next(item for item in fit["requirements"] if "postgresql" in str(item["requirement"]).casefold())
+    assert "profile" in str(req.get("reason") or "").lower(), (
+        f"requirement should be profile-supported via technologies_json, got reason={req.get('reason')!r}"
+    )
