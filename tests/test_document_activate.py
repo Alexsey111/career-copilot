@@ -555,13 +555,13 @@ async def test_get_document_readiness_returns_blockers_and_warnings(client, db_s
     assert readiness_response.status_code == 200, readiness_response.text
     payload = readiness_response.json()
     assert payload["ready"] is False
-    assert "document review_status is not approved" in payload["blockers"]
-    assert "document has unresolved claims requiring confirmation" in payload["blockers"]
-    assert "document has unresolved critical evaluation failures" in payload["blockers"]
-    assert "document is not active" in payload["blockers"]
-    assert "document has coverage gaps" in payload["warnings"]
-    assert "document has low ATS score (0.55)" in payload["warnings"]
-    assert "document has achievements with missing metrics" in payload["warnings"]
+    assert "статус проверки документа не «одобрен»" in payload["blockers"]
+    assert "в документе есть утверждения, требующие подтверждения" in payload["blockers"]
+    assert "в документе есть нерешённые критические ошибки оценки" in payload["blockers"]
+    assert "документ неактивен" in payload["blockers"]
+    assert "в документе есть пробелы в покрытии требований" in payload["warnings"]
+    assert "низкий ATS-балл документа (0.55)" in payload["warnings"]
+    assert "в документе есть достижения без метрик" in payload["warnings"]
     assert payload["score"] == 0.58
 
 
@@ -746,7 +746,7 @@ async def test_review_document_rejects_approval_when_not_ready(client, db_sessio
     assert review_response.status_code == 409, review_response.text
     detail = review_response.json()["detail"]
     assert detail["message"] == "document is not ready for approval"
-    assert "document has unresolved claims requiring confirmation" in detail["readiness"]["blockers"]
+    assert "в документе есть утверждения, требующие подтверждения" in detail["readiness"]["blockers"]
     assert detail["readiness"]["ready"] is False
 async def test_activate_deactivates_previous_active_document(client):
     upload_response = await client.post(

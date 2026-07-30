@@ -29,18 +29,18 @@ class ReadinessGateService:
         warnings: list[str] = []
 
         if getattr(document, "review_status", None) != "approved":
-            blockers.append("document review_status is not approved")
+            blockers.append("статус проверки документа не «одобрен»")
 
         unresolved_claims = sections.get("claims_needing_confirmation", [])
         if unresolved_claims:
-            blockers.append("document has unresolved claims requiring confirmation")
+            blockers.append("в документе есть утверждения, требующие подтверждения")
 
         critical_failures = evaluation.get("critical_failures", [])
         if critical_failures:
-            blockers.append("document has unresolved critical evaluation failures")
+            blockers.append("в документе есть нерешённые критические ошибки оценки")
 
         if not getattr(document, "is_active", False):
-            blockers.append("document is not active")
+            blockers.append("документ неактивен")
 
         coverage_gaps = (
             evaluation.get("coverage_gaps")
@@ -49,17 +49,17 @@ class ReadinessGateService:
             or []
         )
         if coverage_gaps:
-            warnings.append("document has coverage gaps")
+            warnings.append("в документе есть пробелы в покрытии требований")
 
         readiness_payload = self._resolve_readiness_payload(content, evaluation, meta)
         score = self._resolve_score(readiness_payload)
         ats_score = self._resolve_ats_score(readiness_payload, evaluation, meta)
 
         if ats_score is not None and ats_score < self.LOW_ATS_THRESHOLD:
-            warnings.append(f"document has low ATS score ({ats_score:.2f})")
+            warnings.append(f"низкий ATS-балл документа ({ats_score:.2f})")
 
         if self._has_missing_metrics(sections):
-            warnings.append("document has achievements with missing metrics")
+            warnings.append("в документе есть достижения без метрик")
 
         return ReadinessGateResult(
             ready=len(blockers) == 0,

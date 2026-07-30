@@ -48,8 +48,11 @@ services:
       minio:
         condition: service_started
     dns:
+      # 8.8.4.4 (Cloudflare) — маршрутизируется через cloudflared-туннель,
+      # тогда как 8.8.8.8/1.1.1.1 блокируются рядом провайдеров РФ (TCP:53 ref).
+      # Локальный workaround для end-to-end теста Telegram-бота.
+      - 8.8.4.4
       - 8.8.8.8
-      - 1.1.1.1
 
   celery-worker:
     build:

@@ -63,10 +63,10 @@ def test_evaluate_document_readiness_collects_blockers():
     result = service.evaluate_document_readiness(document)
 
     assert result.ready is False
-    assert "document review_status is not approved" in result.blockers
-    assert "document has unresolved claims requiring confirmation" in result.blockers
-    assert "document has unresolved critical evaluation failures" in result.blockers
-    assert "document is not active" in result.blockers
+    assert "статус проверки документа не «одобрен»" in result.blockers
+    assert "в документе есть утверждения, требующие подтверждения" in result.blockers
+    assert "в документе есть нерешённые критические ошибки оценки" in result.blockers
+    assert "документ неактивен" in result.blockers
 
 
 def test_evaluate_document_readiness_collects_warnings():
@@ -92,9 +92,9 @@ def test_evaluate_document_readiness_collects_warnings():
     result = service.evaluate_document_readiness(document)
 
     assert result.ready is True
-    assert "document has coverage gaps" in result.warnings
-    assert "document has low ATS score (0.55)" in result.warnings
-    assert "document has achievements with missing metrics" in result.warnings
+    assert "в документе есть пробелы в покрытии требований" in result.warnings
+    assert "низкий ATS-балл документа (0.55)" in result.warnings
+    assert "в документе есть достижения без метрик" in result.warnings
     assert result.score == 0.74
 
 

@@ -1860,11 +1860,22 @@ class CoverLetterGenerationService:
         if enh_words > orig_words * 2.5:
             return False
 
-        # 4. ключевые слова не должны исчезнуть
+        # 4. значимые слова не должны массово исчезнуть.
+        # Раньше требовалось наличие КАЖДОГО слова >4 символов из оригинала —
+        # но AI-улучшение перефразирует (синонимы, перестановки), и почти любое
+        # перефразирование отбрасывалось → 422 «модель не смогла улучшить».
+        # Теперь: доля сохранённых значимых слов >= 0.5. Сильное сжатие /
+        # подмена содержимого (как в тесте на удаление gaps) всё равно падает
+        # через этот порог, а нормальное перефразирование проходит.
+        orig_long: list[str] = []
         for word in original.split():
-            # Убираем пунктуацию для сравнения
             clean_word = re.sub(r'[^\w]', '', word).lower()
-            if len(clean_word) > 4 and clean_word not in enhanced.lower():
+            if len(clean_word) > 4:
+                orig_long.append(clean_word)
+        if orig_long:
+            enh_lower = enhanced.lower()
+            preserved = sum(1 for w in orig_long if w in enh_lower)
+            if preserved / len(orig_long) < 0.5:
                 return False
 
         return True

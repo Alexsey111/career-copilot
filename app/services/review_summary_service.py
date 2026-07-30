@@ -49,7 +49,7 @@ class ReviewSummaryService:
             if document is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="document not found",
+                    detail="документ не найден",
                 )
             return self._build_document_summary(document=document, entity_id=entity_id)
 
@@ -62,7 +62,7 @@ class ReviewSummaryService:
             if prep_session is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="interview prep session not found",
+                    detail="сессия подготовки к интервью не найдена",
                 )
             return self._build_interview_prep_summary(
                 prep_session=prep_session,
@@ -71,7 +71,7 @@ class ReviewSummaryService:
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="entity_type must be one of: document, interview_prep",
+            detail="entity_type должен быть одним из: document, interview_prep",
         )
 
     def _build_document_summary(self, *, document, entity_id: UUID) -> dict[str, Any]:
@@ -294,11 +294,11 @@ class ReviewSummaryService:
             actions.append(
                 {
                     "code": f"{entity_type}_review_and_publish",
-                    "label": "Review once more before publishing",
+                    "label": "Проверьте ещё раз перед публикацией",
                     "severity": "info",
                     "target_type": entity_type,
                     "target_id": None,
-                    "reason": "Draft is ready but still requires final human review",
+                    "reason": "Черновик готов, но требует финальной проверки человеком",
                 }
             )
 
@@ -306,11 +306,11 @@ class ReviewSummaryService:
             actions.append(
                 {
                     "code": f"{entity_type}_human_review",
-                    "label": "Complete human review",
+                    "label": "Завершите проверку человеком",
                     "severity": "info",
                     "target_type": entity_type,
                     "target_id": None,
-                    "reason": "Human review is still required before final use",
+                    "reason": "Перед окончательным использованием требуется проверка человеком",
                 }
             )
 
@@ -330,7 +330,7 @@ class ReviewSummaryService:
             actions.append(
                 {
                     "code": "resolve_blocker",
-                    "label": "Resolve blocker",
+                    "label": "Устраните блокирующую проблему",
                     "severity": "blocker",
                     "target_type": entity_type,
                     "target_id": f"{entity_type}:{index}",
@@ -354,11 +354,11 @@ class ReviewSummaryService:
             actions.append(
                 {
                     "code": "confirm_claim",
-                    "label": "Confirm or edit unsupported claim",
+                    "label": "Подтвердите или отредактируйте неподтверждённое утверждение",
                     "severity": "blocker",
                     "target_type": "document_claim",
                     "target_id": target_id,
-                    "reason": "Document contains claims requiring confirmation",
+                    "reason": "Документ содержит утверждения, требующие подтверждения",
                 }
             )
         return actions
@@ -380,11 +380,11 @@ class ReviewSummaryService:
                 actions.append(
                     {
                         "code": "attach_missing_evidence",
-                        "label": "Attach supporting evidence",
+                        "label": "Прикрепите подтверждающие доказательства",
                         "severity": "warning",
                         "target_type": "document_gap",
                         "target_id": keyword,
-                        "reason": item.get("message") or "Document is missing vacancy coverage",
+                        "reason": item.get("message") or "В документе не хватает покрытия требований вакансии",
                     }
                 )
                 continue
@@ -395,11 +395,11 @@ class ReviewSummaryService:
             actions.append(
                 {
                     "code": "prepare_gap_response",
-                    "label": "Prepare a careful gap-risk response",
+                    "label": "Подготовьте аккуратный ответ на вопрос о пробеле",
                     "severity": "warning",
                     "target_type": "interview_question",
                     "target_id": question_id,
-                    "reason": item.get("message") or "Gap-risk question needs careful answer",
+                    "reason": item.get("message") or "Вопрос о пробеле требует аккуратного ответа",
                 }
             )
         return actions
