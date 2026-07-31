@@ -72,7 +72,17 @@ export default function DocumentWorkspacePage() {
     setEnhancing(false);
     if (result) {
       toast.success("Создана улучшенная версия-черновик");
-      reloadSummary();
+      // Bug#102: раньше вызывали reloadSummary() — он перезапрашивал СТАРЫЙ
+      // документ по id из URL, а новый document_id из ответа игнорировался.
+      // Юзер видел оригинальный текст без изменений. Теперь переходим на
+      // страницу нового документа с улучшенным текстом (актуально и для
+      // resume, и для cover letter — один handleEnhance на оба).
+      const newId = (result as { document_id?: string })?.document_id;
+      if (newId && newId !== id) {
+        router.push(`/documents/${newId}`);
+      } else {
+        reloadSummary();
+      }
     }
   };
 

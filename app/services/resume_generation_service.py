@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import logging
 import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -63,6 +64,8 @@ from app.services.text_polish.humanizer import (
     humanize_resume_role,
 )
 from app.services.text_polish.narrative_builder import NarrativeBuilder
+
+logger = logging.getLogger(__name__)
 
 
 LEGACY_DOMAIN_SPECIFIC_SYNTHESIS = LEGACY_CANDIDATE_SPECIFIC_HEURISTIC
@@ -3326,7 +3329,17 @@ class ResumeGenerationService:
         user_id: UUID,
         resume_text: str,
         language: str = "ru",
-    ) -> str:
+    ) -> dict[str, Any]:
+        """Запускает AI-enhance для текста резюме.
+
+        Возвращает структуру ``{"text", "degraded", "reason", "tokens_used", "cost"}``:
+        - ``degraded=True`` означает, что LLM уже отработал (токены списаны,
+          ``AIRun`` записан в БД), но safety/factuality-gate отбросил результат
+          как непригодный. В этом случае endpoint **не** должен создавать
+          новый ``DocumentVersion`` и **не** должен возвращать 200 — чтобы
+          пользователь видел, что улучшение не состоялось (Bug#102: иначе
+          «деньги списали, а результат — старый текст»).
+        """
         if not self.ai_orchestrator:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -3344,19 +3357,56 @@ class ResumeGenerationService:
         )
 
         enhanced = result["result"]["enhanced_text"]
+        usage = result.get("usage", {}) or {}
+        cost = result.get("cost")
 
         if not self._is_safe_enhancement(resume_text, enhanced):
-            # fallback → возвращаем оригинал
-            return resume_text
+            logger.info(
+                "resume_enhance_safety_gate_rejected",
+                extra={
+                    "user_id": str(user_id),
+                    "resume_words": self._word_count(resume_text),
+                    "enhanced_words": self._word_count(enhanced),
+                    "usage": usage,
+                },
+            )
+            return {
+                "text": resume_text,
+                "degraded": True,
+                "reason": "safety_gate_rejected",
+                "tokens_used": usage,
+                "cost": cost,
+            }
 
         # Factuality-gate: отсекаем выдуманные AI-метрики, отсутствующие в оригинале
         # (baseline — метрики исходного ATS-текста; если AI ввёл новую метрику,
         # возвращаем оригинал, следуя принципу «ИИ не добавляет факты»).
         original_metrics = _extract_metrics(resume_text)
         if original_metrics and (_extract_metrics(enhanced) - original_metrics):
-            return resume_text
+            logger.info(
+                "resume_enhance_factuality_gate_rejected",
+                extra={
+                    "user_id": str(user_id),
+                    "resume_metrics": sorted(original_metrics),
+                    "new_metrics": sorted(_extract_metrics(enhanced) - original_metrics),
+                    "usage": usage,
+                },
+            )
+            return {
+                "text": resume_text,
+                "degraded": True,
+                "reason": "factuality_gate_rejected",
+                "tokens_used": usage,
+                "cost": cost,
+            }
 
-        return enhanced
+        return {
+            "text": enhanced,
+            "degraded": False,
+            "reason": None,
+            "tokens_used": usage,
+            "cost": cost,
+        }
 
     def _compute_diff(self, original: str, enhanced: str) -> str:
         diff = difflib.unified_diff(

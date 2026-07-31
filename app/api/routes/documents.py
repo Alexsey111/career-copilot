@@ -238,11 +238,37 @@ async def enhance_resume(
         )
 
     service = ResumeGenerationService(ai_orchestrator=ai)
-    enhanced_text = await service.enhance_resume_with_ai(
-        session,
-        user_id=current_user.id,
-        resume_text=payload.resume_text,
-    )
+    try:
+        enhancement = await service.enhance_resume_with_ai(
+            session,
+            user_id=current_user.id,
+            resume_text=payload.resume_text,
+        )
+    except HTTPException:
+        # Quota/permission/etc. — пробрасываем без отката собственного
+        # состояния, но без commit (autoflush=False).
+        raise
+
+    # ``enhance_resume_with_ai`` уже списал токены (AIRun записан
+    # через ``trace_ai_run`` в orchestrator) и вернул ``degraded=True``,
+    # если safety/factuality-gate отбросил результат. В этом случае мы НЕ
+    # создаём новый DocumentVersion и НЕ возвращаем 200 — иначе пользователь
+    # увидит «AI улучшил» + списание без видимого эффекта (Bug#102).
+    if enhancement.get("degraded"):
+        await session.commit()  # фиксируем AIRun (метринг) и его error_text
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "ai_enhancement_rejected",
+                "reason": enhancement.get("reason") or "unknown",
+                "message": (
+                    "AI не смог улучшить текст резюме без потери смысла. "
+                    "Токены списаны за попытку; исходный текст остался без изменений."
+                ),
+            },
+        )
+
+    enhanced_text = enhancement["text"]
 
     # --- NEW: diff ---
     diff = service._compute_diff(

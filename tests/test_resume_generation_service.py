@@ -65,9 +65,12 @@ Integrated with PostgreSQL database for efficient data persistence."""
         resume_text=original_text,
     )
 
-    assert isinstance(enhanced, str)
-    assert "robust" in enhanced
-    assert "secure" in enhanced
+    # Bug#102: метод возвращает dict с degraded-флагом (как cover letter).
+    assert enhanced["degraded"] is False
+    assert enhanced["reason"] is None
+    text = enhanced["text"]
+    assert "robust" in text
+    assert "secure" in text
 
 
 @pytest.mark.asyncio
@@ -99,7 +102,47 @@ Added comprehensive error handling and logging."""
         resume_text=original,
     )
 
-    assert result == original
+    # Слишком короткий вывод отброшен safety-gate → degraded + оригинал
+    assert result["degraded"] is True
+    assert result["reason"] == "safety_gate_rejected"
+    assert result["text"] == original
+
+
+@pytest.mark.asyncio
+async def test_resume_enhancement_degraded_carries_usage_and_cost(
+    db_session: AsyncSession,
+    test_user,
+):
+    """Bug#102: при degraded-отказе dict несёт tokens_used/cost — endpoint по
+    ним понимает, что токены уже списаны, и возвращает 422 вместо создания
+    дубликата документа (контракт аналогичен cover letter, Bug#74)."""
+
+    class BadClient(MockResumeClient):
+        async def generate_structured(self, *args, **kwargs):
+            return {
+                "content": {"enhanced_text": "Short"},
+                "usage": {"prompt_tokens": 11, "completion_tokens": 22},
+            }
+
+    orchestrator = AIOrchestrator(client=BadClient())
+    service = ResumeGenerationService()
+    service.ai_orchestrator = orchestrator
+
+    original = """Built a robust REST API with Python and FastAPI.
+Implemented secure user authentication and authorization.
+Integrated with PostgreSQL database for efficient data persistence.
+Added comprehensive error handling and logging."""
+
+    result = await service.enhance_resume_with_ai(
+        session=db_session,
+        user_id=test_user.id,
+        resume_text=original,
+    )
+
+    assert result["degraded"] is True
+    # usage/cost присутствуют даже при отказе — LLM отработал, токены списаны
+    assert result["tokens_used"] == {"prompt_tokens": 11, "completion_tokens": 22}
+    assert "reason" in result
 
 
 @pytest.mark.asyncio
@@ -131,9 +174,10 @@ Integrated with PostgreSQL database for efficient data persistence."""
     )
 
     # Ключевые слова Python, FastAPI, PostgreSQL потеряны → фолбэк на оригинал
-    assert result == original
-    assert "Python" in result
-    assert "FastAPI" in result
+    assert result["degraded"] is True
+    assert result["text"] == original
+    assert "Python" in result["text"]
+    assert "FastAPI" in result["text"]
 
 
 @pytest.mark.asyncio
@@ -171,9 +215,11 @@ Improved response time by 30% and increased throughput by 150%."""
     )
 
     # 150% выдумана AI и отсутствует в оригинале → откат на оригинал
-    assert result == original
-    assert "150%" not in result
-    assert "30%" in result
+    assert result["degraded"] is True
+    assert result["reason"] == "factuality_gate_rejected"
+    assert result["text"] == original
+    assert "150%" not in result["text"]
+    assert "30%" in result["text"]
 
 
 @pytest.mark.asyncio
@@ -211,7 +257,8 @@ Improved response time by 30% across all endpoints."""
     )
 
     # 30% есть в оригинале → enhanced принимается
-    assert result == enhanced
+    assert result["degraded"] is False
+    assert result["text"] == enhanced
 
 
 @pytest.mark.asyncio
@@ -246,10 +293,11 @@ Docker, Kubernetes, AWS, LLM, and SQLAlchemy for user authentication and authori
         resume_text=original,
     )
 
-    assert result == original
-    assert "Python" in result
-    assert "FastAPI" in result
-    assert "SQLAlchemy" in result
+    assert result["degraded"] is True
+    assert result["text"] == original
+    assert "Python" in result["text"]
+    assert "FastAPI" in result["text"]
+    assert "SQLAlchemy" in result["text"]
 
 
 @pytest.mark.asyncio
@@ -284,10 +332,12 @@ services with observability and testing."""
         resume_text=original,
     )
 
-    assert result != original
-    assert "auth" in result.lower()
-    assert "access control" in result.lower()
-    assert "backend" in result.lower()
+    assert result["degraded"] is False
+    text = result["text"]
+    assert text != original
+    assert "auth" in text.lower()
+    assert "access control" in text.lower()
+    assert "backend" in text.lower()
 
 
 @pytest.mark.asyncio
@@ -337,8 +387,9 @@ async def test_resume_enhancement_rejects_excessive_expansion(
         resume_text=original,
     )
 
-    assert result == original
-    assert result.count("Python") == 1
+    assert result["degraded"] is True
+    assert result["text"] == original
+    assert result["text"].count("Python") == 1
 
 
 @pytest.mark.asyncio
@@ -369,9 +420,11 @@ async def test_resume_enhancement_in_russian(db_session: AsyncSession, test_user
     )
 
     # Ключевые слова Python и API сохранены, добавлены улучшения
-    assert "Python" in result
-    assert "API" in result
-    assert "богатым" in result or "надежных" in result
+    assert result["degraded"] is False
+    text = result["text"]
+    assert "Python" in text
+    assert "API" in text
+    assert "богатым" in text or "надежных" in text
 
 
 def test_resume_generation_extracts_match_keywords_from_analysis_json() -> None:
