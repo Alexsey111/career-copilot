@@ -1,64 +1,459 @@
-﻿# AI-копилот для соискателя: полный набор инструментов для:
+````markdown
+# 🚀 Career Copilot
 
-- импорта и анализа вакансий;
-- ведения профиля кандидата и банка достижений;
-- создания ATS-совместимого резюме;
-- генерации сопроводительных писем;
-- организации проверки с участием человека;
-- подготовки к собеседованиям;
-- отслеживания откликов.
+### AI Career Assistant for Job Search
 
-## Схема проекта
+Career Copilot — AI-копилот для соискателя, который помогает
+анализировать вакансии, структурировать опыт кандидата,
+адаптировать документы под конкретную вакансию и подготовиться
+к собеседованию.
 
-Подробная схема и структура каталогов находятся в [docs/project-structure.md](docs/project-structure.md).
-Streamlit frontend уже разнесён по `frontend/streamlit/app.py`, `pages/`, `flows/`, `components/` и `ui/`, поэтому `app.py` теперь только собирает экран и делегирует рендеринг.
+Проект объединяет детерминированную бизнес-логику, LLM,
+работу с документами и human-in-the-loop workflow.
 
-## Локальный запуск
+> **Career Copilot — candidate-side AI assistant, а не сервис
+> автоматической подачи откликов.**
 
-### 1. Скопируйте переменные окружения
+---
 
-```powershell
+## 🎯 Problem
+
+Подготовка качественного отклика на вакансию требует ручной работы:
+
+- анализа требований вакансии;
+- сопоставления требований с опытом кандидата;
+- поиска релевантных достижений;
+- адаптации резюме;
+- подготовки сопроводительного письма;
+- проверки документов;
+- подготовки к собеседованию.
+
+Career Copilot объединяет эти этапы в единый workflow.
+
+---
+
+## 💡 Solution
+
+Основной MVP workflow:
+
+```text
+Resume
+   ↓
+Profile Extraction
+   ↓
+Achievement Bank
+   ↓
+Vacancy Import
+   ↓
+Vacancy Analysis
+   ↓
+Requirement Matching
+   ↓
+Tailored Resume
+   ↓
+Cover Letter
+   ↓
+Human Review
+   ↓
+Application Tracking
+   ↓
+Interview Preparation
+````
+
+Система не пытается полностью заменить кандидата.
+
+Она подготавливает материалы и помогает принимать решения,
+оставляя финальные действия за пользователем.
+
+---
+
+# ✨ Key Features
+
+### 👤 Candidate Profile
+
+* импорт резюме;
+* извлечение профиля кандидата;
+* структурирование опыта;
+* формирование банка достижений.
+
+### 🔎 Vacancy Analysis
+
+* импорт вакансий;
+* анализ требований;
+* нормализация требований;
+* сопоставление требований с профилем кандидата.
+
+### 📝 Document Generation
+
+* создание адаптированного резюме;
+* ATS-oriented formatting;
+* генерация сопроводительного письма;
+* использование подтверждённых данных кандидата.
+
+### 👀 Human-in-the-loop Review
+
+Пользователь получает возможность проверить
+сгенерированные материалы перед использованием.
+
+Review Workspace позволяет работать с draft-документами
+и контролировать результат AI-генерации.
+
+### 🎤 Interview Preparation
+
+* подготовка к интервью;
+* генерация вопросов и ответов;
+* feedback;
+* readiness score.
+
+### 📋 Application Tracking
+
+После ручной отправки отклика пользователь может
+создать внутреннюю запись и отметить статус:
+
+```text
+submitted
+```
+
+---
+
+# 🧠 AI Approach
+
+Одна из ключевых особенностей проекта — разделение
+детерминированной логики и LLM.
+
+### Deterministic Layer
+
+Используется для задач, где важны предсказуемость,
+структура и контроль:
+
+* извлечение и нормализация данных;
+* анализ требований;
+* matching;
+* readiness calculations;
+* контроль workflow;
+* валидация структурированных данных.
+
+### LLM Layer
+
+Используется там, где требуется работа с естественным языком:
+
+* генерация сопроводительных писем;
+* формирование и улучшение текстов;
+* подготовка материалов к интервью;
+* языковая обработка.
+
+### Prompt Engineering
+
+LLM не получает задачу в виде одного универсального prompt.
+
+В проекте используются специализированные сценарии
+генерации и структурированные входные данные.
+
+Цель — получать воспроизводимый результат,
+ограниченный фактическими данными кандидата.
+
+---
+
+# 🛡️ Trust & Human-in-the-loop
+
+Career Copilot придерживается принципа:
+
+> **AI prepares — human decides.**
+
+Система не должна создавать фиктивный опыт кандидата
+ради повышения соответствия вакансии.
+
+### Система не делает
+
+* ❌ автоподачу откликов на HH;
+* ❌ хранение логинов и паролей HH;
+* ❌ скрытую браузерную автоматизацию;
+* ❌ массовый скрейпинг;
+* ❌ генерацию ложных достижений;
+* ❌ генерацию выдуманных метрик и опыта.
+
+### Система делает
+
+* ✅ анализирует входные данные;
+* ✅ готовит draft-документы;
+* ✅ показывает результат пользователю;
+* ✅ требует human review;
+* ✅ создаёт внутреннюю запись отклика;
+* ✅ позволяет вручную отметить отправленный отклик.
+
+---
+
+# 🏗️ Architecture
+
+Проект построен вокруг backend API и Streamlit frontend.
+
+Основные компоненты:
+
+```text
+                    ┌──────────────────────┐
+                    │   Streamlit Frontend │
+                    │                      │
+                    │ pages / flows /      │
+                    │ components / ui      │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │      FastAPI API     │
+                    └──────────┬───────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼
+       Candidate/Profile   Vacancy        Document/Review
+              │                │                │
+              └────────────────┼────────────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │   Career Copilot     │
+                    │      Pipeline        │
+                    └──────────┬───────────┘
+                               │
+                    ┌──────────┴──────────┐
+                    ▼                     ▼
+             Deterministic Layer      LLM Layer
+                    │                     │
+                    └──────────┬──────────┘
+                               ▼
+                    Generated Artifacts
+```
+
+Подробная структура проекта:
+
+[docs/project-structure.md](https://github.com/Alexsey111/career-copilot/blob/v2/docs/project-structure.md)
+
+Архитектурная документация:
+
+[docs/architecture/](https://github.com/Alexsey111/career-copilot/tree/v2/docs/architecture)
+
+---
+
+# 🖥️ Frontend
+
+Streamlit frontend организован по функциональным областям:
+
+```text
+frontend/streamlit/
+├── app.py
+├── pages/
+├── flows/
+├── components/
+└── ui/
+```
+
+`app.py` является точкой входа и собирает экран,
+делегируя функциональность специализированным модулям.
+
+---
+
+# 🔌 API
+
+Основные API endpoints:
+
+### Create Career Copilot Run
+
+```http
+POST /api/v1/career-copilot/run
+```
+
+Создаёт новую pipeline execution.
+
+### Get Career Copilot Run
+
+```http
+GET /api/v1/career-copilot/run/{execution_id}
+```
+
+Возвращает состояние выполнения pipeline,
+прогресс, артефакты, readiness, tasks и review status.
+
+### Review Workspace
+
+```http
+GET /api/v1/review-workspaces/{workspace_id}
+```
+
+Возвращает workspace для human-in-the-loop review.
+
+### OpenAPI
+
+После запуска backend:
+
+```text
+http://localhost:7000/docs
+```
+
+---
+
+# 🧩 MVP Flow
+
+Текущий MVP реализует следующий сценарий:
+
+```text
+Резюме
+  ↓
+Импорт и извлечение профиля
+  ↓
+Извлечение достижений
+  ↓
+Импорт вакансии
+  ↓
+Анализ вакансии
+  ↓
+Адаптированное резюме
+  ↓
+Сопроводительное письмо
+  ↓
+Подтверждение документов человеком
+  ↓
+Внутренняя запись отклика
+  ↓
+Ручная отметка submitted
+  ↓
+Подготовка к интервью
+  ↓
+Ответы + feedback + readiness score
+```
+
+---
+
+# 📊 Demo Mode
+
+Для локальной демонстрации сервис работает
+в demo-режиме.
+
+По умолчанию импорт вакансий ограничен:
+
+```text
+3 вакансии / час / пользователь
+```
+
+После достижения лимита следующий импорт возвращает:
+
+```text
+402 Payment Required
+```
+
+с деталями `QuotaErrorDetail` и:
+
+```text
+action=vacancy_import
+```
+
+Используется скользящее часовое окно.
+
+### Configuration
+
+```env
+BILLING_FREE_TIER_VACANCY_IMPORTS_LIMIT=3
+DEMO_VACANCY_IMPORT_WINDOW_SECONDS=3600
+```
+
+Платный план `paid_monthly` с активной подпиской
+не ограничивается этой квотой.
+
+Важно:
+
+> Ограничение применяется только к импорту вакансий.
+> Поиск вакансий квотой не ограничен.
+
+---
+
+# 🧪 Testing & Validation
+
+Основные проверки:
+
+```bash
+python -m compileall .\frontend\streamlit
+pytest -q
+python .\scripts\smoke_mvp_flow.py
+```
+
+Ожидаемый результат:
+
+```text
+compileall → без ошибок
+pytest     → без падений
+smoke      → MVP SMOKE PASSED
+```
+
+---
+
+# 🚀 Local Development
+
+## 1. Clone
+
+```bash
+git clone https://github.com/Alexsey111/career-copilot.git
+cd career-copilot
+```
+
+Используется актуальная ветка:
+
+```text
+v2
+```
+
+---
+
+## 2. Environment
+
+Создайте `.env` из шаблона:
+
+```bash
 cp .env.example .env
 ```
 
-### 2. Создайте и активируйте виртуальное окружение
+Для PowerShell можно создать файл вручную
+на основе `.env.example`.
+
+---
+
+## 3. Virtual Environment
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 3. Установите зависимости
+---
+
+## 4. Dependencies
 
 ```powershell
 pip install -e ".[dev,frontend]"
 ```
 
-### 4. Поднимите локальный stack
+---
 
-Один шаг для Docker Compose, миграций и health-check:
+## 5. Start Local Stack
 
 ```powershell
 make local-start
 ```
 
-Если вы поднимаете backend поверх уже существующей базы данных, сначала проверьте актуальность схемы:
+Команда поднимает локальный stack,
+выполняет необходимые миграции и health-check.
+
+Если backend запускается поверх существующей базы:
 
 ```powershell
 python -m alembic upgrade head
 ```
 
-Backend API по умолчанию:
+---
+
+## 6. Backend
+
+API:
 
 ```text
 http://localhost:7000/api/v1
 ```
-
-Примеры новых API путей:
-
-- `POST /api/v1/career-copilot/run` — создание новой pipeline execution
-- `GET /api/v1/career-copilot/run/{execution_id}` — получение полного career copilot run с прогрессом, артефактами, readiness, tasks и review status
-- `GET /api/v1/review-workspaces/{workspace_id}` — получение review workspace для human-in-the-loop review
 
 OpenAPI:
 
@@ -66,132 +461,190 @@ OpenAPI:
 http://localhost:7000/docs
 ```
 
-### 5. Запустите Streamlit frontend
+---
 
-В отдельном PowerShell-окне:
+## 7. Streamlit
+
+В отдельном PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 make streamlit
 ```
 
-В сайдбаре Streamlit теперь есть два режима авторизации:
+Frontend будет использовать backend API.
 
-- `Вход` для существующего пользователя;
-- `Регистрация` для создания нового локального пользователя через `POST /api/v1/auth/register`.
-
-После регистрации нужно переключиться обратно на `Вход` и войти тем же email и паролем.
-
-Если нужен контролируемый demo-state после старта, выполните:
-
-```powershell
-python scripts/reset_demo_environment.py
-```
-
-Если backend запущен не на стандартном адресе, можно указать API URL через переменную окружения:
+Если backend находится по другому адресу:
 
 ```powershell
 $env:CAREER_COPILOT_API_BASE_URL = "http://localhost:7000/api/v1"
 make streamlit
 ```
 
-`frontend/streamlit/app.py` остаётся единственной точкой входа для UI, а весь сценарий собран из модулей `pages/`, `flows/`, `components/` и `ui/`.
+---
 
-## Проверки
+# 🔐 Authentication
 
-Быстрая проверка backend и frontend-файла:
+Streamlit frontend поддерживает два режима:
 
-```powershell
-python -m compileall .\frontend\streamlit
-pytest -q
-python .\scripts\smoke_mvp_flow.py
+### Регистрация
+
+Создание нового локального пользователя через:
+
+```http
+POST /api/v1/auth/register
 ```
 
-Ожидаемый baseline:
+### Вход
 
-- `python -m compileall .\frontend\streamlit`: без ошибок
-- `pytest`: без падений
-- `smoke_mvp_flow.py`: `MVP SMOKE PASSED`
+После регистрации пользователь возвращается
+в режим `Вход` и авторизуется с тем же email и паролем.
 
-## MVP flow
+---
 
-Текущий MVP-сценарий:
+# 🧹 Demo Environment
 
-резюме
-→ импорт и извлечение профиля
-→ извлечение достижений
-→ импорт вакансии
-→ анализ вакансии
-→ адаптированное резюме
-→ сопроводительное письмо
-→ подтверждение документов человеком
-→ создание внутренней записи отклика
-→ ручная отметка `submitted`
-→ подготовка к интервью
-→ ответы + feedback + readiness score
+Для controlled demo-state после запуска можно использовать:
 
-## Human-in-the-loop boundary
+```powershell
+python scripts/reset_demo_environment.py
+```
 
-Проект является candidate-side AI copilot, а не сервисом скрытой автоматизации откликов.
+Это позволяет привести локальное demo-окружение
+к контролируемому состоянию перед демонстрацией.
 
-Система не делает:
+---
 
-- автоподачу откликов на HH
-- хранение логинов и паролей HH
-- скрытую браузерную автоматизацию
-- массовый скрейпинг
-- генерацию ложных достижений, метрик и опыта
+# 📚 Documentation
 
-Система делает:
+### Project Structure
 
-- готовит материалы
-- показывает draft-документы
-- требует human review
-- создаёт внутреннюю запись отклика
-- позволяет пользователю вручную отметить, что отклик был отправлен
+[docs/project-structure.md](https://github.com/Alexsey111/career-copilot/blob/v2/docs/project-structure.md)
 
-## Runbook
+### Architecture
 
-Подробный MVP runbook находится в [MVP_RUNBOOK.md](MVP_RUNBOOK.md).
+[docs/architecture/](https://github.com/Alexsey111/career-copilot/tree/v2/docs/architecture)
 
-Дополнительная локальная проверка backend описана в [RUNBOOK.md](RUNBOOK.md).
+### MVP Runbook
 
-Контракт провайдеров LLM зафиксирован в [docs/llm_provider_contract.md](docs/llm_provider_contract.md).
-Streamlit smoke checklist: [docs/streamlit_smoke_checklist.md](docs/streamlit_smoke_checklist.md).
+[MVP_RUNBOOK.md](https://github.com/Alexsey111/career-copilot/blob/v2/MVP_RUNBOOK.md)
 
-## Demo-режим (ограничение импорта вакансий)
+### Backend Runbook
 
-Сервис по умолчанию работает в demo-режиме: импорт вакансий ограничен **3
-вакансиями в час** на пользователя. После 3 импортов 4-й возвращает `402
-Payment Required` (деталь `QuotaErrorDetail` с `action=vacancy_import`); через
-час скользящее окно сдвигается, и лимит снова доступен — перерыв «на час»
-реализован именно скользящим окном, а не фиксированной паузой.
+[RUNBOOK.md](https://github.com/Alexsey111/career-copilot/blob/v2/RUNBOOK.md)
 
-Параметры (`.env`):
+### LLM Provider Contract
 
-- `BILLING_FREE_TIER_VACANCY_IMPORTS_LIMIT=3` — лимит импортов в окне.
-- `DEMO_VACANCY_IMPORT_WINDOW_SECONDS=3600` — ширина скользящего окна в
-  секундах (часовое окно задаётся отдельно, т.к. остальные квоты используют
-  дневное окно `BILLING_QUOTA_WINDOW_DAYS`).
+[docs/llm_provider_contract.md](https://github.com/Alexsey111/career-copilot/blob/v2/docs/llm_provider_contract.md)
 
-Платный план `paid_monthly` (активная подписка) не ограничен. На веб-фронте
-лимит отображается баннером `DemoBanner` на странице «Вакансии» (остаток
-читается из `GET /me/billing/subscription` → `usage.vacancy_import`).
-Поиск вакансий (семантический по похожим, текстовый по названию/триггерным
-словам, рекомендации по профилю) квотой **не** ограничен — только импорт.
+### Streamlit Smoke Checklist
 
-## Portfolio / Demo Package
+[docs/streamlit_smoke_checklist.md](https://github.com/Alexsey111/career-copilot/blob/v2/docs/streamlit_smoke_checklist.md)
 
-Для advisor demo, portfolio video и controlled pilot walkthrough используйте:
+### Portfolio / Demo Package
 
-- [docs/portfolio/index.md](docs/portfolio/index.md)
-- [docs/demo_walkthrough.md](docs/demo_walkthrough.md)
-- [docs/architecture/index.md](docs/architecture/index.md)
+[docs/portfolio/](https://github.com/Alexsey111/career-copilot/tree/v2/docs/portfolio)
 
-В пакете есть:
+[Demo Walkthrough](https://github.com/Alexsey111/career-copilot/blob/v2/docs/demo_walkthrough.md)
 
-- deterministic 5-7 minute walkthrough;
-- architecture diagram;
-- trust flow diagram;
-- media checklist for screenshots and GIFs;
-- clear `what to show` / `what not to claim` guidance.
+---
+
+# 🎥 Portfolio Demo
+
+Для демонстрации проекта подготовлен отдельный portfolio package.
+
+Он включает:
+
+* deterministic 5–7 minute walkthrough;
+* architecture diagram;
+* trust flow diagram;
+* media checklist;
+* сценарий демонстрации;
+* `what to show` / `what not to claim` guidance.
+
+Это позволяет демонстрировать проект без необходимости
+проходить весь workflow вручную каждый раз.
+
+---
+
+# 📌 Project Status
+
+### 🟢 MVP
+
+Основной MVP pipeline реализован:
+
+```text
+Resume
+→ Profile
+→ Achievements
+→ Vacancy
+→ Analysis
+→ Tailored Resume
+→ Cover Letter
+→ Human Review
+→ Application Tracking
+→ Interview Preparation
+```
+
+Проект находится в активной разработке.
+
+---
+
+# 🔮 Roadmap
+
+Дальнейшее развитие проекта направлено на:
+
+* расширение анализа вакансий;
+* улучшение requirement matching;
+* развитие Document Review;
+* расширение interview preparation;
+* улучшение пользовательского интерфейса;
+* развитие AI-assisted workflows.
+
+---
+
+# 👨‍💻 Author
+
+**Alexsey**
+
+AI Developer · Prompt Engineer · AI Automation · Vibe Coder
+
+GitHub: [@Alexsey111](https://github.com/Alexsey111)
+
+````
+
+## Почему именно так
+
+Твой старый README я **не считаю плохим**. Он просто решает другую задачу. В нём много полезного, но первая информация, которую видит человек, — это локальный запуск, структура `frontend/streamlit`, миграции, API, demo quota и runbook.
+
+Для портфолио это переворачиваем:
+
+**было:**
+
+```text
+Описание
+→ структура
+→ запуск
+→ API
+→ проверки
+→ MVP
+→ ограничения
+→ runbook
+````
+
+**становится:**
+
+```text
+Что это
+→ какую проблему решает
+→ как работает
+→ что умеет
+→ AI approach
+→ Trust / HITL
+→ архитектура
+→ API
+→ demo
+→ testing
+→ запуск
+→ документация
+```
